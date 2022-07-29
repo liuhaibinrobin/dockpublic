@@ -35,6 +35,7 @@ import rdkit.Chem as Chem    # conda install rdkit -c rdkit if import failure.
 import logging
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm    # pip install tqdm if fails.
+import random
 
 class TBDataset(Dataset):
     def __init__(self,root, df_tr=None, df_te=None, df_va=None,
@@ -129,7 +130,6 @@ class TBDataset(Dataset):
 class TBNet(nn.Module):
     def __init__(self, args):
         super(TBNet, self).__init__()
-        self.downstream_n_layers = args.layer_n
         self.lr = args.lr
         self.dropout = args.dropout_rate
         self.compound_name = args.compound_name
@@ -154,13 +154,12 @@ class TBNet(nn.Module):
 class GEMNet(nn.Module):
     def __init__(self, args):
         super(TBNet, self).__init__()
-        self.downstream_n_layers = args.layer_n
         self.lr = args.lr
         self.dropout = args.dropout_rate
         self.compound_name = args.compound_name
         self.loss_fn = PairwiseLoss()
         self.downstream_out = nn.Linear(128, 1)
-        ffn_layers=[FFN(128, self.dropout) for _ in range(args.layer_n)]
+        ffn_layers=[FFN(128, self.dropout) for _ in range(3)]
         self.layers = nn.ModuleList(ffn_layers)
 
         
@@ -175,7 +174,7 @@ class GEMNet(nn.Module):
         return self.loss_fn(pred[is_valid], target[is_valid], groupid)
 
 class PairwiseLoss(nn.Module):
-    def __init__(self, keep_rate=1., sigmoid_lambda=0.05,
+    def __init__(self, keep_rate=1., sigmoid_lambda=1.,
                  ingrp_thr=0.3, outgrp_thr=9999, eval=False):
         super(PairwiseLoss, self).__init__()
         self.eval = eval
@@ -251,11 +250,17 @@ def main(args):
     finetune main function
     """
     ###load embedding
+    seed = args.seed
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
     cp_name = args.compound_name
     data_path = args.data_path
-    with open(f'embedding/{cp_name}/{cp_name}_z_dic.pickle', 'rb') as f:
+    embedding_dir = args.embedding_dir
+    with open(f'{embedding_dir}/{cp_name}/{cp_name}_z_dic.pickle', 'rb') as f:
         z_dic = pickle.load(f)
-    with open(f'embedding/{cp_name}/{cp_name}_z_mask_dic.pickle', 'rb') as f1:
+    with open(f'{embedding_dir}/{cp_name}/{cp_name}_z_mask_dic.pickle', 'rb') as f1:
         z_mask_dic = pickle.load(f1)
     # with open(f'embedding/{cp_name}/{cp_name}_sum_embedding_dic.pickle', 'rb') as f1:
     #     SOS1_sum_embedding_dic = pickle.load(f1)
@@ -292,7 +297,7 @@ def main(args):
     model = TBNet(args).to(device)
     ######将TB的最后两层模型参数放入finetune模型中
     model_dict = model.state_dict()
-    pretrainedd_dict = torch.load("../saved_models/self_dock.pt", map_location=device)
+    pretrainedd_dict = torch.load(args.init_model, map_location=device)
     model_dict['linear_energy.weight'] = pretrainedd_dict['linear_energy.weight']
     model_dict['linear_energy.bias'] = pretrainedd_dict['linear_energy.bias']
     model_dict['gate_linear.weight'] = pretrainedd_dict['gate_linear.weight']
@@ -305,48 +310,83 @@ def main(args):
     list_val_metric = []
 
     ######## start train
-    # for epoch_id in range(args.max_epoch):
-    #     model.train()
-    #     scores = []
-    #     for data in tqdm(data_loader_tr):
-    #         y = data.y.to(device)
-    #         z = data.z.to(device)
-    #         z_mask = data.z_mask.to(device)
-    #         data.group_id = data.group_id.to(device)
-    #         outputs = model(z, z_mask)
-    #         loss, score = model.my_loss(outputs, y, data.group_id)
-    #         # Backward and optimize
-    #         optimizer.zero_grad()
-    #         loss.backward()
-    #         optimizer.step() 
-    #         scores.append(score)
-    #     score = torch.cat([torch.tensor([[i]]) for i in scores])
-    #     score = torch.mean(score, dim=0)
-    #     print('TRAIN----> Epoch [{}/{}], score: {}, Loss: {:.4f}' .format(epoch_id+1, args.max_epoch, score, loss.item()))
-    #     model.eval()
-    #     with torch.no_grad():
-    #         scores_va = []
-    #         for data in tqdm(data_loader_va):
-    #             y = data.y.to(device)
-    #             z = data.z.to(device)
-    #             z_mask = data.z_mask.to(device)
-    #             data.group_id = data.group_id.to(device)
-    #             outputs = model(z, z_mask)
-    #             _, score = model.my_loss(outputs, y, data.group_id)
-    #             scores_va.append(score)
-    #         score = torch.cat([torch.tensor([[i]]) for i in scores_va])
-    #         score = torch.mean(score, dim=0)
-    #         print('VALID----> Epoch [{}/{}], score: {}, Loss: {:.4f}' .format(epoch_id+1, args.max_epoch, score, loss.item()))
-    #         list_val_metric.append(score)
-    #         state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': epoch_id}
-    #         model_dir = args.model_dir + '/%s/lr%s-drop%s-config%s-epoch%s' % (args.compound_name, args.lr, args.dropout_rate, args.layer_n, epoch_id)
-    #         torch.save(state, model_dir)
-    # best_epoch_id = np.argmax(list_val_metric)
-    # print('-----------------------')
-    # print('BEST_epoch_id:', best_epoch_id)
-    # model_dir = args.model_dir + '/%s/lr%s-drop%s-config%s-epoch%s' % (args.compound_name, args.lr, args.dropout_rate, args.layer_n, best_epoch_id+1)
-    # checkpoint = torch.load(model_dir)
-    # model.load_state_dict(checkpoint['net'])
+    for epoch_id in range(args.max_epoch):
+        model.train()
+        scores = []
+        for data in tqdm(data_loader_tr):
+            y = data.y.to(device)
+            batch_z = data.z.to(device)
+            batch_z_size = data.z_size.to(device)
+            batch_z_mask = data.z_mask.to(device)
+            data.group_id = data.group_id.to(device)
+            outputs = model(batch_z, batch_z_mask, batch_z_size)
+            loss, score = model.my_loss(outputs, y, data.group_id)
+            # Backward and optimize
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step() 
+            scores.append(score)
+        score = torch.cat([torch.tensor([[i]]) for i in scores])
+        score = torch.mean(score, dim=0)
+        print('TRAIN----> Epoch [{}/{}], score: {}, Loss: {:.4f}' .format(epoch_id+1, args.max_epoch, score, loss.item()))
+        model.eval()
+        with torch.no_grad():
+            scores_va = []
+            for data in tqdm(data_loader_va):
+                y = data.y.to(device)
+                batch_z = data.z.to(device)
+                batch_z_size = data.z_size.to(device)
+                batch_z_mask = data.z_mask.to(device)
+                data.group_id = data.group_id.to(device)
+                outputs = model(batch_z, batch_z_mask, batch_z_size)
+                loss, score = model.my_loss(outputs, y, data.group_id)
+                scores_va.append(score)
+            score = torch.cat([torch.tensor([[i]]) for i in scores_va])
+            score = torch.mean(score, dim=0)
+            print('VALID----> Epoch [{}/{}], score: {}, Loss: {:.4f}' .format(epoch_id+1, args.max_epoch, score, loss.item()))
+            list_val_metric.append(score)
+            state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': epoch_id}
+            model_dir = args.model_dir + '/%s/%s/lr%s-drop%s' % (args.compound_name, args.iter, args.lr, args.dropout_rate)
+            if not os.path.exists(model_dir):
+                os.system(f"mkdir -p {model_dir}")
+            epoch_model_dir = '%s/epoch-%s' % (model_dir, epoch_id + 1)
+            torch.save(state, epoch_model_dir)
+        model.eval() 
+        with torch.no_grad():
+            scores_te = []
+            pred = []
+            for data in tqdm(data_loader_te):
+                y = data.y.to(device)
+                batch_z = data.z.to(device)
+                batch_z_size = data.z_size.to(device)
+                batch_z_mask = data.z_mask.to(device)
+                data.group_id = data.group_id.to(device)
+                outputs = model(batch_z, batch_z_mask, batch_z_size)
+                _, score = model.my_loss(outputs, y, data.group_id)
+                pred.append(outputs)
+                scores_te.append(score)
+            score = torch.cat([torch.tensor([[i]]) for i in scores_te])
+            score = torch.mean(score, dim=0)
+            pred = torch.cat(pred, dim=0)
+            pred_cpu = pred.cpu()
+            pred_numpy = pred_cpu.numpy()
+            pred_list = []
+            for i in pred_numpy:
+                pred_list.append(i)
+            smile_path = './data/%s/test.csv' % (args.compound_name)
+            df = pd.read_csv(smile_path,sep=',')
+            df['score'] = pred_list
+            # df = df.rename(columns={'smiles': 'SMILES'})
+            df = df.drop(columns=['group'])
+            df = df.drop(columns=['label'])
+            df.to_csv('./SAR-interface/output/%s-%s-%s.csv'%(args.compound_name, args.lr, args.dropout_rate), index=False,encoding='utf-8')
+            print('TE_EPOCH----> score: {}' .format(score))
+    best_epoch_id = np.argmax(list_val_metric)
+    print('-----------------------')
+    print('BEST_epoch_id:', best_epoch_id + 1)
+    model_dir = args.model_dir + '/%s/%s/lr%s-drop%s/epoch-%s' % (args.compound_name, args.iter, args.lr, args.dropout_rate, best_epoch_id + 1)
+    checkpoint = torch.load(model_dir)
+    model.load_state_dict(checkpoint['net'])
 
     ######## start test
     model.eval() 
@@ -377,7 +417,7 @@ def main(args):
         # df = df.rename(columns={'smiles': 'SMILES'})
         df = df.drop(columns=['group'])
         df = df.drop(columns=['label'])
-        df.to_csv('./SAR-interface/output/%s.csv'%(args.compound_name), index=False,encoding='utf-8')
+        df.to_csv('./SAR-interface/output/%s-%s-%s.csv'%(args.compound_name, args.lr, args.dropout_rate), index=False,encoding='utf-8')
         print('TEST----> score: {}' .format(score))
         
 
@@ -391,18 +431,17 @@ if __name__ == '__main__':
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--num_workers", type=int, default=4)
-    parser.add_argument("--max_epoch", type=int, default=15)
+    parser.add_argument("--max_epoch", type=int, default=50)
     parser.add_argument("--gpu_id", type=int, default=6)
     parser.add_argument("--compound_name", 
             choices=['PDL1','HPK1_3','HPK1_4','KRAS_G12D','MAT2A','SOS1','ALK', 'BRAF', 'BTK', 'CDK4', 'EGFR', 'FGFR1', 'JAK2', 'NTRK1', 'VEGFR2','PRMT5'])
     parser.add_argument("--data_path", type=str, default='data')
-    parser.add_argument("--compound_encoder_config", type=str)
-    parser.add_argument("--model_config", type=str)
-    parser.add_argument("--init_model", type=str)
+    parser.add_argument("--init_model", type=str, default="../saved_models/self_dock.pt")
     parser.add_argument("--model_dir", type=str, default='model_dir')
+    parser.add_argument("--embedding_dir", type=str, default='embedding')
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--dropout_rate", type=float, default=0.1)
-    parser.add_argument("--layer_n", type=int, default=3)
+    parser.add_argument("--iter", type=int, default=1)
     args = parser.parse_args()
     
     main(args)
