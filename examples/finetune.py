@@ -360,7 +360,6 @@ def main(args):
             batch_z_mask = data.z_mask.to(device)
             data.group_id = data.group_id.to(device)
             outputs = model(batch_z, batch_z_mask, batch_z_size)
-            embed()
             _, score = model.my_loss(outputs, y, data.group_id)
             pred.append(outputs)
             scores_te.append(score)
@@ -371,7 +370,7 @@ def main(args):
         pred_numpy = pred_cpu.numpy()
         pred_list = []
         for i in pred_numpy:
-            pred_list.append(i[0])
+            pred_list.append(i)
         smile_path = './data/%s/test.csv' % (args.compound_name)
         df = pd.read_csv(smile_path,sep=',')
         df['score'] = pred_list
