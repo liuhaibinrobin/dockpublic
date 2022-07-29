@@ -11,6 +11,7 @@ from torch.distributions import Categorical
 from torch_scatter import scatter_mean
 from GATv2 import GAT
 from GINv2 import GIN
+from IPython import embed
 
 class GNN(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels):
@@ -318,6 +319,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         self.leaky = torch.nn.LeakyReLU()
         self.dropout = nn.Dropout2d(p=0.25)
     def forward(self, data):
+        # print(type(data))
         if self.protein_embed_mode == 0:
             x = data['protein'].x.float()
             edge_index = data[("protein", "p2p", "protein")].edge_index
@@ -373,7 +375,11 @@ class IaBNet_with_affinity(torch.nn.Module):
         protein_out_batched = self.layernorm(protein_out_batched)
         compound_out_batched = self.layernorm(compound_out_batched)
         # z of shape, b, protein_length, compound_length, channels.
+        
         z = torch.einsum("bik,bjk->bijk", protein_out_batched, compound_out_batched)
+        # print("bik",protein_out_batched.shape)
+        # print("bjk",compound_out_batched.shape)
+        # print("z",z.shape)
         z_mask = torch.einsum("bi,bj->bij", protein_out_mask, compound_out_mask)
         # z = z * z_mask.unsqueeze(-1)
         # print(protein_pair.shape, compound_pair.shape, b.shape)
@@ -384,10 +390,13 @@ class IaBNet_with_affinity(torch.nn.Module):
                     z = z + self.dropout(self.triangle_self_attention_list[i_module](z, z_mask))
                     z = self.tranistion(z)
         # batch_dim = z.shape[0]
-
+        # print(z.shape)
         b = self.linear(z).squeeze(-1)
         y_pred = b[z_mask]
+        # print('y_pred', y_pred.shape)
         y_pred = y_pred.sigmoid() * 10   # normalize to 0 to 10.
+        pooling = True  ##是否返回embedding
+        
         if self.readout_mode == 0:
             pair_energy = self.linear_energy(z).squeeze(-1) * z_mask
             affinity_pred = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
@@ -399,8 +408,13 @@ class IaBNet_with_affinity(torch.nn.Module):
         if self.readout_mode == 2:
             pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
             affinity_pred = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
-        return y_pred, affinity_pred
+            # print(pair_energy.shape)   # batch * pro_len * c_len
+        if pooling:
+            ## sum pooling
+            sum_embed = z.sum(axis=(-2,-3))
+            return y_pred, affinity_pred, z_mask, z
 
+        return y_pred, affinity_pred
 
 
 def get_model(mode, logging, device):
