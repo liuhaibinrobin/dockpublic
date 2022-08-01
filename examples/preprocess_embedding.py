@@ -7,9 +7,6 @@ from Bio.PDB.PDBList import PDBList   # pip install biopython if import failure
 import os
 import numpy as np
 import pandas as pd
-import os
-import numpy as np
-import pandas as pd
 from tqdm import tqdm
 import pickle
 from IPython import embed
@@ -27,16 +24,19 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm    # pip install tqdm if fails.
 from model import get_model
 
-pdb_name = "6scm"
-cp_name = "SOS1"
-csv_name = "SOS1-ID-SMILES.csv"
+# pdb_name = "6scm"
+# cp_name = "SOS1"
+# csv_name = "SOS1-ID-SMILES.csv"
+pdb_name = "7s1s"
+cp_name = "PRMT5"
+csv_name = "PRMT5-ID-SMILES.csv"
 # true_pocket = 4
 # pocket_num = 9
-device = 'cuda:7' if torch.cuda.is_available() else 'cpu'
+device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 
 base_pre = f"./NCIVS"
-pre = f"{base_pre}/{cp_name}-{pdb_name}-07200756"
-# pre = f"{base_pre}/{cp_name}-{pdb_name}-test"
+# pre = f"{base_pre}/{cp_name}-{pdb_name}"
+pre = f"{base_pre}/{cp_name}-{pdb_name}"
 os.system(f"mkdir -p {pre}")
 os.system(f"rm -rf {pre}/sdfs")
 os.system(f"mkdir -p {pre}/sdfs")
@@ -64,6 +64,7 @@ p2rank = "bash ./p2rank_2.3/prank"
 cmd = f"{p2rank} predict {ds} -o {pre}/p2rank -threads 1"
 os.system(cmd)
 d = pd.read_csv(f"{pre}/{csv_name}")
+d.drop_duplicates(['smiles'],inplace = True, ignore_index=True)
 info = []
 for i, line in tqdm(d.iterrows(), total=d.shape[0]):
     smiles = line['smiles']
@@ -142,7 +143,6 @@ dataset_path = f"{pre}/dataset/"
 os.system(f"rm -r {dataset_path}")
 os.system(f"mkdir -p {dataset_path}")
 dataset = MyDataset_VS(dataset_path, data=info, protein_dict=protein_dict)
-
 batch_size = pocket_num  ##与口袋数相关
 logging.basicConfig(level=logging.INFO)
 model = get_model(0, logging, device)

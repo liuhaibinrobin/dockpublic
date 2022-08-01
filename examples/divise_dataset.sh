@@ -9,7 +9,7 @@ if [ ! -d "./data/$dataset" ]; then
       mkdir -p "./data/$dataset"
 fi
 for dataset in $dataset; do
-      data_path="/home/jovyan/TankBind/examples/data/stonewise_rank_sos1_hpk1"
+      data_path="/home/jovyan/TankBind/examples/data/stonewise_rank_prmt5"
       # data_path="./SAR-interface/input"
       out_data_path="./data/$dataset"
       /opt/conda/bin/python \
