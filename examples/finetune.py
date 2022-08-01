@@ -133,7 +133,11 @@ class TBNet(nn.Module):
         self.lr = args.lr
         self.dropout = args.dropout_rate
         self.compound_name = args.compound_name
-        self.loss_fn = PairwiseLoss()
+        if args.model_mode == 'init':
+            self.loss_fn = PairwiseLoss(sigmoid_lambda=0.001)
+        else:
+            self.loss_fn = PairwiseLoss()
+        # self.loss_fn = PairwiseLoss()
         self.gate_linear = nn.Linear(128, 1)
         self.linear_energy = nn.Linear(128, 1)
         self.leaky = torch.nn.LeakyReLU()
@@ -267,6 +271,9 @@ def main(args):
     df_tr = pd.read_csv(f'{data_path}/{cp_name}/train.csv')
     df_te = pd.read_csv(f'{data_path}/{cp_name}/test.csv')
     df_va = pd.read_csv(f'{data_path}/{cp_name}/valid.csv')
+    df_tr.drop_duplicates(['smiles'],inplace = True, ignore_index=True)
+    df_te.drop_duplicates(['smiles'],inplace = True, ignore_index=True)
+    df_va.drop_duplicates(['smiles'],inplace = True, ignore_index=True)
     # df_tr['embed'] = df_te['embed'] = df_va['embed'] = ''
     df_tr['z'] = df_te['z'] = df_va['z'] = ''
     df_tr['z_mask'] = df_te['z_mask'] = df_va['z_mask'] = ''
@@ -288,7 +295,7 @@ def main(args):
     if '' in df_tr.values or '' in df_te.values or '' in df_va.values:
         raise ValueError("some smiles don't have embeddings")
 
-    dataset = TBDataset(root='data/SOS1',df_tr=df_tr, df_te=df_te, df_va=df_va)
+    dataset = TBDataset(root=f'data/{args.compound_name}',df_tr=df_tr, df_te=df_te, df_va=df_va)
     te, tr, va = dataset.get_idx_split()
     dataset_test = dataset[:te]
     dataset_train = dataset[te:tr]
@@ -296,13 +303,14 @@ def main(args):
     device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
     model = TBNet(args).to(device)
     ######将TB的最后两层模型参数放入finetune模型中
-    model_dict = model.state_dict()
-    pretrainedd_dict = torch.load(args.init_model, map_location=device)
-    model_dict['linear_energy.weight'] = pretrainedd_dict['linear_energy.weight']
-    model_dict['linear_energy.bias'] = pretrainedd_dict['linear_energy.bias']
-    model_dict['gate_linear.weight'] = pretrainedd_dict['gate_linear.weight']
-    model_dict['gate_linear.bias'] = pretrainedd_dict['gate_linear.bias']
-    model.load_state_dict(model_dict)
+    if args.model_mode == 'Tankbind':
+        model_dict = model.state_dict()
+        pretrainedd_dict = torch.load(args.init_model, map_location=device)
+        model_dict['linear_energy.weight'] = pretrainedd_dict['linear_energy.weight']
+        model_dict['linear_energy.bias'] = pretrainedd_dict['linear_energy.bias']
+        model_dict['gate_linear.weight'] = pretrainedd_dict['gate_linear.weight']
+        model_dict['gate_linear.bias'] = pretrainedd_dict['gate_linear.bias']
+        model.load_state_dict(model_dict)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     data_loader_tr = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=3)
     data_loader_te = DataLoader(dataset_test, batch_size=120, shuffle=False, num_workers=3)
@@ -346,7 +354,7 @@ def main(args):
             print('VALID----> Epoch [{}/{}], score: {}, Loss: {:.4f}' .format(epoch_id+1, args.max_epoch, score, loss.item()))
             list_val_metric.append(score)
             state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': epoch_id}
-            model_dir = args.model_dir + '/%s/%s/lr%s-drop%s' % (args.compound_name, args.iter, args.lr, args.dropout_rate)
+            model_dir = args.model_dir + '/%s/%s/lr%s-batchsize%s-%s' % (args.compound_name, args.iter, args.lr, args.batch_size, args.model_mode)
             if not os.path.exists(model_dir):
                 os.system(f"mkdir -p {model_dir}")
             epoch_model_dir = '%s/epoch-%s' % (model_dir, epoch_id + 1)
@@ -379,12 +387,12 @@ def main(args):
             # df = df.rename(columns={'smiles': 'SMILES'})
             df = df.drop(columns=['group'])
             df = df.drop(columns=['label'])
-            df.to_csv('./SAR-interface/output/%s-%s-%s.csv'%(args.compound_name, args.lr, args.dropout_rate), index=False,encoding='utf-8')
+            df.to_csv('./SAR-interface/output/%s/%s-%s-%s.csv'%(args.compound_name, args.lr, args.batch_size, args.model_mode), index=False,encoding='utf-8')
             print('TE_EPOCH----> score: {}' .format(score))
     best_epoch_id = np.argmax(list_val_metric)
     print('-----------------------')
     print('BEST_epoch_id:', best_epoch_id + 1)
-    model_dir = args.model_dir + '/%s/%s/lr%s-drop%s/epoch-%s' % (args.compound_name, args.iter, args.lr, args.dropout_rate, best_epoch_id + 1)
+    model_dir = args.model_dir + '/%s/%s/lr%s-batchsize%s-%s/epoch-%s' % (args.compound_name, args.iter, args.lr, args.batch_size, args.model_mode, best_epoch_id + 1)
     checkpoint = torch.load(model_dir)
     model.load_state_dict(checkpoint['net'])
 
@@ -431,8 +439,8 @@ if __name__ == '__main__':
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--num_workers", type=int, default=4)
-    parser.add_argument("--max_epoch", type=int, default=50)
-    parser.add_argument("--gpu_id", type=int, default=6)
+    parser.add_argument("--max_epoch", type=int, default=25)
+    parser.add_argument("--gpu_id", type=int, default=0)
     parser.add_argument("--compound_name", 
             choices=['PDL1','HPK1_3','HPK1_4','KRAS_G12D','MAT2A','SOS1','ALK', 'BRAF', 'BTK', 'CDK4', 'EGFR', 'FGFR1', 'JAK2', 'NTRK1', 'VEGFR2','PRMT5'])
     parser.add_argument("--data_path", type=str, default='data')
@@ -442,6 +450,7 @@ if __name__ == '__main__':
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--dropout_rate", type=float, default=0.1)
     parser.add_argument("--iter", type=int, default=1)
+    parser.add_argument("--model_mode", choices=['init', 'Tankbind'], default='Tankbind')
     args = parser.parse_args()
     
     main(args)
