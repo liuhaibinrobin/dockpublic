@@ -279,19 +279,32 @@ def main(args):
     df_tr['z_mask'] = df_te['z_mask'] = df_va['z_mask'] = ''
     for index, row in df_tr.iterrows():
         # row['embed'] = SOS1_sum_embedding_dic[row['smiles']]
-        row['z'] = z_dic[row['smiles']]
+        protein_out_batched, compound_out_batched = z_dic[row['smiles']]
+        protein_out_batched = torch.unsqueeze(protein_out_batched, dim=0)
+        compound_out_batched = torch.unsqueeze(compound_out_batched, dim=0)
+        row['z'] = torch.einsum("bik,bjk->bijk", protein_out_batched, compound_out_batched)
+        row['z'] = torch.squeeze(row['z'], dim=0)
         row['z_mask'] = z_mask_dic[row['smiles']]
         df_tr.iloc[index] = row
     for index, row in df_te.iterrows():
         # row['embed'] = SOS1_sum_embedding_dic[row['smiles']]
-        row['z'] = z_dic[row['smiles']]
+        protein_out_batched, compound_out_batched = z_dic[row['smiles']]
+        protein_out_batched = torch.unsqueeze(protein_out_batched, dim=0)
+        compound_out_batched = torch.unsqueeze(compound_out_batched, dim=0)
+        row['z'] = torch.einsum("bik,bjk->bijk", protein_out_batched, compound_out_batched)
+        row['z'] = torch.squeeze(row['z'], dim=0)
         row['z_mask'] = z_mask_dic[row['smiles']]
         df_te.iloc[index] = row
     for index, row in df_va.iterrows():
         # row['embed'] = SOS1_sum_embedding_dic[row['smiles']]
-        row['z'] = z_dic[row['smiles']]
+        protein_out_batched, compound_out_batched = z_dic[row['smiles']]
+        protein_out_batched = torch.unsqueeze(protein_out_batched, dim=0)
+        compound_out_batched = torch.unsqueeze(compound_out_batched, dim=0)
+        row['z'] = torch.einsum("bik,bjk->bijk", protein_out_batched, compound_out_batched)
+        row['z'] = torch.squeeze(row['z'], dim=0)
         row['z_mask'] = z_mask_dic[row['smiles']]
         df_va.iloc[index] = row
+    
     if '' in df_tr.values or '' in df_te.values or '' in df_va.values:
         raise ValueError("some smiles don't have embeddings")
 
@@ -310,6 +323,12 @@ def main(args):
         model_dict['linear_energy.bias'] = pretrainedd_dict['linear_energy.bias']
         model_dict['gate_linear.weight'] = pretrainedd_dict['gate_linear.weight']
         model_dict['gate_linear.bias'] = pretrainedd_dict['gate_linear.bias']
+        model.load_state_dict(model_dict)
+    elif args.model_mode == 'Halfbind':
+        model_dict = model.state_dict()
+        pretrainedd_dict = torch.load(args.init_model, map_location=device)
+        model_dict['linear_energy.weight'] = pretrainedd_dict['linear_energy.weight']
+        model_dict['linear_energy.bias'] = pretrainedd_dict['linear_energy.bias']
         model.load_state_dict(model_dict)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     data_loader_tr = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=3)
@@ -450,7 +469,7 @@ if __name__ == '__main__':
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--dropout_rate", type=float, default=0.1)
     parser.add_argument("--iter", type=int, default=1)
-    parser.add_argument("--model_mode", choices=['init', 'Tankbind'], default='Tankbind')
+    parser.add_argument("--model_mode", choices=['init', 'Halfbind', 'Tankbind'], default='Tankbind')
     args = parser.parse_args()
     
     main(args)

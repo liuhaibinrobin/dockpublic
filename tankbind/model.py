@@ -411,8 +411,9 @@ class IaBNet_with_affinity(torch.nn.Module):
             # print(pair_energy.shape)   # batch * pro_len * c_len
         if pooling:
             ## sum pooling
-            sum_embed = z.sum(axis=(-2,-3))
-            return y_pred, affinity_pred, z_mask, z
+            # sum_embed = z.sum(axis=(-2,-3))
+            # z = torch.einsum("bik,bjk->bijk", protein_out_batched, compound_out_batched)
+            return y_pred, affinity_pred, z_mask, protein_out_batched, compound_out_batched
 
         return y_pred, affinity_pred
 
