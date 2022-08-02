@@ -11,8 +11,8 @@ fi
 mkdir -p "model_dir/${DATASET}/${DESIGN_SN}"
 if [ "${GRIDSEARCH}" == "1" ]; then
     lrs_list="1e-3 5e-5 1e-4 5e-4"
-    model_list="Tankbind init"
-    batch_size_list="32 16"
+    model_list="Tankbind Halfbind init"
+    batch_size_list="32 48"
 else
     lrs_list="1e-3"
     model_list="Tankbind"
