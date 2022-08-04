@@ -1,0 +1,44 @@
+[INFO] Console - predicting pockets for proteins from dataset [protein_list.ds]
+[INFO] PredictRoutine - outdir: ./Outputs/Dev/08040713-MultiProteins//p2rank
+[INFO] FeatureSetup - enabledFeatures: [chem, volsite, protrusion, bfactor, atom_table]
+[INFO] Dataset - processing dataset [protein_list.ds] using 1 thread
+[INFO] Dataset - 
+------------------------------------------------------------------------------------------------------------------------
+processing [1g35_protein.pdb] (1/1)
+------------------------------------------------------------------------------------------------------------------------
+
+[INFO] Console - processing [1g35_protein.pdb] (1/1)
+[INFO] Protein - loading protein [/home/jovyan/TankBind/nciyes/Inputs/Dev/RenamedPDBBind/1g35_protein.pdb]
+[INFO] PdbUtils - loading file [./Outputs/Dev/08040713-MultiProteins/../../.././Inputs/Dev/RenamedPDBBind/1g35_protein.pdb]
+[INFO] Struct - groups in chain A: 99
+[INFO] Struct - groups in chain B: 99
+[INFO] Struct - groups in chain A: 99
+[INFO] Struct - 99 groups in chain A
+[INFO] Struct - groups in chain B: 99
+[INFO] Struct - 99 groups in chain B
+[INFO] Protein - structure atoms: 3265
+[INFO] Protein - protein   atoms: 1494
+[INFO] Protein - ignoring ligands
+[INFO] FeatureSetup - enabledFeatures: [chem, volsite, protrusion, bfactor, atom_table]
+[INFO] Protein - SAS points: 3108
+[INFO] Protein - exposed protein atoms: 1007 of 1494
+[INFO] InstancePredictor - Creating WekaInstancePredictor
+[INFO] SLinkClusterer - clustering [93] elements
+[INFO] SLinkClusterer - clusters: [id:0( 1 ), id:2( 2 ), id:35( 1 ), id:36( 1 ), id:44( 3 ), id:47( 1 ), id:74( 75 ), id:80( 1 ), id:81( 3 ), id:92( 5 )]
+[INFO] SLinkClusterer - clusters together: 93 / 93
+[INFO] PocketPredictor - PREDICTING POCKETS.... ====================================
+[INFO] PocketPredictor - SAS POINTS: 3108
+[INFO] PocketPredictor - LIGANDABLE POINTS: 93
+[INFO] PocketPredictor - CLUSTERS: 10
+[INFO] PocketPredictor - FILTERED CLUSTERS: 4
+[INFO] PocketPredictor - pocket 1 -  surf_atoms:  67   points:  75   score:   36.2
+[INFO] PocketPredictor - pocket 2 -  surf_atoms:  14   points:   5   score:    1.4
+[INFO] PocketPredictor - pocket 3 -  surf_atoms:  10   points:   3   score:    1.1
+[INFO] PocketPredictor - pocket 4 -  surf_atoms:   8   points:   3   score:    0.8
+[INFO] OldPymolRenderer - copying [/home/jovyan/TankBind/nciyes/Inputs/Dev/RenamedPDBBind/1g35_protein.pdb] to [./Outputs/Dev/08040713-MultiProteins//p2rank/visualizations/data/1g35_protein.pdb]
+[INFO] Console - predicting pockets finished in 0 hours 0 minutes 10.503 seconds
+[INFO] Console - results saved to directory [/home/jovyan/TankBind/nciyes/Outputs/Dev/08040713-MultiProteins/p2rank]
+[INFO] Console - 
+[INFO] Console - ----------------------------------------------------------------------------------------------
+[INFO] Console -  finished successfully in 0 hours 0 minutes 11.452 seconds
+[INFO] Console - ----------------------------------------------------------------------------------------------

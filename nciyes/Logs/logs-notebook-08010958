@@ -1,0 +1,12 @@
+Logs - 08010958
+Configs
+    input_path: ./Inputs/
+    output_path: ./Outputs/
+    data_path: ../../../data/
+    log_path: ./Logs/
+    pdb_list: ['1a4k', '1ebw']
+    ligand_fname: nciyes.dev.ligand.csv
+    ligand_fpath: ./Inputs/nciyes.dev.ligand.csv
+    nci_fpath: ./Inputs/nciyes.dev.nci.csv
+    nci_fname: nciyes.dev.nci.csv
+    cfg_distinguish_by_timestamp: True

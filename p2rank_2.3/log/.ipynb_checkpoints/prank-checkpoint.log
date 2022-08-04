@@ -1,0 +1,23 @@
+[INFO] Console - ----------------------------------------------------------------------------------------------
+[INFO] Console -  P2Rank 2.3
+[INFO] Console - ----------------------------------------------------------------------------------------------
+[INFO] Console - 
+[INFO] Main - loading default config from [/home/jovyan/TankBind/examples/p2rank_2.3/config/default.groovy]
+[INFO] Main - looking for dataset in dataset_base_dir [/home/jovyan/TankBind/examples/PREDICTION/HPK14-7kac-07250319/protein_list.ds]...
+[INFO] Dataset - loading dataset [/home/jovyan/TankBind/examples/./PREDICTION/HPK14-7kac-07250319/protein_list.ds]
+[ERROR] Dataset - protein file doesn't exist: ./PREDICTION/HPK14-7kac-07250319/./7kac.pdb
+[ERROR] Console - dataset contains invalid files
+[ERROR] Main - dataset contains invalid files
+cz.siret.prank.program.PrankException: dataset contains invalid files
+	at cz.siret.prank.domain.Dataset.loadFromFile(Dataset.groovy:496) ~[p2rank.jar:?]
+	at cz.siret.prank.program.Main.loadDataset(Main.groovy:207) ~[p2rank.jar:?]
+	at cz.siret.prank.program.Main.loadDatasetOrFile(Main.groovy:215) ~[p2rank.jar:?]
+	at cz.siret.prank.program.Main.doRunPredict(Main.groovy:240) ~[p2rank.jar:?]
+	at cz.siret.prank.program.Main.runPredict(Main.groovy:274) ~[p2rank.jar:?]
+	at cz.siret.prank.program.Main.run(Main.groovy:380) ~[p2rank.jar:?]
+	at cz.siret.prank.program.Main.main(Main.groovy:456) [p2rank.jar:?]
+[INFO] Console - For details see log file: /home/jovyan/TankBind/examples/p2rank_2.3/log/prank.log
+[INFO] Console - 
+[INFO] Console - ----------------------------------------------------------------------------------------------
+[INFO] Console -  finished with ERROR in 0 hours 0 minutes 0.801 seconds
+[INFO] Console - ----------------------------------------------------------------------------------------------

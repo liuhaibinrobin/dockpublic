@@ -318,6 +318,10 @@ class IaBNet_with_affinity(torch.nn.Module):
         self.leaky = torch.nn.LeakyReLU()
         self.dropout = nn.Dropout2d(p=0.25)
     def forward(self, data):
+        
+        nci_matrix = data.nci_matrix
+        
+        
         if self.protein_embed_mode == 0:
             x = data['protein'].x.float()
             edge_index = data[("protein", "p2p", "protein")].edge_index
@@ -346,7 +350,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         # protein_out_batched of shape b, n, c
         protein_out_batched, protein_out_mask = to_dense_batch(protein_out, protein_batch)
         compound_out_batched, compound_out_mask = to_dense_batch(compound_out, compound_batch)
-
+    
         node_xyz = data.node_xyz
 
         p_coords_batched, p_coords_mask = to_dense_batch(node_xyz, protein_batch)
@@ -399,6 +403,13 @@ class IaBNet_with_affinity(torch.nn.Module):
         if self.readout_mode == 2:
             pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
             affinity_pred = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
+        print("Zzzzsdgesfgaersghsdrghaerdsgegsredgasdhsdfgs efhad", z.shape)
+        if isinstance(nci_matrix, list):
+            for i in range(len(nci_matrix)):
+                print("fadsldgkdq;sjaf ]]]]]]", i, type(nci_matrix[i]))
+                print("ldsjvzsdjga", nci_matrix[i].shape)
+        else:
+            print(nci_matrix)
         return y_pred, affinity_pred
 
 
