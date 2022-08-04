@@ -29,7 +29,8 @@ from model import get_model
 # csv_name = "SOS1-ID-SMILES.csv"
 pdb_name = "7s1s"
 cp_name = "PRMT5"
-csv_name = "PRMT5-ID-SMILES.csv"
+csv_name = "PRMT5-ID-SMILES4.csv"
+num = 14
 # pdb_name = "7kac"
 # cp_name = "HPK1_3"
 # csv_name = "HPK1_3-ID-SMILES.csv"
@@ -157,83 +158,64 @@ model.load_state_dict(torch.load(modelFile, map_location=device))
 _ = model.eval()
 
 data_loader = DataLoader(dataset, batch_size=batch_size, follow_batch=['x', 'y', 'compound_pair'], shuffle=False, num_workers=8)
-tmp = 0
-n = 0
-protein_out_list = []
-compound_out_list = []
-z_mask_list = []
+sum_embed_t = []
+# protein_out_batched_t = []
+# compound_out_batched_t = []
+z_list = []
+sum_embed_list = []
+affinity_pred_list = []
+y_pred_list = []
 for data in tqdm(data_loader):
     data = data.to(device)
-    y_pred, affinity_pred, z_mask, protein_out_batched, compound_out_batched = model(data)
-    info = dataset.data[tmp : tmp + batch_size]
-    info['affinity'] = affinity_pred.detach().cpu()
-    chosen = info.loc[info.groupby(['protein_name', 'smiles'],sort=False)['affinity'].agg('idxmax')].reset_index()
-    pocket = int(chosen['pocket_name'][0][-1])   ##获得smiles的TB最优pocket列表 -> true_pocket
-    z_mask = z_mask.detach().cpu()[pocket - 1]
-    protein_out = protein_out_batched.detach().cpu()[pocket - 1]   ##获得smiles在最优pocket下的embedding和z矩阵  ##第n个口袋是TB最优口袋(索引-1)
-    compound_out = compound_out_batched.detach().cpu()[pocket - 1]
-    data, data_1 = {}, {}
-    smiles = d['smiles'][n]
-    data[smiles] = z_mask
-    data_1[smiles] = (protein_out, compound_out)
-    # z_mask_list.append(z_mask)
-    # protein_out_list.append(protein_out)
-    # compound_out_list.append(compound_out)
-    with open(f'embedding/{cp_name}/z_mask/data_{n}.pickle', 'wb') as f:
-        pickle.dump(data, f)
-    with open(f'embedding/{cp_name}/z/data_{n}.pickle', 'wb') as f:
-        pickle.dump(data_1, f)
-    tmp += batch_size
-    n += 1
-    #embed()
-    # affinity_pred_list.append(affinity_pred.detach().cpu())
+    # y_pred, affinity_pred, sum_embed, protein_out_batched, compound_out_batched = model(data)
+    y_pred, affinity_pred, sum_embed, z = model(data)
+    affinity_pred_list.append(affinity_pred.detach().cpu())
     # sum_embed_t.append(sum_embed.detach().cpu())
     # protein_out_batched_t.append(protein_out_batched.detach().cpu())
     # compound_out_batched_t.append(compound_out_batched.detach().cpu())
+    sum_embed_list.append(sum_embed.detach().cpu()[0])
+    z_list.append(z.detach().cpu()[0])
+affinity_pred_list = torch.cat(affinity_pred_list)
 
-
-
-# affinity_pred_list = torch.cat(affinity_pred_list)
-
-# ##获得smiles的TB最优pocket列表 -> true_pocket
-# info = dataset.data
-# info['affinity'] = affinity_pred_list
-# chosen = info.loc[info.groupby(['protein_name', 'smiles'],sort=False)['affinity'].agg('idxmax')].reset_index()
-# pocket_t = chosen['pocket_name']
-# true_pocket = []
-# for i in range(len(pocket_t)):
-#     true_pocket.append(int(pocket_t[i][-1]))
-# print("Done loading optimal pocket for each compounds")
-# ##获得smiles在最优pocket下的embedding和z矩阵
+##获得smiles的TB最优pocket列表 -> true_pocket
+info = dataset.data
+info['affinity'] = affinity_pred_list
+chosen = info.loc[info.groupby(['protein_name', 'smiles'],sort=False)['affinity'].agg('idxmax')].reset_index()
+pocket_t = chosen['pocket_name']
+true_pocket = []
+for i in range(len(pocket_t)):
+    true_pocket.append(int(pocket_t[i][-1])) #最优口袋
+    # true_pocket.append(1) #正确口袋
+print("Done loading optimal pocket for each compounds")
+##获得smiles在最优pocket下的embedding和z矩阵
 # n = 0
 # sum_embed_list = []
 # protein_out_list = []
 # compound_out_list = []
 # for data in tqdm(data_loader):
-#     sum_embed_list.append(sum_embed_t[n][true_pocket[n] - 1])  ##第n个口袋是TB最优口袋(索引-1)
-#     protein_out_list.append(protein_out_batched_t[n][true_pocket[n] - 1])
-#     compound_out_list.append(compound_out_batched_t[n][true_pocket[n] - 1])
+#     # sum_embed_list.append(sum_embed_t[n][true_pocket[n] - 1])  ##第n个口袋是TB最优口袋(索引-1)
+#     # protein_out_list.append(protein_out_batched_t[n][true_pocket[n] - 1])
+#     # compound_out_list.append(compound_out_batched_t[n][true_pocket[n] - 1])
+#     sum_embed_list.append(sum_embed_t[n][0])  ##第n个口袋是TB最优口袋(索引-1)
+#     protein_out_list.append(protein_out_batched_t[n][0])
+#     compound_out_list.append(compound_out_batched_t[n][0])
+#     embed()
 #     n += 1
 # if len(sum_embed_list) != d.shape[0]:
 #         raise ValueError("the number of smiles and embeddings don't match")
-# data = {}
-# for i, line in tqdm(d.iterrows(), total=d.shape[0]):
-#     smiles = line['smiles']
-#     data[smiles] = z_mask_list[i]
-# with open(f'embedding/{cp_name}/{cp_name}_z_mask_dic.pickle', 'wb') as f:
-#     pickle.dump(data, f)
+data = {}
+for i, line in tqdm(d.iterrows(), total=d.shape[0]):
+    smiles = line['smiles']
+    data[smiles] = sum_embed_list[i]
+with open(f'embedding/{cp_name}/{cp_name}_z_mask_dic{num}.pickle', 'wb') as f:
+    pickle.dump(data, f)
 
-# data1 = {}
-# for i, line in tqdm(d.iterrows(), total=d.shape[0]):
-#     smiles = line['smiles']
-#     data1[smiles] = (protein_out_list[i], compound_out_list[i])
-# with open(f'embedding/{cp_name}/{cp_name}_z_dic.pickle', 'wb') as f:
-#     pickle.dump(data1, f)
+data1 = {}
+for i, line in tqdm(d.iterrows(), total=d.shape[0]):
+    smiles = line['smiles']
+    # data1[smiles] = (protein_out_list[i], compound_out_list[i])
+    data1[smiles] = z_list[i]
+with open(f'embedding/{cp_name}/{cp_name}_z_dic{num}.pickle', 'wb') as f:
+    pickle.dump(data1, f)
 
 print(f'Done preprocessing embedding for {cp_name}')
-
-# for filename in os.listdir(local_recall_sdfs_folder):
-#     if not filename.endswith('.sdf'):
-#         continue
-#     cid = filename[:-4]
-#     fullpath = os.path.join(local_recall_sdfs_folder, filename)
