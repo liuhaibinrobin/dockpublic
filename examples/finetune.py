@@ -133,7 +133,7 @@ class TBNet(nn.Module):
         self.lr = args.lr
         self.dropout = args.dropout_rate
         self.compound_name = args.compound_name
-        if args.model_mode == 'init':
+        if args.model_mode == 'init' or args.model_mode == 'Halfbind':
             self.loss_fn = PairwiseLoss(sigmoid_lambda=0.001)
         else:
             self.loss_fn = PairwiseLoss()
@@ -274,36 +274,47 @@ def main(args):
     df_tr.drop_duplicates(['smiles'],inplace = True, ignore_index=True)
     df_te.drop_duplicates(['smiles'],inplace = True, ignore_index=True)
     df_va.drop_duplicates(['smiles'],inplace = True, ignore_index=True)
-    # df_tr['embed'] = df_te['embed'] = df_va['embed'] = ''
     df_tr['z'] = df_te['z'] = df_va['z'] = ''
     df_tr['z_mask'] = df_te['z_mask'] = df_va['z_mask'] = ''
     for index, row in df_tr.iterrows():
-        # row['embed'] = SOS1_sum_embedding_dic[row['smiles']]
-        protein_out_batched, compound_out_batched = z_dic[row['smiles']]
-        protein_out_batched = torch.unsqueeze(protein_out_batched, dim=0)
-        compound_out_batched = torch.unsqueeze(compound_out_batched, dim=0)
-        row['z'] = torch.einsum("bik,bjk->bijk", protein_out_batched, compound_out_batched)
-        row['z'] = torch.squeeze(row['z'], dim=0)
+        row['z'] = z_dic[row['smiles']]
         row['z_mask'] = z_mask_dic[row['smiles']]
         df_tr.iloc[index] = row
     for index, row in df_te.iterrows():
-        # row['embed'] = SOS1_sum_embedding_dic[row['smiles']]
-        protein_out_batched, compound_out_batched = z_dic[row['smiles']]
-        protein_out_batched = torch.unsqueeze(protein_out_batched, dim=0)
-        compound_out_batched = torch.unsqueeze(compound_out_batched, dim=0)
-        row['z'] = torch.einsum("bik,bjk->bijk", protein_out_batched, compound_out_batched)
-        row['z'] = torch.squeeze(row['z'], dim=0)
+        row['z'] = z_dic[row['smiles']]
         row['z_mask'] = z_mask_dic[row['smiles']]
         df_te.iloc[index] = row
     for index, row in df_va.iterrows():
-        # row['embed'] = SOS1_sum_embedding_dic[row['smiles']]
-        protein_out_batched, compound_out_batched = z_dic[row['smiles']]
-        protein_out_batched = torch.unsqueeze(protein_out_batched, dim=0)
-        compound_out_batched = torch.unsqueeze(compound_out_batched, dim=0)
-        row['z'] = torch.einsum("bik,bjk->bijk", protein_out_batched, compound_out_batched)
-        row['z'] = torch.squeeze(row['z'], dim=0)
+        row['z'] = z_dic[row['smiles']]
         row['z_mask'] = z_mask_dic[row['smiles']]
         df_va.iloc[index] = row
+    # for index, row in df_tr.iterrows():
+    #     # row['embed'] = SOS1_sum_embedding_dic[row['smiles']]
+    #     protein_out_batched, compound_out_batched = z_dic[row['smiles']]
+    #     protein_out_batched = torch.unsqueeze(protein_out_batched, dim=0)
+    #     compound_out_batched = torch.unsqueeze(compound_out_batched, dim=0)
+    #     row['z'] = torch.einsum("bik,bjk->bijk", protein_out_batched, compound_out_batched)
+    #     row['z'] = torch.squeeze(row['z'], dim=0)
+    #     row['z_mask'] = z_mask_dic[row['smiles']]
+    #     df_tr.iloc[index] = row
+    # for index, row in df_te.iterrows():
+    #     # row['embed'] = SOS1_sum_embedding_dic[row['smiles']]
+    #     protein_out_batched, compound_out_batched = z_dic[row['smiles']]
+    #     protein_out_batched = torch.unsqueeze(protein_out_batched, dim=0)
+    #     compound_out_batched = torch.unsqueeze(compound_out_batched, dim=0)
+    #     row['z'] = torch.einsum("bik,bjk->bijk", protein_out_batched, compound_out_batched)
+    #     row['z'] = torch.squeeze(row['z'], dim=0)
+    #     row['z_mask'] = z_mask_dic[row['smiles']]
+    #     df_te.iloc[index] = row
+    # for index, row in df_va.iterrows():
+    #     # row['embed'] = SOS1_sum_embedding_dic[row['smiles']]
+    #     protein_out_batched, compound_out_batched = z_dic[row['smiles']]
+    #     protein_out_batched = torch.unsqueeze(protein_out_batched, dim=0)
+    #     compound_out_batched = torch.unsqueeze(compound_out_batched, dim=0)
+    #     row['z'] = torch.einsum("bik,bjk->bijk", protein_out_batched, compound_out_batched)
+    #     row['z'] = torch.squeeze(row['z'], dim=0)
+    #     row['z_mask'] = z_mask_dic[row['smiles']]
+    #     df_va.iloc[index] = row
     
     if '' in df_tr.values or '' in df_te.values or '' in df_va.values:
         raise ValueError("some smiles don't have embeddings")
@@ -332,7 +343,7 @@ def main(args):
         model.load_state_dict(model_dict)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     data_loader_tr = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, num_workers=3)
-    data_loader_te = DataLoader(dataset_test, batch_size=120, shuffle=False, num_workers=3)
+    data_loader_te = DataLoader(dataset_test, batch_size=150, shuffle=False, num_workers=3)
     data_loader_va = DataLoader(dataset_val, batch_size=args.batch_size, shuffle=False, num_workers=3)
     list_val_metric = []
 
@@ -394,19 +405,6 @@ def main(args):
                 scores_te.append(score)
             score = torch.cat([torch.tensor([[i]]) for i in scores_te])
             score = torch.mean(score, dim=0)
-            pred = torch.cat(pred, dim=0)
-            pred_cpu = pred.cpu()
-            pred_numpy = pred_cpu.numpy()
-            pred_list = []
-            for i in pred_numpy:
-                pred_list.append(i)
-            smile_path = './data/%s/test.csv' % (args.compound_name)
-            df = pd.read_csv(smile_path,sep=',')
-            df['score'] = pred_list
-            # df = df.rename(columns={'smiles': 'SMILES'})
-            df = df.drop(columns=['group'])
-            df = df.drop(columns=['label'])
-            df.to_csv('./SAR-interface/output/%s/%s-%s-%s.csv'%(args.compound_name, args.lr, args.batch_size, args.model_mode), index=False,encoding='utf-8')
             print('TE_EPOCH----> score: {}' .format(score))
     best_epoch_id = np.argmax(list_val_metric)
     print('-----------------------')
@@ -414,7 +412,6 @@ def main(args):
     model_dir = args.model_dir + '/%s/%s/lr%s-batchsize%s-%s/epoch-%s' % (args.compound_name, args.iter, args.lr, args.batch_size, args.model_mode, best_epoch_id + 1)
     checkpoint = torch.load(model_dir)
     model.load_state_dict(checkpoint['net'])
-
     ######## start test
     model.eval() 
     with torch.no_grad():
@@ -444,7 +441,7 @@ def main(args):
         # df = df.rename(columns={'smiles': 'SMILES'})
         df = df.drop(columns=['group'])
         df = df.drop(columns=['label'])
-        df.to_csv('./SAR-interface/output/%s-%s-%s.csv'%(args.compound_name, args.lr, args.dropout_rate), index=False,encoding='utf-8')
+        df.to_csv('./SAR-interface/output/%s/%s-%s-%s.csv'%(args.compound_name, args.lr, args.batch_size, args.model_mode), index=False,encoding='utf-8')
         print('TEST----> score: {}' .format(score))
         
 
@@ -467,7 +464,7 @@ if __name__ == '__main__':
     parser.add_argument("--model_dir", type=str, default='model_dir')
     parser.add_argument("--embedding_dir", type=str, default='embedding')
     parser.add_argument("--lr", type=float, default=0.001)
-    parser.add_argument("--dropout_rate", type=float, default=0.1)
+    parser.add_argument("--dropout_rate", type=float, default=0)
     parser.add_argument("--iter", type=int, default=1)
     parser.add_argument("--model_mode", choices=['init', 'Halfbind', 'Tankbind'], default='Tankbind')
     args = parser.parse_args()

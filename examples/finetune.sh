@@ -1,6 +1,6 @@
 DATASET=$1
 DESIGN_SN=$2
-GRIDSEARCH=1
+GRIDSEARCH=0
 thread_num=1
 count=0
 log_prefix="log/TB"
@@ -14,8 +14,11 @@ if [ "${GRIDSEARCH}" == "1" ]; then
     model_list="Tankbind Halfbind init"
     batch_size_list="32 48"
 else
+    # lrs_list="1e-3"
+    # model_list="Tankbind"
+    # batch_size_list="32"
     lrs_list="1e-3"
-    model_list="Tankbind"
+    model_list="init"
     batch_size_list="32"
 fi
 dropout_rate=0
