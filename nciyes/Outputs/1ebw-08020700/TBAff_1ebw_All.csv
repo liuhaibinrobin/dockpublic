@@ -1,8 +1,0 @@
-,protein_name,compound_name,compound_fpath,smiles,pocket_name,pocket_com,affinity
-0,1ebw,BEI,./Inputs/Dev/RenamedPDBBind/1ebw_762_BEI.mol2,CN(C(=O)[C@H](OCc1ccccc1)[C@H](O)[C@@H](O)[C@@H](OCc1ccccc1)C(=O)N(C)[C@@H](Cc1ccccc1)C(=O)[O-])[C@@H](Cc1ccccc1)C(=O)[O-],pocket_1,"12.831,22.867,5.842",9.07796
-1,1ebw,BEI,./Inputs/Dev/RenamedPDBBind/1ebw_762_BEI.mol2,CN(C(=O)[C@H](OCc1ccccc1)[C@H](O)[C@@H](O)[C@@H](OCc1ccccc1)C(=O)N(C)[C@@H](Cc1ccccc1)C(=O)[O-])[C@@H](Cc1ccccc1)C(=O)[O-],pocket_2,"16.996,16.021,-19.09",2.3426242
-2,1ebw,BEI,./Inputs/Dev/RenamedPDBBind/1ebw_762_BEI.mol2,CN(C(=O)[C@H](OCc1ccccc1)[C@H](O)[C@@H](O)[C@@H](OCc1ccccc1)C(=O)N(C)[C@@H](Cc1ccccc1)C(=O)[O-])[C@@H](Cc1ccccc1)C(=O)[O-],pocket_3,"7.603,39.809,11.629",4.086297
-3,1ebw,BEI,./Inputs/Dev/RenamedPDBBind/1ebw_762_BEI.mol2,CN(C(=O)[C@H](OCc1ccccc1)[C@H](O)[C@@H](O)[C@@H](OCc1ccccc1)C(=O)N(C)[C@@H](Cc1ccccc1)C(=O)[O-])[C@@H](Cc1ccccc1)C(=O)[O-],pocket_4,"26.531,16.151,-5.906",4.642892
-4,1ebw,BEI,./Inputs/Dev/RenamedPDBBind/1ebw_762_BEI.mol2,CN(C(=O)[C@H](OCc1ccccc1)[C@H](O)[C@@H](O)[C@@H](OCc1ccccc1)C(=O)N(C)[C@@H](Cc1ccccc1)C(=O)[O-])[C@@H](Cc1ccccc1)C(=O)[O-],pocket_5,"17.128,40.014,26.253",2.6836407
-5,1ebw,BEI,./Inputs/Dev/RenamedPDBBind/1ebw_762_BEI.mol2,CN(C(=O)[C@H](OCc1ccccc1)[C@H](O)[C@@H](O)[C@@H](OCc1ccccc1)C(=O)N(C)[C@@H](Cc1ccccc1)C(=O)[O-])[C@@H](Cc1ccccc1)C(=O)[O-],pocket_6,"6.625,34.236,11.795",7.4584055
-6,1ebw,BEI,./Inputs/Dev/RenamedPDBBind/1ebw_762_BEI.mol2,CN(C(=O)[C@H](OCc1ccccc1)[C@H](O)[C@@H](O)[C@@H](OCc1ccccc1)C(=O)N(C)[C@@H](Cc1ccccc1)C(=O)[O-])[C@@H](Cc1ccccc1)C(=O)[O-],pocket_7,"14.583,33.712,-10.976",2.5422196
