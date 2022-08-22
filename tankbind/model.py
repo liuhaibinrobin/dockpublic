@@ -26,6 +26,7 @@ class GNN(torch.nn.Module):
 
 
 
+
 class GVP_embedding(nn.Module):
     '''
     Modified based on https://github.com/drorlab/gvp-pytorch/blob/main/gvp/models.py

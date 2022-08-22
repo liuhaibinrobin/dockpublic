@@ -262,9 +262,9 @@ def main(args):
     cp_name = args.compound_name
     data_path = args.data_path
     embedding_dir = args.embedding_dir
-    with open(f'{embedding_dir}/{cp_name}/{cp_name}_z_dic.pickle', 'rb') as f:
+    with open(f'{embedding_dir}/{cp_name}_origin/{cp_name}_z_dic.pickle', 'rb') as f:
         z_dic = pickle.load(f)
-    with open(f'{embedding_dir}/{cp_name}/{cp_name}_z_mask_dic.pickle', 'rb') as f1:
+    with open(f'{embedding_dir}/{cp_name}_origin/{cp_name}_z_mask_dic.pickle', 'rb') as f1:
         z_mask_dic = pickle.load(f1)
     # with open(f'embedding/{cp_name}/{cp_name}_sum_embedding_dic.pickle', 'rb') as f1:
     #     SOS1_sum_embedding_dic = pickle.load(f1)
@@ -334,6 +334,7 @@ def main(args):
         model_dict['linear_energy.bias'] = pretrainedd_dict['linear_energy.bias']
         model_dict['gate_linear.weight'] = pretrainedd_dict['gate_linear.weight']
         model_dict['gate_linear.bias'] = pretrainedd_dict['gate_linear.bias']
+        model_dict['bias'] = pretrainedd_dict['bias']
         model.load_state_dict(model_dict)
     elif args.model_mode == 'Halfbind':
         model_dict = model.state_dict()

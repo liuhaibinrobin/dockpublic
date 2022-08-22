@@ -171,12 +171,12 @@ class ProteinGraphDataset(data.Dataset):
             coords[~mask] = np.inf
             
             X_ca = coords[:, 1]
-            edge_index = torch_cluster.knn_graph(X_ca, k=self.top_k)
-            
-            pos_embeddings = self._positional_embeddings(edge_index)
-            E_vectors = X_ca[edge_index[0]] - X_ca[edge_index[1]]
-            rbf = _rbf(E_vectors.norm(dim=-1), D_count=self.num_rbf, device=self.device)
-            
+            edge_index = torch_cluster.knn_graph(X_ca, k=self.top_k) #不使用本身的键作为边，而是knn选择最近的30个点作为边
+
+            pos_embeddings = self._positional_embeddings(edge_index) # 位置编码
+            E_vectors = X_ca[edge_index[0]] - X_ca[edge_index[1]]  #【0】是邻居的边，【1】是中心的边，E_vectors表示距离
+            rbf = _rbf(E_vectors.norm(dim=-1), D_count=self.num_rbf, device=self.device) # 根据距离的n*16的 RBF embedding
+             
             dihedrals = self._dihedrals(coords)                     
             orientations = self._orientations(X_ca)
             sidechains = self._sidechains(coords)
@@ -199,7 +199,7 @@ class ProteinGraphDataset(data.Dataset):
         # From https://github.com/jingraham/neurips19-graph-protein-design
         
         X = torch.reshape(X[:, :3], [3*X.shape[0], 3])
-        dX = X[1:] - X[:-1]
+        dX = X[1:] - X[:-1] #错位相减
         U = _normalize(dX, dim=-1)
         u_2 = U[:-2]
         u_1 = U[1:-1]

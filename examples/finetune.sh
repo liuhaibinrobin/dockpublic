@@ -1,6 +1,6 @@
 DATASET=$1
 DESIGN_SN=$2
-GRIDSEARCH=0
+GRIDSEARCH=1
 thread_num=1
 count=0
 log_prefix="log/TB"
@@ -9,16 +9,21 @@ if [ -d "model_dir/${DATASET}/${DESIGN_SN}" ]; then
 	rm -r "model_dir/${DATASET}/${DESIGN_SN}"
 fi
 mkdir -p "model_dir/${DATASET}/${DESIGN_SN}"
+rm -r "data/${DATASET}/processed"
 if [ "${GRIDSEARCH}" == "1" ]; then
     lrs_list="1e-3 5e-5 1e-4 5e-4"
     model_list="Tankbind Halfbind init"
-    batch_size_list="32 48"
+    if [ "${DATASET}" == "PRMT5" ]; then
+        batch_size_list="32 48"
+    else
+        batch_size_list="16 32 48"
+    fi
 else
     # lrs_list="1e-3"
     # model_list="Tankbind"
     # batch_size_list="32"
     lrs_list="1e-3"
-    model_list="init"
+    model_list="Tankbind"
     batch_size_list="32"
 fi
 dropout_rate=0
@@ -32,7 +37,7 @@ for model_mode in $model_list; do
                 {
                     python finetune.py \
                             --batch_size=$batch_size \
-                            --max_epoch=22 \
+                            --max_epoch=25 \
                             --iter=${DESIGN_SN} \
                             --compound_name=${DATASET} \
                             --init_model="../saved_models/self_dock.pt" \

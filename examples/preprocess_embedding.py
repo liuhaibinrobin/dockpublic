@@ -24,18 +24,28 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm    # pip install tqdm if fails.
 from model import get_model
 
+optimal = False
+truepocket = 1
 # pdb_name = "6scm"
 # cp_name = "SOS1"
 # csv_name = "SOS1-ID-SMILES.csv"
-pdb_name = "7s1s"
-cp_name = "PRMT5"
-csv_name = "PRMT5-ID-SMILES4.csv"
-num = 14
+
+# pdb_name = "7s1s"
+# cp_name = "PRMT5"
+# csv_name = "PRMT5-ID-SMILES4.csv"
+# number = 14
+
+pdb_name = "7kac"
+cp_name = "HPK1_3"
+csv_name = "HPK1_3-ID-SMILES_check.csv"
+
 # pdb_name = "7kac"
 # cp_name = "HPK1_3"
 # csv_name = "HPK1_3-ID-SMILES.csv"
-# true_pocket = 4
-# pocket_num = 9
+
+# cp_name = "HPK1_4"
+# csv_name = "HPK1_4-ID-SMILES.csv"
+
 device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 
 base_pre = f"./NCIVS"
@@ -163,20 +173,27 @@ sum_embed_t = []
 # compound_out_batched_t = []
 z_list = []
 sum_embed_list = []
+z_list_t = []
+sum_embed_list_t = []
 affinity_pred_list = []
 y_pred_list = []
+if optimal:
+    print('load optimal pocket')
+else:
+    print('load true pocket')
 for data in tqdm(data_loader):
     data = data.to(device)
     # y_pred, affinity_pred, sum_embed, protein_out_batched, compound_out_batched = model(data)
     y_pred, affinity_pred, sum_embed, z = model(data)
     affinity_pred_list.append(affinity_pred.detach().cpu())
-    # sum_embed_t.append(sum_embed.detach().cpu())
-    # protein_out_batched_t.append(protein_out_batched.detach().cpu())
-    # compound_out_batched_t.append(compound_out_batched.detach().cpu())
-    sum_embed_list.append(sum_embed.detach().cpu()[0])
-    z_list.append(z.detach().cpu()[0])
+    if optimal:
+        sum_embed_list_t.append(sum_embed.detach().cpu()) #全部口袋
+        z_list_t.append(z.detach().cpu())
+    else:
+        sum_embed_list.append(sum_embed.detach().cpu()[truepocket-1]) #正确口袋！！！！非最优口袋
+        z_list.append(z.detach().cpu()[truepocket-1])
 affinity_pred_list = torch.cat(affinity_pred_list)
-
+embed()
 ##获得smiles的TB最优pocket列表 -> true_pocket
 info = dataset.data
 info['affinity'] = affinity_pred_list
@@ -184,10 +201,18 @@ chosen = info.loc[info.groupby(['protein_name', 'smiles'],sort=False)['affinity'
 pocket_t = chosen['pocket_name']
 true_pocket = []
 for i in range(len(pocket_t)):
-    true_pocket.append(int(pocket_t[i][-1])) #最优口袋
-    # true_pocket.append(1) #正确口袋
-print("Done loading optimal pocket for each compounds")
+    true_pocket.append(int(pocket_t[i][-1]))
+print("Done loading pocket for each compounds")
 ##获得smiles在最优pocket下的embedding和z矩阵
+if optimal:
+    print('process optimal pocket')
+    n = 0
+    for data in tqdm(data_loader):
+        sum_embed_list.append(sum_embed_list_t[n][true_pocket[n] - 1]) #最优口袋  第n个口袋是TB最优口袋(索引-1)
+        z_list.append(z_list_t[n][true_pocket[n] - 1])
+        n += 1
+    if len(sum_embed_list) != d.shape[0]:
+            raise ValueError("the number of smiles and embeddings don't match")
 # n = 0
 # sum_embed_list = []
 # protein_out_list = []
@@ -207,15 +232,23 @@ data = {}
 for i, line in tqdm(d.iterrows(), total=d.shape[0]):
     smiles = line['smiles']
     data[smiles] = sum_embed_list[i]
-with open(f'embedding/{cp_name}/{cp_name}_z_mask_dic{num}.pickle', 'wb') as f:
-    pickle.dump(data, f)
+if optimal:
+    with open(f'embedding/{cp_name}/{cp_name}_z_mask_dic.pickle', 'wb') as f:
+        pickle.dump(data, f)
+else:
+    with open(f'embedding/{cp_name}_origin/{cp_name}_z_mask_dic.pickle', 'wb') as f:
+        pickle.dump(data, f)
 
 data1 = {}
 for i, line in tqdm(d.iterrows(), total=d.shape[0]):
     smiles = line['smiles']
     # data1[smiles] = (protein_out_list[i], compound_out_list[i])
     data1[smiles] = z_list[i]
-with open(f'embedding/{cp_name}/{cp_name}_z_dic{num}.pickle', 'wb') as f:
-    pickle.dump(data1, f)
+if optimal:
+    with open(f'embedding/{cp_name}/{cp_name}_z_dic.pickle', 'wb') as f:
+        pickle.dump(data1, f)
+else:
+    with open(f'embedding/{cp_name}_origin/{cp_name}_z_dic.pickle', 'wb') as f:
+        pickle.dump(data1, f)
 
 print(f'Done preprocessing embedding for {cp_name}')
