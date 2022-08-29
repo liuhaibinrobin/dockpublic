@@ -35,13 +35,13 @@ truepocket = 1
 # csv_name = "PRMT5-ID-SMILES4.csv"
 # number = 14
 
-pdb_name = "7kac"
-cp_name = "HPK1_3"
-csv_name = "HPK1_3-ID-SMILES_check.csv"
-
 # pdb_name = "7kac"
 # cp_name = "HPK1_3"
-# csv_name = "HPK1_3-ID-SMILES.csv"
+# csv_name = "HPK1_3-ID-SMILES_check.csv"
+
+pdb_name = "7kac"
+cp_name = "HPK1_3"
+csv_name = "HPK1_3-ID-SMILES.csv"
 
 # cp_name = "HPK1_4"
 # csv_name = "HPK1_4-ID-SMILES.csv"
@@ -193,7 +193,6 @@ for data in tqdm(data_loader):
         sum_embed_list.append(sum_embed.detach().cpu()[truepocket-1]) #正确口袋！！！！非最优口袋
         z_list.append(z.detach().cpu()[truepocket-1])
 affinity_pred_list = torch.cat(affinity_pred_list)
-embed()
 ##获得smiles的TB最优pocket列表 -> true_pocket
 info = dataset.data
 info['affinity'] = affinity_pred_list

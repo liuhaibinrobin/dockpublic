@@ -8,7 +8,7 @@ processing [6dlo.pdb] (1/1)
 ------------------------------------------------------------------------------------------------------------------------
 
 [INFO] Console - processing [6dlo.pdb] (1/1)
-[INFO] Protein - loading protein [./TankBind/examples/HTVS/6dlo.pdb]
+[INFO] Protein - loading protein [/home/jovyan/TankBind/examples/HTVS/6dlo.pdb]
 [INFO] PdbUtils - loading file [./HTVS//6dlo.pdb]
 [INFO] Struct - groups in chain A: 311
 [INFO] Struct - groups in chain A: 311
@@ -37,10 +37,10 @@ processing [6dlo.pdb] (1/1)
 [INFO] PocketPredictor - pocket 7 -  surf_atoms:  17   points:   3   score:    1.2
 [INFO] PocketPredictor - pocket 8 -  surf_atoms:  12   points:   3   score:    1.0
 [INFO] PocketPredictor - pocket 9 -  surf_atoms:  10   points:   3   score:    1.0
-[INFO] OldPymolRenderer - copying [./TankBind/examples/HTVS/6dlo.pdb] to [./HTVS//p2rank/visualizations/data/6dlo.pdb]
-[INFO] Console - predicting pockets finished in 0 hours 0 minutes 4.970 seconds
-[INFO] Console - results saved to directory [./TankBind/examples/HTVS/p2rank]
+[INFO] OldPymolRenderer - copying [/home/jovyan/TankBind/examples/HTVS/6dlo.pdb] to [./HTVS//p2rank/visualizations/data/6dlo.pdb]
+[INFO] Console - predicting pockets finished in 0 hours 0 minutes 9.103 seconds
+[INFO] Console - results saved to directory [/home/jovyan/TankBind/examples/HTVS/p2rank]
 [INFO] Console - 
 [INFO] Console - ----------------------------------------------------------------------------------------------
-[INFO] Console -  finished successfully in 0 hours 0 minutes 5.755 seconds
+[INFO] Console -  finished successfully in 0 hours 0 minutes 10.358 seconds
 [INFO] Console - ----------------------------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 version: 2.3
-git head: 7226da0
+git head: e793ae4
 
 Params[
   atom_table_feat_keep_sgn = false
@@ -24,7 +24,7 @@ Params[
   conservation_exponent = 1
   conservation_origin = hssp
   crossval_threads = 1
-  dataset_base_dir = /packages/p2rank_2.3/test_data
+  dataset_base_dir = /home/jovyan/TankBind/examples/p2rank_2.3/test_data
   deep_surrounding = false
   delete_models = true
   delete_vectors = true
@@ -58,7 +58,7 @@ Params[
   identify_peptides_by_labeling = false
   ignore_het_groups = [HOH, DOD, WAT, NAG, MAN, UNK, GLC, ABA, MPD, GOL, SO4, PO4]
   inner_classifier = FastRandomForest
-  installDir = /packages/p2rank_2.3
+  installDir = /home/jovyan/TankBind/examples/p2rank_2.3
   label_residues = true
   ligand_clustering_distance = 1.7
   ligand_derived_point_labeling = true
@@ -80,7 +80,7 @@ Params[
   neutral_points_margin = 5.5
   out_prefix_date = false
   out_subdir = <null>
-  output_base_dir = /packages/p2rank_2.3/test_output
+  output_base_dir = /home/jovyan/TankBind/examples/p2rank_2.3/test_output
   output_only_stats = false
   pair_hist_bins = 5
   pair_hist_deep = true
