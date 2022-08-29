@@ -1,6 +1,6 @@
 DATASET=$1
 DESIGN_SN=$2
-GRIDSEARCH=1
+GRIDSEARCH=0
 thread_num=1
 count=0
 log_prefix="log/TB"
@@ -8,23 +8,28 @@ log_dir="$log_prefix-${DATASET}/iter-$DESIGN_SN"
 if [ -d "model_dir/${DATASET}/${DESIGN_SN}" ]; then
 	rm -r "model_dir/${DATASET}/${DESIGN_SN}"
 fi
+if [ -d "SAR-interface/output/${DATASET}/${DESIGN_SN}" ]; then
+	rm -r "SAR-interface/output/${DATASET}/${DESIGN_SN}"
+fi
 mkdir -p "model_dir/${DATASET}/${DESIGN_SN}"
+mkdir -p "SAR-interface/output/${DATASET}/${DESIGN_SN}"
 rm -r "data/${DATASET}/processed"
 if [ "${GRIDSEARCH}" == "1" ]; then
-    lrs_list="1e-3 5e-5 1e-4 5e-4"
-    model_list="Tankbind Halfbind init"
+    lrs_list="5e-5 1e-5 1e-4 5e-4"
+    # model_list="Tankbind Halfbind init"
+    model_list="Tankbind"
     if [ "${DATASET}" == "PRMT5" ]; then
         batch_size_list="32 48"
     else
-        batch_size_list="16 32 48"
+        batch_size_list="8 16 32 48"
     fi
 else
     # lrs_list="1e-3"
     # model_list="Tankbind"
     # batch_size_list="32"
-    lrs_list="1e-3"
+    lrs_list="1e-5"
     model_list="Tankbind"
-    batch_size_list="32"
+    batch_size_list="16"
 fi
 dropout_rate=0
 for model_mode in $model_list; do
