@@ -17,6 +17,7 @@ import scipy
 import scipy.spatial
 import requests
 from rdkit.Geometry import Point3D
+import random
 
 from torchdrug import data as td     # conda install torchdrug -c milagraph -c conda-forge -c pytorch -c pyg if fail to import
 
@@ -177,6 +178,176 @@ three_to_one = {'ALA': 'A', 'CYS': 'C', 'ASP': 'D', 'GLU': 'E', 'PHE': 'F', 'GLY
                 'ILE': 'I', 'LYS': 'K', 'LEU': 'L', 'MET': 'M', 'ASN': 'N', 'PRO': 'P', 'GLN': 'Q', 
                 'ARG': 'R', 'SER': 'S', 'THR': 'T', 'VAL': 'V', 'TRP': 'W', 'TYR': 'Y'}
 
+############new
+#the dict of sidec selected by halogen or the furthest
+sidec_dict = {
+    'ALA': ['N'], 
+    'CYS': ['SG'], 
+    'ASP': ['OD2'], 
+    'GLU': ['OE2'], 
+    'PHE': ['CE1','CE2','CD1','CD2','CG','CZ'], 
+    'GLY': ['N'], 
+    'HIS': [['NE2'],['ND1']],   
+    'ILE': ['CD1'], 
+    'LYS': ['NZ'], 
+    'LEU': ['CG'], 
+    'MET': ['SD'], 
+    'ASN': [['OD1'],['ND2']], 
+    'PRO': ['N'], 
+    'GLN': [['OE1'],['NE2']], 
+    'ARG': ['CZ'], 
+    'SER': ['OG'], 
+    'THR': ['OG1'], 
+    'VAL': ['CB'], 
+    'TRP': [['NE1'], ['CE2','CD2','CE3','CZ3','CH2','CZ2']], 
+    'TYR': [['OH'], ['CE1','CE2','CD1','CD2','CG','CZ']]
+}
+
+restype_1to3 = {
+    'A': 'ALA',
+    'R': 'ARG',
+    'N': 'ASN',
+    'D': 'ASP',
+    'C': 'CYS',
+    'Q': 'GLN',
+    'E': 'GLU',
+    'G': 'GLY',
+    'H': 'HIS',
+    'I': 'ILE',
+    'L': 'LEU',
+    'K': 'LYS',
+    'M': 'MET',
+    'F': 'PHE',
+    'P': 'PRO',
+    'S': 'SER',
+    'T': 'THR',
+    'W': 'TRP',
+    'Y': 'TYR',
+    'V': 'VAL',
+}
+restype_3to1 = {v: k for k, v in restype_1to3.items()}
+
+#alphafold分出来的4类片段
+chi_angles_atoms = {
+    'ALA': [],
+    # Chi5 in arginine is always 0 +- 5 degrees, so ignore it.
+    'ARG': [['N', 'CA', 'CB', 'CG'], ['CA', 'CB', 'CG', 'CD'],
+            ['CB', 'CG', 'CD', 'NE'], ['CG', 'CD', 'NE', 'CZ']],
+    'ASN': [['N', 'CA', 'CB', 'CG'], ['CA', 'CB', 'CG', 'OD1']],
+    'ASP': [['N', 'CA', 'CB', 'CG'], ['CA', 'CB', 'CG', 'OD1']],
+    'CYS': [['N', 'CA', 'CB', 'SG']],
+    'GLN': [['N', 'CA', 'CB', 'CG'], ['CA', 'CB', 'CG', 'CD'],
+            ['CB', 'CG', 'CD', 'OE1']],
+    'GLU': [['N', 'CA', 'CB', 'CG'], ['CA', 'CB', 'CG', 'CD'],
+            ['CB', 'CG', 'CD', 'OE1']],
+    'GLY': [],
+    'HIS': [['N', 'CA', 'CB', 'CG'], ['CA', 'CB', 'CG', 'ND1']],
+    'ILE': [['N', 'CA', 'CB', 'CG1'], ['CA', 'CB', 'CG1', 'CD1']],
+    'LEU': [['N', 'CA', 'CB', 'CG'], ['CA', 'CB', 'CG', 'CD1']],
+    'LYS': [['N', 'CA', 'CB', 'CG'], ['CA', 'CB', 'CG', 'CD'],
+            ['CB', 'CG', 'CD', 'CE'], ['CG', 'CD', 'CE', 'NZ']],
+    'MET': [['N', 'CA', 'CB', 'CG'], ['CA', 'CB', 'CG', 'SD'],
+            ['CB', 'CG', 'SD', 'CE']],
+    'PHE': [['N', 'CA', 'CB', 'CG'], ['CA', 'CB', 'CG', 'CD1']],
+    'PRO': [['N', 'CA', 'CB', 'CG'], ['CA', 'CB', 'CG', 'CD']],
+    'SER': [['N', 'CA', 'CB', 'OG']],
+    'THR': [['N', 'CA', 'CB', 'OG1']],
+    'TRP': [['N', 'CA', 'CB', 'CG'], ['CA', 'CB', 'CG', 'CD1']],
+    'TYR': [['N', 'CA', 'CB', 'CG'], ['CA', 'CB', 'CG', 'CD1']],
+    'VAL': [['N', 'CA', 'CB', 'CG1']],
+}
+
+## define x1,x2,x3,x4
+def dihedral_angle(a, b, c, d):
+    """return the dihedral angle of plan abc and bcd"""
+    v1 = a - b
+    v2 = b - c
+    v3 = d - c
+
+    c1 = np.cross(v1, v2)
+    c2 = np.cross(v3, v2)
+    c3 = np.cross(c2, c1)
+
+    v2_mag = np.linalg.norm(v2)
+    return np.arctan2(np.dot(c3, v2), v2_mag * np.dot(c1, c2))
+
+def sidechain_angle(res_list, chi_angles_atoms):
+    """
+    return 
+    1. list of sidechain angles chi1,2,3,4, shape=[len(res_list, 4)]
+    2. the ids of res which is not complete
+    """
+    double_res_list = ['HIS', 'ASN', 'GLN', 'TRP', 'TYR']
+    dihedral_angle_list_t = []
+    broken_res_id = []
+    for res in res_list:
+        dihedral_angle_list = []
+        chi_angles_list = chi_angles_atoms[res.resname]
+        chi_angles_list_len = len(chi_angles_list)
+        if chi_angles_list_len != 0:
+            for group in chi_angles_list:
+                if (group[0] not in res) or (group[1] not in res) or (group[2] not in res) or (group[3] not in res):
+                    # print(res.get_full_id()[3][1])
+                    broken_res_id.append(res.get_full_id()[3][1])
+                    continue
+                angle_x = dihedral_angle(res[group[0]].coord, res[group[1]].coord,\
+                                                res[group[2]].coord, res[group[3]].coord)
+                dihedral_angle_list.append(angle_x)
+        if len(dihedral_angle_list) != 4:
+            for i in range(4 - len(dihedral_angle_list)):
+                dihedral_angle_list.append(0)
+        if res.get_full_id()[3][1] not in broken_res_id:
+            if res.resname in double_res_list:
+                dihedral_angle_list_t.append(dihedral_angle_list) # double res according to the sidec num
+                dihedral_angle_list_t.append(dihedral_angle_list)
+            else:
+                dihedral_angle_list_t.append(dihedral_angle_list) 
+    broken_res_id = list(set(broken_res_id))
+    broken_res_id.sort()
+    return dihedral_angle_list_t, broken_res_id
+
+def clean_broken_res(res_list, broken_res_id):
+    """remove broken res from broken_res_id and double res according to the sidec num"""
+    clean_broken_res = []
+    clean_broken_res_double = []
+    double_res_list = ['HIS', 'ASN', 'GLN', 'TRP', 'TYR']
+    for res in res_list:
+        if res.get_full_id()[3][1] not in broken_res_id:
+            clean_broken_res.append(res)
+            if res.resname in double_res_list:
+                clean_broken_res_double.append(res)
+                clean_broken_res_double.append(res)
+            else:
+                clean_broken_res_double.append(res)
+    return clean_broken_res, clean_broken_res_double
+
+def return_coord(res, res_sidec_list):
+    """
+    return the coordinates of sidec
+    if one atom, then return coord
+    if 6 atoms, then it's a Aromatic ring, return the mean coord
+    """
+    if len(res_sidec_list) == 1:
+        return res[res_sidec_list[0]].coord
+    elif len(res_sidec_list) == 6:
+        sidec_coord = [res[res_sidec_list[i]].coord for i in range(6)]
+        return np.mean(np.concatenate(sidec_coord).reshape(-1,3), axis=0)
+
+def sidec_coord(res_list, sidec_dict):
+    """define the pos of sidec according to sidec_dict"""
+    sidec_coords = []
+    for res in res_list:
+        res_sidec_list = sidec_dict[res.resname]
+        if len(res_sidec_list) == 2:
+            _sidec_coord_1 = return_coord(res, res_sidec_list[0])
+            _sidec_coord_2 = return_coord(res, res_sidec_list[1])
+            sidec_coords.append(_sidec_coord_1)
+            sidec_coords.append(_sidec_coord_2)
+        else:
+            sidec_coords.append(return_coord(res, res_sidec_list))
+    return sidec_coords
+
+
 def get_clean_res_list(res_list, verbose=False, ensure_ca_exist=False, bfactor_cutoff=None):
     clean_res_list = []
     for res in res_list:
@@ -220,6 +391,33 @@ def get_protein_feature(res_list):
     x = (protein.x, protein.seq, protein.node_s, protein.node_v, protein.edge_index, protein.edge_s, protein.edge_v)
     return x
 
+def get_protein_feature_qsar(res_list):
+    '''adding dihedral_angle chi1,2,3,4 and sidec_coord'''
+    res_list = [res for res in res_list if (('N' in res) and ('CA' in res) and ('C' in res) and ('O' in res))]
+    dihedral_angle_list_t, broken_res_id = sidechain_angle(res_list, chi_angles_atoms)
+    clean_broken_res_l, clean_broken_res_double = clean_broken_res(res_list, broken_res_id)
+    structure = {}
+    structure['name'] = "placeholder"
+    structure['seq'] = "".join([three_to_one.get(res.resname) for res in clean_broken_res_double]) # with double
+    coords = []
+    for res in clean_broken_res_double:
+        res_coords = []
+        for atom in [res['N'], res['CA'], res['C'], res['O']]:
+            res_coords.append(list(atom.coord))
+        coords.append(res_coords)
+    structure['coords'] = coords # with double
+    #####new
+    structure['dihedral_angle'] = dihedral_angle_list_t
+    structure['sidec_coord'] = sidec_coord(clean_broken_res_l, sidec_dict)
+    torch.set_num_threads(1)        # this reduce the overhead, and speed up the process for me.
+    print(len(structure['coords']))
+    print(len(structure['seq']))
+    print(len(structure['dihedral_angle']))
+    print(len(structure['sidec_coord']))
+    dataset = gvp.data.ProteinGraphDataset_qsar([structure])
+    protein = dataset[0]
+    x = (protein.x, protein.seq, protein.node_s, protein.node_v, protein.edge_index, protein.edge_s, protein.edge_v)
+    return x 
 # Seed_everything(seed=42)
 
 # used for testing.

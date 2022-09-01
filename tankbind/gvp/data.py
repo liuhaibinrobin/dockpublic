@@ -251,3 +251,161 @@ class ProteinGraphDataset(data.Dataset):
         perp = _normalize(torch.cross(c, n))
         vec = -bisector * math.sqrt(1 / 3) - perp * math.sqrt(2 / 3)
         return vec 
+
+class ProteinGraphDataset_qsar(data.Dataset):
+    '''
+    A map-syle `torch.utils.data.Dataset` which transforms JSON/dictionary-style
+    protein structures into featurized protein graphs as described in the 
+    manuscript.
+    
+    Returned graphs are of type `torch_geometric.data.Data` with attributes
+    -x          alpha carbon coordinates, shape [n_nodes, 3]
+    -seq        sequence converted to int tensor according to `self.letter_to_num`, shape [n_nodes]
+    -name       name of the protein structure, string
+    -node_s     node scalar features, shape [n_nodes, 14] 
+    -node_v     node vector features, shape [n_nodes, 3, 3]
+    -edge_s     edge scalar features, shape [n_edges, 64]
+    -edge_v     edge scalar features, shape [n_edges, 1, 9]
+    -edge_index edge indices, shape [2, n_edges]
+    -mask       node mask, `False` for nodes with missing data that are excluded from message passing
+    
+    Portions from https://github.com/jingraham/neurips19-graph-protein-design.
+    
+    :param data_list: JSON/dictionary-style protein dataset as described in README.md.
+    :param num_positional_embeddings: number of positional embeddings
+    :param top_k: number of edges to draw per node (as destination node)
+    :param device: if "cuda", will do preprocessing on the GPU
+    '''
+    def __init__(self, data_list, 
+                 num_positional_embeddings=16,
+                 top_k=30, num_rbf=16, device="cpu"):
+        
+        super(ProteinGraphDataset_qsar, self).__init__()
+        
+        self.data_list = data_list
+        self.top_k = top_k
+        self.num_rbf = num_rbf
+        self.num_positional_embeddings = num_positional_embeddings
+        self.device = device
+        self.node_counts = [len(e['seq']) for e in data_list]
+        
+        self.letter_to_num = {'C': 4, 'D': 3, 'S': 15, 'Q': 5, 'K': 11, 'I': 9,
+                       'P': 14, 'T': 16, 'F': 13, 'A': 0, 'G': 7, 'H': 8,
+                       'E': 6, 'L': 10, 'R': 1, 'W': 17, 'V': 19, 
+                       'N': 2, 'Y': 18, 'M': 12}
+        self.num_to_letter = {v:k for k, v in self.letter_to_num.items()}
+        
+    def __len__(self): return len(self.data_list)
+    
+    def __getitem__(self, i): return self._featurize_as_graph(self.data_list[i])
+    
+    def _featurize_as_graph(self, protein):
+        name = protein['name']
+        with torch.no_grad():
+            coords = torch.as_tensor(protein['coords'], 
+                                     device=self.device, dtype=torch.float32)   
+            sidec_coord = torch.as_tensor(np.array(protein['sidec_coord']), device=self.device, dtype=torch.float32)
+            dihedral_angle = torch.as_tensor(protein['dihedral_angle'], device=self.device, dtype=torch.float32)
+            seq = torch.as_tensor([self.letter_to_num[a] for a in protein['seq']],
+                                  device=self.device, dtype=torch.long)
+            
+            mask = torch.isfinite(coords.sum(dim=(1,2)))
+            coords[~mask] = np.inf
+            
+            X_ca = coords[:, 1]
+            edge_index = torch_cluster.knn_graph(X_ca, k=self.top_k) #不使用本身的键作为边，而是knn选择最近的30个点作为边
+
+            pos_embeddings = self._positional_embeddings(edge_index) # 位置编码
+            E_vectors = X_ca[edge_index[0]] - X_ca[edge_index[1]]  #【0】是邻居的边，【1】是中心的边，E_vectors表示距离
+            rbf = _rbf(E_vectors.norm(dim=-1), D_count=self.num_rbf, device=self.device) # 根据距离的n*16的 RBF embedding
+             
+            dihedrals = self._dihedrals(coords)                     
+            orientations = self._orientations(X_ca)
+            sidechains = self._sidechains(coords)
+            ## new
+            sidechains_qsar = self._sidechains_qsar(coords, sidec_coord)
+            side_dihedrals = torch.cat([torch.cos(dihedral_angle), torch.sin(dihedral_angle)], 1)
+            dihedrals_t = torch.cat([dihedrals, side_dihedrals], 1)
+            E_vectors_side_1 = sidec_coord[edge_index[0]] - X_ca[edge_index[0]]
+            E_vectors_side_2 = sidec_coord[edge_index[1]] - X_ca[edge_index[1]]
+            rbf_side_1 = _rbf(E_vectors_side_1.norm(dim=-1), D_count=self.num_rbf, device=self.device)
+            rbf_side_2 = _rbf(E_vectors_side_2.norm(dim=-1), D_count=self.num_rbf, device=self.device)
+            E_vectors_t = torch.cat([_normalize(E_vectors), _normalize(E_vectors_side_1), _normalize(E_vectors_side_2)], dim=-1)
+
+            node_s = dihedrals_t  # dim = [node, 14]
+            node_v = torch.cat([orientations, sidechains_qsar.unsqueeze(-2)], dim=-2) # dim = [node, 3, 3]
+            edge_s = torch.cat([rbf, pos_embeddings, rbf_side_1, rbf_side_2], dim=-1) # dim = [edge, 64]
+            edge_v = E_vectors_t.view(-1, 3, 3)  # dim = [edge, 3, 3]
+            
+            node_s, node_v, edge_s, edge_v = map(torch.nan_to_num,
+                    (node_s, node_v, edge_s, edge_v))
+            
+        data = torch_geometric.data.Data(x=X_ca, seq=seq, name=name,
+                                         node_s=node_s, node_v=node_v,
+                                         edge_s=edge_s, edge_v=edge_v,
+                                         edge_index=edge_index, mask=mask)
+        return data
+                                
+    def _dihedrals(self, X, eps=1e-7):
+        # From https://github.com/jingraham/neurips19-graph-protein-design
+        
+        X = torch.reshape(X[:, :3], [3*X.shape[0], 3])
+        dX = X[1:] - X[:-1] #错位相减
+        U = _normalize(dX, dim=-1)
+        u_2 = U[:-2]
+        u_1 = U[1:-1]
+        u_0 = U[2:]
+
+        # Backbone normals
+        n_2 = _normalize(torch.cross(u_2, u_1), dim=-1)
+        n_1 = _normalize(torch.cross(u_1, u_0), dim=-1)
+
+        # Angle between normals
+        cosD = torch.sum(n_2 * n_1, -1)
+        cosD = torch.clamp(cosD, -1 + eps, 1 - eps)
+        D = torch.sign(torch.sum(u_2 * n_1, -1)) * torch.acos(cosD)
+
+        # This scheme will remove phi[0], psi[-1], omega[-1]
+        D = F.pad(D, [1, 2]) 
+        D = torch.reshape(D, [-1, 3])
+        # Lift angle representations to the circle
+        D_features = torch.cat([torch.cos(D), torch.sin(D)], 1)
+        return D_features
+    
+    
+    def _positional_embeddings(self, edge_index, 
+                               num_embeddings=None,
+                               period_range=[2, 1000]):
+        # From https://github.com/jingraham/neurips19-graph-protein-design
+        num_embeddings = num_embeddings or self.num_positional_embeddings
+        d = edge_index[0] - edge_index[1]
+     
+        frequency = torch.exp(
+            torch.arange(0, num_embeddings, 2, dtype=torch.float32, device=self.device)
+            * -(np.log(10000.0) / num_embeddings)
+        )
+        angles = d.unsqueeze(-1) * frequency
+        E = torch.cat((torch.cos(angles), torch.sin(angles)), -1)
+        return E
+
+    def _orientations(self, X):
+        forward = _normalize(X[1:] - X[:-1])
+        backward = _normalize(X[:-1] - X[1:])
+        forward = F.pad(forward, [0, 0, 0, 1])
+        backward = F.pad(backward, [0, 0, 1, 0])
+        return torch.cat([forward.unsqueeze(-2), backward.unsqueeze(-2)], -2)
+
+    def _sidechains(self, X):
+        n, origin, c = X[:, 0], X[:, 1], X[:, 2]
+        c, n = _normalize(c - origin), _normalize(n - origin)
+        bisector = _normalize(c + n)
+        perp = _normalize(torch.cross(c, n))
+        vec = -bisector * math.sqrt(1 / 3) - perp * math.sqrt(2 / 3)
+        return vec 
+
+    ## new
+    def _sidechains_qsar(self, X, sidec_coord):
+        # direction vector from center CA to sideC
+        origin = X[:, 1]
+        vec = _normalize(sidec_coord - origin)
+        return vec 
