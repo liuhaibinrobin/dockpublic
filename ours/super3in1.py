@@ -120,14 +120,15 @@ def main(args):
     for _path in [save_files_path, save_model_path, main_path]:
         os.system(f"mkdir -p {_path}")
 
-    def qrint(target, jupyter= cfg_jupyter, log=log_fpath, R=R, B=B, S=S, r=True):
+    def qrint(target, jupyter= cfg_jupyter, log=log_fpath, R=R, B=B, S=S, r=True, newline=True):
+        end = "\n" if newline else " "
         if r:
             print(target)
         if jupyter:
             target = target.replace(R,"").replace(B,"").replace(S,"")
         with open(log_fpath, "a") as f:
             if target != "\n":
-                f.write(time.strftime("[%m-%d %H:%M:%S] ")+target.replace("\n", "                 \n")+"\n")
+                f.write(time.strftime("[%m-%d %H:%M:%S] ")+target.replace("\n", "                 \n")+end)
             else:
                 f.write("\n")
 
@@ -173,7 +174,7 @@ def main(args):
     # ### Get protein features: <font color="red">protein_dict</font> (& <font color="red">protein_res_id_dict</font>)
 
     # %%
-    %%time
+    
     qrint("\n", r=False)
     qrint(f"{R}protein_dict{S} and {R}protein_res_id_dict{S}")
     qrint(saveconfig(cfg_use_saved_files, cfg_save_files))
@@ -244,7 +245,7 @@ def main(args):
     # #### Generate or load <font color="red">.ds</font> file
 
     # %%
-    %%time
+    
     cfg_use_saved_files = False
     cfg_save_files = True
     qrint("\n", r=False)
@@ -271,7 +272,7 @@ def main(args):
     # #### Generate or check <font color="red">p2rank results</font>
 
     # %%
-    %%time
+    
     cfg_use_saved_files = True
     cfg_save_files = False
     qrint("\n", r=False)
@@ -338,7 +339,7 @@ def main(args):
     # ### Get ligand infomation: <font color="red">ligand_df</font> (& <font color="red">ligand_atom_id_dict</font>)
 
     # %%
-    %%time
+    
     qrint("\n", r=False)
     qrint(f"{R}ligand_df{S} & {R}ligand_atom_id_dict{S} processing" if (cfg_mode=="nciyes") else f"{R}ligand_df{S} processing")
     qrint(saveconfig(cfg_use_saved_files, cfg_save_files))
@@ -404,7 +405,7 @@ def main(args):
     # ### Get <font color = "red"> info </font> for dataset processing
 
     # %%
-    %%time
+    
     qrint("\n", r=False)
     qrint(f"{R}info{S} for dataset processing")
     qrint(saveconfig(cfg_use_saved_files, cfg_save_files))
@@ -665,11 +666,9 @@ def main(args):
     # ### datasets generation or load
 
     # %%
-    cfg_use_saved_files = False
-    cfg_save_files=False
 
     # %%
-    %%time
+    
     qrint("\n", r=False)
     qrint(f"{R}dataset{S} generation or load")
     qrint(saveconfig(cfg_use_saved_files, cfg_save_files))
@@ -683,6 +682,7 @@ def main(args):
         if not os.path.exists(f"{save_files_path}timesplit_train_no_lig_overlap.txt") or not os.path.exists(f"{save_files_path}timesplit_val_no_lig_overlap.txt") or not os.path.exists(f"{save_files_path}timesplit_test.txt"):
             qrint(f"Timesplit files not found. {R}Length split strategy{S} will be applied.")
             cfg_timesplit = False
+            
         else:
             qrint(f"Found timesplit files. {R}Timesplit{S} will be applied.")
             with open(f"{save_files_path}timesplit_train_no_lig_overlap.txt", "r") as f:
@@ -699,7 +699,7 @@ def main(args):
                 for _s in ["train", "val", "test", "test2"]:
                     os.system(f"mkdir -p {dataset_path}{_s}")
                 info_test2 = info[~(info.pdb_code.isin(_train)|info.pdb_code.isin(_val)|info.pdb_code.isin(_test))]
-                test2_set = MyDataset_VS(f"{dataset_path}test2/", data=test2_info, protein_dict=protein_dict, 
+                test2_set = MyDataset_VS(f"{dataset_path}test2/", data=info_test2, protein_dict=protein_dict, 
                                         protein_res_id_dict=protein_res_id_dict, nci_df=nci_df, ligand_atom_id_dict=ligand_atom_id_dict, cfg_mode=cfg_mode) if len(info_test2) \
                             else None        
             else:
@@ -733,6 +733,8 @@ def main(args):
     qrint(f"-- {R}test set{S}  : {len(test_set)}")
     qrint(f"-- {R}test2 set{S} : {len(test2_set) if test2_set else 0}")
 
+    device = torch.device(f'cuda:{args.gpu_id}' if torch.cuda.is_available() else 'cpu')
+    
     # %%
     def checkdata(data, fpath = "./trash.txt", cfg_mode=cfg_mode):
         if isinstance(data, str) or isinstance(data, list):
@@ -812,12 +814,14 @@ def main(args):
 
     ######## start train
     if True:
-        for epoch_id in range(args.max_epoch):
+        for _epoch in range(args.max_epoch):
+            qrint(f"Training Epoch: {_epoch}")
             model.train()
             _list_loss = []
             _list_nci = []
             errors, error_file = [], f"{main_path}train_{_epoch}_errors.txt"
             for i,data in tqdm(enumerate(train_data_loader), total=len(train_data_loader)):
+                qrint(f"Train batch {i}", r=False, newline=False)
                 if cfg_checkdata:
                     checkdata(data)
                     if isinstance(data, str) or isinstance(data, list):
@@ -836,20 +840,22 @@ def main(args):
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
-                    _list_loss.append(loss)
-                    _list_nci.append(nci_pred)
+                    _list_loss.append(loss.detach().cpu())
+                    _list_nci.append(nci_pred.detach().cpu())
             
-            nci_dict[f"train_{epoch_id}"] = _list_nci
+            with open (f"{save_files_path}nci_dict_train_{_epoch}.pkl", "wb") as f:
+                pickle.dump(_list_nci, f)
             
             losst = torch.cat([torch.tensor([i]) for i in _list_loss])
             losst = torch.mean(losst, dim=0)
-            
-            print('TRAIN----> Epoch [{}/{}], Loss: {:.4f}' .format(epoch_id+1, args.max_epoch, losst.item()))
+            qrint("\n")
+            qrint(f"Loss: {losst.item()}")
+            print('TRAIN----> Epoch [{}/{}], Loss: {:.4f}' .format(_epoch+1, args.max_epoch, losst.item()))
             model.eval()
             
             if val_data_loader is not None:
                 with torch.no_grad():
-                    
+                    qrint(f"Val batch {i}", r=False, newline=False)
                     _list_loss_va = []
                     _list_nci = []
                     for data in tqdm(val_data_loader):
@@ -860,18 +866,21 @@ def main(args):
                             y_pred, affinity_pred, nci_pred = model(data, i)
                             loss = model.calculate_loss(affinity_pred, y_pred, nci_pred, data.affinity, data.dis_map,
                                                         data.nci_sequence, data.right_pocket_by_distance, i, data.y_batch, data.pair_shape)
-                            _list_loss_va.append(loss)
-                            _list_nci.append(nci_pred)
+                            _list_loss_va.append(loss.detach().cpu())
+                            _list_nci.append(nci_pred.detach().cpu())
                     losst_va = torch.cat([torch.tensor([i]) for i in _list_loss_va])
                     losst_va = torch.mean(losst_va, dim=0)
-                    nci_dict[f"val_{epoch_id}"] = _list_nci
-                    print('VALID----> Epoch [{}/{}], Loss: {:.4f}' .format(epoch_id+1, args.max_epoch, losst_va.item()))
-                    state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': epoch_id}
-                    model_dir = args.model_dir + '/%s/lr%s-batchsize%s-%s' % (args.iter, args.lr, args.batch_size, args.model_mode)
-                    if not os.path.exists(model_dir):
-                        os.system(f"mkdir -p {model_dir}")
-                    epoch_model_dir = '%s/epoch-%s' % (model_dir, epoch_id + 1)
-                    torch.save(state, epoch_model_dir)
+                    with open (f"{save_files_path}nci_dict_val_{_epoch}.pkl", "wb") as f:
+                        pickle.dump(_list_nci, f)
+                    print('VALID----> Epoch [{}/{}], Loss: {:.4f}' .format(_epoch+1, args.max_epoch, losst_va.item()))
+                    qrint("\n")
+                    qrint(f"Loss: {losst_va.item()}")
+                    state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': _epoch}
+                    save_model_path = save_model_path + '/%s/lr%s-batchsize%s-%s' % (args.iter, args.lr, args.batch_size, args.model_mode)
+                    if not os.path.exists(save_model_path):
+                        os.system(f"mkdir -p {save_model_path}")
+                    epoch_save_model_path = '%s/epoch-%s' % (save_model_path, _epoch + 1)
+                    torch.save(state, epoch_save_model_path)
         model.eval() 
         with torch.no_grad():
             ## TODO 定义一个score用来评估
@@ -888,12 +897,14 @@ def main(args):
                         y_pred, affinity_pred, nci_pred = model(data, i)
                         loss = model.calculate_loss(affinity_pred, y_pred, nci_pred, data.affinity, data.dis_map,
                                                     data.nci_sequence, data.right_pocket_by_distance, i, data.y_batch, data.pair_shape)
-                        _list_loss_te.append(loss)
-                        _list_nci.append(nci_pred)
-                nci_dict[f"test_{epoch_id}"] = _list_nci
+                        _list_loss_te.append(loss.detach().cpu())
+                        _list_nci.append(nci_pred.detach().cpu())
+                with open (f"{save_files_path}nci_dict_test_{_epoch}.pkl", "wb") as f:
+                    pickle.dump(_list_nci, f)
+                    
                 losst_te = torch.cat([torch.tensor([i]) for i in _list_loss_te])
                 losst_te = torch.mean(losst_te, dim=0)
-                print('TEST----> loss: {}' .format(losst_te))
+                qrint('TEST----> loss: {}' .format(losst_te))
             
             if test2_data_loader is not None:
                 _list_loss_te_2 = []
@@ -908,7 +919,7 @@ def main(args):
                         _list_loss_te_2.append(loss)
                 losst_te_2 = torch.cat([torch.tensor([i]) for i in _list_loss_te_2])
                 losst_te_2 = torch.mean(losst_te_2, dim=0)
-                print('TEST2----> loss: {}' .format(losst_te_2))
+                qrint('TEST2----> loss: {}' .format(losst_te_2))
 
     
 
@@ -916,145 +927,27 @@ def main(args):
 
 
 
-
-    # %%
-    nci_dict["test_15"][0][0].argmax(dim=-1).sum()
-
-    # %%
-    %load_ext autoreload
-    %autoreload 2
-
-    # %%
-    model(data[0],0)
-
-    # %%
-    y_pred, affinity_pred, z, z_mask = model.IaBNet(data)
-
-    # %%
-    from collections import defaultdict
-
-    # Save results by epoch_name(defaultdict(list) with key assigned to the name of epoch. example: train_0, val_1)
-
-    affinity_pred_dict = defaultdict(list)
-    y_pred_dict = defaultdict(list)
-    nci_pred_dict = defaultdict(list)
-    nci_true_dict = defaultdict(list)
-    dis_map_dict = defaultdict(list)
-    loss_dict = defaultdict(list)
-    right_pocket_dict = defaultdict(list)
-    data_name_dict =defaultdict(list)
-    y_batch_dict = defaultdict(list)
-
-    for _epoch in range(num_epoch):
-        epoch_name = f"train_{_epoch}"
-        errors, error_file = [], f"{main_path}train_{_epoch}_errors.txt"
-        for i,data in tqdm(enumerate(train_data_loader), total=len(train_data_loader)):
-            if cfg_checkdata:
-                checkdata(data)
-                if isinstance(data, str) or isinstance(data, list):
-                    errors.append(data)
-                    with open(error_file, "a") as f:
-                        f.write("\n"+str(data)+"\n")    
-                    continue
-            data = data.to(device)
-            if cfg_mode == "tankbind": # Results : affinity_pred_dict
-                data = data.to(device)
-                y_pred, affinity_pred = model(data)
-                affinity_pred_dict[epoch_name].append(affinity_pred.detach().cpu())
-
-
-            elif cfg_mode == "nciyes": # Results : many
-                y_pred, affinity_pred, nci_pred = model(data, i)
-                affinity_pred_dict[epoch_name].append(affinity_pred.detach().cpu())
-                y_pred_dict[epoch_name].append(y_pred.detach().cpu())
-                nci_pred_dict[epoch_name].append(nci_pred.detach().cpu())
-                nci_true_dict[epoch_name].append(data.nci_sequence.detach().cpu())
-                dis_map_dict[epoch_name].append(data.dis_map.detach().cpu())
-                right_pocket_dict[epoch_name].append(data.right_pocket_by_distance)
-                data_name_dict[epoch_name].append(data.dataname)
-                y_batch_dict[epoch_name].append(data.y_batch)
-                loss = model.calculate_loss(affinity_pred, y_pred, nci_pred, data.affinity, data.dis_map,
-                                            data.nci_sequence, data.right_pocket_by_distance, i, data.y_batch, data.pair_shape)
-                optimizer.zero_grad()
-                if loss is not None:
-                    with open(error_file, "a") as f:
-                        f.write(str(i)+", ")
-                    loss_dict[epoch_name].append(float(loss))
-                    optimizer.zero_grad()
-                    loss.backward()
-    b                optimizer.step()
-                else:
-                    with open(f"error_data_{i}.pkl", "wb") as f:
-                        pickle.dump(data, f)
-                    loss_dict[epoch_name].append("Error")
-                    print(f"Error with data: {data.dataname}")
-
-            elif cfg_mode == "frag":
-                pass
-        #TODO: write your codes here.
-            
-
-    # %% [markdown]
-    # 🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏🙏
-
-    # %% [markdown]
-    # ㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️㊗️
-
-    # %% [markdown]
-    # ### Results
-
-    # %%
+   # %%
     import pickle
     if cfg_mode == "tankbind":
-        
+        pass
     elif cfg_mode == "nciyes":
-        with open(f"{main_path}errors.pkl", "wb") as f:
-            pickle.dump(errors, f)
-        with open(f"{main_path}y_pred_dict.pkl", "wb") as f:
-            pickle.dump(y_pred_dict, f)
-        with open(f"{main_path}nci_pred_dict.pkl", "wb") as f:
-            pickle.dump(nci_pred_dict, f)
-        with open(f"{main_path}nci_true_dict.pkl", "wb") as f:
-            pickle.dump(nci_true_dict, f)
-        with open(f"{main_path}affinity_pred_dict.pkl", "wb") as f:
-            pickle.dump(affinity_pred_dict, f)
-        with open(f"{main_path}data_name_dict.pkl", "wb") as f:
-            pickle.dump(data_name_dict, f)    
-        with open(f"{main_path}dis_map_dict.pkl", "wb") as f:
-            pickle.dump(dis_map_dict, f)
-        with open(f"{main_path}loss_dict.pkl", "wb") as f:
-            pickle.dump(loss_dict, f)
-        with open(f"{main_path}right_pocket_dict.pkl", "wb") as f:
-            pickle.dump(right_pocket_dict, f)
+        pass
     elif cfg_mode == "frag":
-        #TODO: write your codes here
-
-    # %% [markdown]
-    # |CODE|EPOCH|TP|TN|FP|FN|Preci.%|Recall%|Notes
-    # |:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---|
-    # |NCIYes-test00-08150437|val_0|#25175|4490395|1414547|557|5.58|97.83|weights: 1, 500|
-    # |NCIYes-test00-08150549|val_0|9325|2553748|398723|3541|22.85|72.47|weights: 1, 100|
-    # |NCIYes-test00-08150616|val_0|0|2952471|0|12866|-|-|weights: 1, 50|
-    # |NCIYes-test00-08150700|val_0|10390|2496756|455715|2476|22.29|80.75|weights: 1, 80|
-    # |NCIYes-test00-08150700|val_0|18514|5197212|707730|7218|2.54|80.75|weights: 1, 80|
-
-    # %%
+        pass
 
 
-if __name__=="main":
+
+if __name__=="__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=123)
-    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--max_epoch", type=int, default=20)
-    parser.add_argument("--gpu_id", type=int, default=3)
-    parser.add_argument("--compound_name", 
-            choices=['PDL1','HPK1_3','HPK1_4','KRAS_G12D','MAT2A','SOS1','ALK', 'BRAF', 'BTK', 'CDK4', 'EGFR', 'FGFR1', 'JAK2', 'NTRK1', 'VEGFR2','PRMT5'])
+    parser.add_argument("--gpu_id", type=int, default=0)
     parser.add_argument("--data_path", type=str, default='data')
-    parser.add_argument("--init_model", type=str, default="../saved_models/self_dock.pt")
-    parser.add_argument("--model_dir", type=str, default=save_model_path)
-    parser.add_argument("--embedding_dir", type=str, default='embedding')
+
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--dropout_rate", type=float, default=0)
     parser.add_argument("--iter", type=int, default=1)
@@ -1062,7 +955,6 @@ if __name__=="main":
     parser.add_argument("--data_version", type=str, default='v8.26')    
     parser.add_argument("--first_run", type=bool, default=False) 
     parser.add_argument("--model_mode", choices=['init', 'Halfbind', 'Tankbind'], default='Tankbind')
-    parser.add_argument("")
     args = parser.parse_args()
-
+    
     main(args)
