@@ -18,6 +18,7 @@ import scipy.spatial
 import requests
 from rdkit.Geometry import Point3D
 import random
+from IPython import embed
 
 from torchdrug import data as td     # conda install torchdrug -c milagraph -c conda-forge -c pytorch -c pyg if fail to import
 
@@ -280,7 +281,7 @@ def sidechain_angle(res_list, chi_angles_atoms):
     double_res_list = ['HIS', 'ASN', 'GLN', 'TRP', 'TYR']
     dihedral_angle_list_t = []
     broken_res_id = []
-    for res in res_list:
+    for res_index, res in enumerate(res_list):
         dihedral_angle_list = []
         chi_angles_list = chi_angles_atoms[res.resname]
         chi_angles_list_len = len(chi_angles_list)
@@ -288,7 +289,7 @@ def sidechain_angle(res_list, chi_angles_atoms):
             for group in chi_angles_list:
                 if (group[0] not in res) or (group[1] not in res) or (group[2] not in res) or (group[3] not in res):
                     # print(res.get_full_id()[3][1])
-                    broken_res_id.append(res.get_full_id()[3][1])
+                    broken_res_id.append(res_index)
                     continue
                 angle_x = dihedral_angle(res[group[0]].coord, res[group[1]].coord,\
                                                 res[group[2]].coord, res[group[3]].coord)
@@ -296,7 +297,7 @@ def sidechain_angle(res_list, chi_angles_atoms):
         if len(dihedral_angle_list) != 4:
             for i in range(4 - len(dihedral_angle_list)):
                 dihedral_angle_list.append(0)
-        if res.get_full_id()[3][1] not in broken_res_id:
+        if res_index not in broken_res_id:
             if res.resname in double_res_list:
                 dihedral_angle_list_t.append(dihedral_angle_list) # double res according to the sidec num
                 dihedral_angle_list_t.append(dihedral_angle_list)
@@ -311,8 +312,8 @@ def clean_broken_res(res_list, broken_res_id):
     clean_broken_res = []
     clean_broken_res_double = []
     double_res_list = ['HIS', 'ASN', 'GLN', 'TRP', 'TYR']
-    for res in res_list:
-        if res.get_full_id()[3][1] not in broken_res_id:
+    for res_index, res in enumerate(res_list):
+        if res_index not in broken_res_id:
             clean_broken_res.append(res)
             if res.resname in double_res_list:
                 clean_broken_res_double.append(res)
@@ -349,6 +350,7 @@ def sidec_coord(res_list, sidec_dict):
 
 
 def get_clean_res_list(res_list, verbose=False, ensure_ca_exist=False, bfactor_cutoff=None):
+    """add sidec existing justification"""
     clean_res_list = []
     for res in res_list:
         hetero, resid, insertion = res.full_id[-1]
@@ -362,7 +364,19 @@ def get_clean_res_list(res_list, verbose=False, ensure_ca_exist=False, bfactor_c
                     ca_bfactor = float(res['CA'].bfactor)
                     if ca_bfactor < bfactor_cutoff:
                         continue
-                clean_res_list.append(res)
+                res_sidec_list = sidec_dict[res.resname]
+                if len(res_sidec_list) == 2:
+                    _tmp1 = [i for i in res_sidec_list[0] if i not in res]
+                    _tmp2 = [i for i in res_sidec_list[1] if i not in res]
+                    if len(_tmp1) != 0 or len(_tmp2) != 0:
+                        # print('error res name:', res.resname, 'error atom name:', _tmp1, _tmp2)
+                        continue
+                else:
+                    _tmp = [i for i in res_sidec_list if i not in res]
+                    if len(_tmp) != 0:
+                        # print('error res name:',res.resname, 'error atom name:', _tmp)
+                        continue
+                    clean_res_list.append(res)
         else:
             if verbose:
                 print(res, res.full_id, "is hetero")
@@ -410,10 +424,6 @@ def get_protein_feature_qsar(res_list):
     structure['dihedral_angle'] = dihedral_angle_list_t
     structure['sidec_coord'] = sidec_coord(clean_broken_res_l, sidec_dict)
     torch.set_num_threads(1)        # this reduce the overhead, and speed up the process for me.
-    print(len(structure['coords']))
-    print(len(structure['seq']))
-    print(len(structure['dihedral_angle']))
-    print(len(structure['sidec_coord']))
     dataset = gvp.data.ProteinGraphDataset_qsar([structure])
     protein = dataset[0]
     x = (protein.x, protein.seq, protein.node_s, protein.node_v, protein.edge_index, protein.edge_s, protein.edge_v)
