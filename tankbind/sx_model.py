@@ -12,6 +12,10 @@ from torch_scatter import scatter_mean
 from GATv2 import GAT
 from GINv2 import GIN
 
+import pickle
+
+import numpy as np
+
 class GNN(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels):
         super().__init__()
@@ -26,7 +30,7 @@ class GNN(torch.nn.Module):
 
 
 class GVP_embedding(nn.Module):
-    '''
+    '''eeee
     Modified based on https://github.com/drorlab/gvp-pytorch/blob/main/gvp/models.py
     GVP-GNN for Model Quality Assessment as described in manuscript.
     
@@ -159,7 +163,7 @@ class TriangleProteinToCompound_v2(torch.nn.Module):
         g = self.ending_gate_linear(z).sigmoid()
         block1 = torch.einsum("bikc,bkjc->bijc", protein_pair, ab1)
         block2 = torch.einsum("bikc,bjkc->bijc", ab2, compound_pair)
-        # print(g.shape, block1.shape, block2.shape)
+        # pdrint(g.shape, block1.shape, block2.shape)
         z = g * self.linear_after_sum(self.layernorm_c(block1+block2)) * z_mask
         return z
 
@@ -194,7 +198,7 @@ class Self_Attention(nn.Module):
             attention_probs = attention_probs * top_mask
             # attention_probs = attention_probs * attention_weight
             attention_probs = attention_probs / (torch.sum(attention_probs,dim=-1,keepdim=True) + 1e-5)
-        # print(attention_probs.shape,v.shape)
+        # pridnt(attention_probs.shape,v.shape)
         # attention_probs = self.dp(attention_probs)
         outputs = torch.matmul(attention_probs, v)
 
@@ -255,7 +259,7 @@ class TriangleSelfAttentionRowWise(torch.nn.Module):
         # output of shape b, j, embedding.
         # z[:, i] = output
         z = output
-        # print(g.shape, block1.shape, block2.shape)
+        # pdrint(g.shape, block1.shape, block2.shape)
         z = self.final_linear(z) * z_mask.unsqueeze(-1)
         return z
 
@@ -277,7 +281,9 @@ class Transition(torch.nn.Module):
         
 
 class sx_IaBNet_with_affinity(torch.nn.Module):
-    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, compound_embed_mode=1, n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2, nciyes=False):
+    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, 
+                 compound_embed_mode=1, n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2, 
+                 nciyes=False):
         super().__init__()
         self.layernorm = torch.nn.LayerNorm(embedding_channels)
         self.protein_bin_max = protein_bin_max
@@ -287,6 +293,8 @@ class sx_IaBNet_with_affinity(torch.nn.Module):
         self.n_trigonometry_module_stack = n_trigonometry_module_stack
         self.readout_mode = readout_mode
         self.nciyes = nciyes
+        self.loss = NCIYesLoss()
+
 
         if protein_embed_mode == 0:
             self.conv_protein = GNN(hidden_channels, embedding_channels)
@@ -378,7 +386,6 @@ class sx_IaBNet_with_affinity(torch.nn.Module):
         z = torch.einsum("bik,bjk->bijk", protein_out_batched, compound_out_batched)
         z_mask = torch.einsum("bi,bj->bij", protein_out_mask, compound_out_mask)
         # z = z * z_mask.unsqueeze(-1)
-        # print(protein_pair.shape, compound_pair.shape, b.shape)
         if self.mode == 0:
             for _ in range(1):
                 for i_module in range(self.n_trigonometry_module_stack):
@@ -397,29 +404,203 @@ class sx_IaBNet_with_affinity(torch.nn.Module):
             # valid_interaction_z = (z * z_mask.unsqueeze(-1)).mean(axis=(1, 2))
             valid_interaction_z = (z * z_mask.unsqueeze(-1)).sum(axis=(1, 2)) / z_mask.sum(axis=(1, 2)).unsqueeze(-1)
             affinity_pred = self.linear_energy(valid_interaction_z).squeeze(-1)
-            # print("z shape", z.shape, "z_mask shape", z_mask.shape,   "valid_interaction_z shape", valid_interaction_z.shape, "affinity_pred shape", affinity_pred.shape)
+            # pdrint("z shape", z.shape, "z_mask shape", z_mask.shape,   "valid_interaction_z shape", valid_interaction_z.shape, "affinity_pred shape", affinity_pred.shape)
         if self.readout_mode == 2:
             pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
             affinity_pred = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
         if self.nciyes:
-            return y_pred, affinity_pred, z
+            return y_pred, affinity_pred, z, z_mask
         else:
             return y_pred, affinity_pred
 
-class NCIYes_IaBNet(torch.nn.Module):
-    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, compound_embed_mode=1, n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2):
-        super().__init__()
-        self.IaBNet = sx_IaBNet_with_affinity(hidden_channels, embedding_channels, c, mode, protein_embed_mode, compound_embed_mode, n_trigonometry_module_stack, protein_bin_max, readout_mode)
-        self.NCIClassifier = nn.Linear(in_features=128,)
 
-    def forward(self, data):
-        y_pred, affinity_pred, z = self.IaBNet(data)
-        NCI_pred = self.NCIClassifier(z)
-        return y_pred, affinity_pred, NCI_pred
+
+
+
+
+class NCIClassifier(nn.Module):
+    def __init__(self, hidden_channels=128, mid_channels=128, output_dimension = 1, dropout_rate=0.1):
+        super().__init__()
+        self.mlp_1 = nn.Linear(hidden_channels, mid_channels)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(p=dropout_rate)
+        self.mlp_2 = nn.Linear(mid_channels, output_dimension)
+    def forward(self, z, z_mask, pair_shape):
+        #pdrint(f"PAIRSHAPE{pair_shape}")
+        #prdint(f"ZSHAPE {z.shape}")
+        #prdint(f"ZMASK_UNIQUE {z_mask.unique()}")
+        z = self.mlp_1(z)
+        z = self.relu(z)
+        z = self.dropout(z)
+        z = self.mlp_2(z)
+        nci_pred = z.squeeze(-1)
+        #prdint(f"NCICLASSIFIER ZSHAPE {z.shape} ZMASKSHAPE {z_mask.shape} NCIPREDSHAPE {nci_pred.shape}")
+        return nci_pred
+        
+class FFN(nn.Module):
+    def __init__(self, hidden_size, dropout_rate):
+        super(FFN, self).__init__()
+        self.layer1 = nn.Linear(hidden_size, hidden_size)
+        self.gelu = nn.GELU()
+        self.dropout = nn.Dropout(p=dropout_rate)
+    def forward(self, x):
+        y = self.layer1(x)
+        y = self.gelu(y)
+        y = self.dropout(y)
+        return y
+
+class NCIYes_IaBNet(torch.nn.Module):
+    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, 
+                 compound_embed_mode=1, n_trigonometry_module_stack=5, 
+                 protein_bin_max=30, readout_mode=2, output_classes=1, nciyes=False, class_weight=None,
+                 margin=1, margin_weight=1, dist_weight=1, nci_weight=1):
+        super().__init__()
+        self.nciyes = nciyes
+        self.class_weight = class_weight
+        # prdint(self.class_weight)
+        self.IaBNet = sx_IaBNet_with_affinity(hidden_channels, embedding_channels, c, 
+                                              mode, protein_embed_mode, compound_embed_mode, 
+                                              n_trigonometry_module_stack, protein_bin_max, 
+                                              readout_mode, nciyes)
+        self.NCIClassifier = NCIClassifier(hidden_channels, hidden_channels, output_classes) if self.nciyes else None
+        self.loss = NCIYesLoss(margin, margin_weight, dist_weight, nci_weight, nciyes = self.nciyes, class_weight = self.class_weight)
+
+    def forward(self, data, i):
+        try:
+            if self.nciyes:
+                #print("asdgasdhadfshagsstddhfh")
+                y_pred, affinity_pred, z, z_mask = self.IaBNet(data)
+                #print("asegdsdags")
+                nci_pred = self.NCIClassifier(z, z_mask, data.pair_shape)                
+                return y_pred, affinity_pred, nci_pred
+            
+            
+            
+            else:
+                return self.IaBNet(data)
+        except Exception as e:
+            print(f" Error in <NCIYes_IaBNet> with batch {i}. Exception info: {e.__class__.__name__, e}")
+            return None, None
+        
+    def calculate_loss(self, aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch, pair_shape):
+        loss = self.loss(aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch, pair_shape)
+        return loss
+
+# TODO: 这里要搞一下 维度才能用
+class NCIClassifierLoss(nn.Module):
+    def __init__(self,class_weight, nci_under_sampling):
+        super().__init__()
+        self.loss = nn.CrossEntropyLoss(weight=class_weight)
+        self.under_sampling = nci_under_sampling
+    def forward(self, nci_pred, nci_true, right_pocket, y_batch, pair_shape):
+        device = nci_pred.device
+        samples = []
+        shapes = []
+        for i, (_right, _shape) in enumerate(zip(right_pocket, pair_shape)):
+            if _right == True:
+                samples.append(i)
+                shapes.append(_shape)
+        samples = torch.tensor(samples).to(device)
+        _nci_pred = None
+        
+        for i, _shape in zip(samples, shapes):
+            if _nci_pred is None:
+                _nci_pred = nci_pred[i, 0:_shape[0], 0:_shape[1]].flatten(end_dim=-2)
+            else:
+                _nci_pred = torch.cat(
+                    (_nci_pred, nci_pred[i,0:_shape[0],0:_shape[1]].flatten(end_dim=-2))
+                )
+        index = torch.isin(y_batch, samples)
+        
+        #prdint(f"== <NCIClassifierLoss>: original == nci_pred.shape {nci_pred.shape} _nci_pred.shape {_nci_pred.shape}, nci_true.shape {nci_true.shape}, index.shape {index.shape}")
+        
+        #pridnt(y_batch, samples)
+        #prdint("index", index)
+        #pridnt("nci1",nci_true.sum())
+        nci_true = nci_true[index]
+        #prdint("nci2",nci_true.sum())
+        #pridnt("nci_true", nci_true)
+        trues = torch.where(nci_true == True)[0].data
+        #pridnt("trues", trues)
+        falses = torch.where(nci_true == False)[0].data
+        #pridnt("falses", falses)
+        falses = torch.tensor(
+            np.random.choice(
+                np.array(falses.to("cpu")), 
+                size = 2*len(trues), 
+                replace=False)
+        ).to(device)
+        tf = torch.cat((trues, falses))
+        #pdrint(trues, falses, tf, nci_true.shape, _nci_pred.shape)
+        #prdint(f"== <NCIClassifierLoss>: indexed  == nci_pred.shape {nci_pred.shape}  _nci_pred.shape {_nci_pred.shape}, 
+        #nci_true.shape {nci_true.shape}, index.shape {index.shape}")
+        #return self.loss(nci_pred[index], nci_true.flatten()[index])
+        
+        return self.loss(_nci_pred[tf], nci_true[tf]) if len(tf) else 0
+
+
+    
+class NCIYesLoss(nn.Module):
+    def __init__(self, margin=1, margin_weight=1, dist_weight=1, nci_weight=1, nciyes=False, class_weight=None, nci_under_sampling=True):
+        super().__init__()
+        self.margin_weight = margin_weight 
+        self.dist_weight = dist_weight
+        self.nci_weight = nci_weight
+        self.MarginLoss = TBMarginLoss(margin)
+        self.DistLoss = nn.MSELoss()
+        self.nci_under_sampling = nci_under_sampling
+        if nciyes and (class_weight is None):
+            self.NCILoss = nn.BCELoss()
+        elif nciyes and (class_weight is not None):
+            #pridnt(class_weight)
+            self.NCILoss = NCIClassifierLoss(class_weight, self.nci_under_sampling)
+        self.nciyes = nciyes
+    
+    #loss = self.loss(aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch)
+    def forward(self, aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch, pair_shape):
+        #self.margin_weight * self.MarginLoss(aff_pred, aff_true, right_pocket) + self.dist_weight * self.DistLoss(y_pred, y_true) + self.nci_weight * self.NCILoss(y_pred, y_true)        
+        #)
+        try:
+            loss0 = self.margin_weight * self.MarginLoss(aff_pred, aff_true, right_pocket)
+            loss1 = self.dist_weight * self.DistLoss(y_pred, y_true)
+            if sum(right_pocket):
+                loss2 = self.nci_weight * self.NCILoss(nci_pred, nci_true.long(), right_pocket, y_batch, pair_shape) if self.nciyes else 0
+                loss = loss0+loss1+loss2
+            else:
+                loss = loss0+loss1
+        #nci_score = 0
+        #for (_p,_t) in zip(nci_pred, nci_true):
+        #    if (_p > 0.5 and _t == True) or (_p < 0.5 and _t == False):
+        #        nci_score += 1
+        #nci_score = nci_score / len(nci_pred)
+            return loss #, nci_score
+        except Exception as e:
+            import pickle
+            with open(f"exception_{i}.pkl","wb") as f:
+                pickle.dump([aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch, pair_shape], f)
+            #import pdb
+            #pdb.set_trace()
+            print(f" Error in <NCIYesLoss> with batch {i}. Exception info: {e.__class__.__name__, e}")
+            return None #, None
+
+class TBMarginLoss(nn.Module):
+    def __init__(self, margin=1):
+        super().__init__()
+        self.margin=margin
+    def forward(self, aff_pred, aff_true, right_pocket):
+        loss = torch.zeros(1).to(aff_pred.device)[0]
+        
+        aff_pred = aff_pred - aff_true
+        for _a, _p in zip(aff_pred, right_pocket):
+            if _p:
+                loss += _a**2
+            else:
+                loss += (max(0, (_a + self.margin).relu()))**2
+        return (loss / len(aff_pred))
     
 
-def sx_get_model(mode, logging, device):
+def sx_get_model(mode, logging, device, **kwargs):
     if mode == 0:
         logging.info("5 stack, readout2, pred dis map add self attention and GVP embed, compound model GIN")
-        model = NCIYes_IaBNet().to(device)
+        model = NCIYes_IaBNet(**kwargs).to(device)
     return model

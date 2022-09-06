@@ -150,14 +150,28 @@ def get_compound_pair_dis_distribution(coords, LAS_distance_constraint_mask=None
     pair_dis_distribution = pair_dis_one_hot.float()
     return pair_dis_distribution
 
+def sx_ligand_dedocking(mol, generate_3D_conf = False, random_seed = 10):
+    if generate_3D_conf:
+        mol = AllChem.AddHs(mol)
+        AllChem.EmbedMultipleConfs(mol, numConfs=1, randomSeed=random_seed)
+        mol = AllChem.RemoveHs(mol)
+    else:
+        mol.RemoveAllConformers()
+    return mol
 
-def sx_extract_torchdrug_feature_from_mol(mol, has_LAS_mask=False):
+
+def sx_extract_torchdrug_feature_from_mol(mol, has_LAS_mask=False, generate_3D_conf = False,):
     coords = mol.GetConformer().GetPositions()
     if has_LAS_mask:
         LAS_distance_constraint_mask = get_LAS_distance_constraint_mask(mol)
     else:
         LAS_distance_constraint_mask = None
+        
+        
+   
     pair_dis_distribution = get_compound_pair_dis_distribution(coords, LAS_distance_constraint_mask=LAS_distance_constraint_mask)
+    mol = sx_ligand_dedocking(mol)
+    mol.Compute2DCoords()
     # molstd = td.Molecule.from_smiles(Chem.MolToSmiles(mol),node_feature='property_prediction')
     molstd = td.Molecule.from_molecule(mol ,node_feature=['property_prediction'])
     compound_node_features = molstd.node_feature # nodes_chemical_features
@@ -197,13 +211,17 @@ def get_clean_res_list(res_list, verbose=False, ensure_ca_exist=False, bfactor_c
                 print(res, res.full_id, "is hetero")
     return clean_res_list
 
-
 def sx_get_protein_feature(res_list, res_full_id_list):
     # protein feature extraction code from https://github.com/drorlab/gvp-pytorch
     # ensure all res contains N, CA, C and O
     accept_list = [True if (('N' in res) and ('CA' in res) and ('C' in res) and ('O' in res)) else False for res in res_list ]
+    
     res_list = [_res for (_res, _accept) in zip(res_list, accept_list) if _accept==True]
-    res_full_id_list = [ _id for (_id, _accept) in zip(res_full_id_list, accept_list) if _accept==True]
+    
+    _res_full_id_list = [ _id for (_id, _accept) in zip(res_full_id_list, accept_list) if _accept==True]
+    tmp = [i for i in range(len(_res_full_id_list))]
+    res_full_id_dict = {_res:i for (_res, i) in zip(_res_full_id_list, tmp)}
+    
     # construct the input for ProteinGraphDataset
     # which requires name, seq, and a list of shape N * 4 * 3
     structure = {}
@@ -220,7 +238,55 @@ def sx_get_protein_feature(res_list, res_full_id_list):
     dataset = gvp.data.ProteinGraphDataset([structure])
     protein = dataset[0]
     x = (protein.x, protein.seq, protein.node_s, protein.node_v, protein.edge_index, protein.edge_s, protein.edge_v)
-    return x, res_full_id_list
+    return x, res_full_id_dict
+
+
+
+def sx_get_protein_feature_backup(res_list, res_full_id_list, sv = False):
+    # protein feature extraction code from https://github.com/drorlab/gvp-pytorch
+    # ensure all res contains N, CA, C and O
+    accept_list = [True if (('N' in res) and ('CA' in res) and ('C' in res) and ('O' in res)) else False for res in res_list ]
+    if sv:
+        print("\n\n")
+        print("len:", len(accept_list))
+        print("accept_list:\n", accept_list)
+    res_list = [_res for (_res, _accept) in zip(res_list, accept_list) if _accept==True]
+    if sv:
+        print("\n\n")
+        print("len:", len(res_list))
+        print("res_list:\n", res_list)
+    _res_full_id_list = [ _id for (_id, _accept) in zip(res_full_id_list, accept_list) if _accept==True]
+    if sv:
+        print("\n\n")
+        print("len:", len(_res_full_id_list))
+        print("_res_full_id_list:\n", _res_full_id_list)   
+    tmp = [i for i in range(len(_res_full_id_list))]
+    if sv:
+        print("\n\n")
+        print("len:", len(tmp))
+        print("tmp:\n", tmp)     
+    res_full_id_dict = {_res:i for (_res, i) in zip(_res_full_id_list, tmp)}
+    if sv:
+        print("\n\n")
+        print("res_full_id_dict:\n", res_full_id_dict)  
+    
+    # construct the input for ProteinGraphDataset
+    # which requires name, seq, and a list of shape N * 4 * 3
+    structure = {}
+    structure['name'] = "placeholder"
+    structure['seq'] = "".join([three_to_one.get(res.resname) for res in res_list])
+    coords = []
+    for res in res_list:
+        res_coords = []
+        for atom in [res['N'], res['CA'], res['C'], res['O']]:
+            res_coords.append(list(atom.coord))
+        coords.append(res_coords)
+    structure['coords'] = coords
+    torch.set_num_threads(1)        # this reduce the overhead, and speed up the process for me.
+    dataset = gvp.data.ProteinGraphDataset([structure])
+    protein = dataset[0]
+    x = (protein.x, protein.seq, protein.node_s, protein.node_v, protein.edge_index, protein.edge_s, protein.edge_v)
+    return x, res_full_id_dict
 
 # Seed_everything(seed=42)
 
