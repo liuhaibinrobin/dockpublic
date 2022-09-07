@@ -45,7 +45,7 @@ def main(args):
 
     cfg_timesplit = True # If timesplit is applicated for splitting the dataset.
 
-    cfg_custom_dir_name = "Demo" # Prefix in the name of the output folder.
+    cfg_custom_dir_name = "DemoNCI0" # Prefix in the name of the output folder.
     cfg_train = True # If you want to train the model.
     cfg_distinguish_by_timestamp = True # If true, a timestamp is added to your output dir name.
 
@@ -777,7 +777,7 @@ def main(args):
         
     if cfg_mode == "nciyes":
         from sx_model import sx_get_model
-        model = sx_get_model(0, logging, device, nciyes=True, margin=1, margin_weight=1, nci_weight=1, output_classes=2,
+        model = sx_get_model(0, logging, device, nciyes=True, margin=1, margin_weight=1, nci_weight=0, output_classes=2,
                             class_weight=torch.tensor([1,1],dtype=torch.float32))
         IaBNetFile = "../saved_models/self_dock.pt"
         model.IaBNet.load_state_dict(torch.load(IaBNetFile, map_location=device))

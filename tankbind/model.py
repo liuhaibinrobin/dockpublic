@@ -410,11 +410,13 @@ class IaBNet_with_affinity(torch.nn.Module):
                 print("ldsjvzsdjga", nci_matrix[i].shape)
         else:
             print(nci_matrix)
+        print("YS", y_pred.shape)
+        print("AS", affinity_pred.shape)
         return y_pred, affinity_pred
+#batch_size * res_num * atom_num 
 
 
-
-def get_model(mode, logging, device):
+def get_model(mode, logging, device,):
     if mode == 0:
         logging.info("5 stack, readout2, pred dis map add self attention and GVP embed, compound model GIN")
         model = IaBNet_with_affinity().to(device)
