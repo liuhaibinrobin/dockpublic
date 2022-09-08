@@ -131,7 +131,7 @@ class TBNet(nn.Module):
     def __init__(self, args):
         super(TBNet, self).__init__()
         self.lr = args.lr
-        self.dropout = args.dropout_rate
+        self.dropout = args.dropout_rate 
         self.compound_name = args.compound_name
         if args.model_mode == 'init' or args.model_mode == 'Halfbind':
             self.loss_fn = PairwiseLoss(sigmoid_lambda=0.001)
@@ -349,78 +349,78 @@ def main(args):
     list_val_metric = []
 
     ######## start train
-    # for epoch_id in range(args.max_epoch):
-    #     model.train()
-    #     scores = []
-    #     list_loss = []
-    #     for data in tqdm(data_loader_tr):
-    #         y = data.y.to(device)
-    #         batch_z = data.z.to(device)
-    #         batch_z_size = data.z_size.to(device)
-    #         batch_z_mask = data.z_mask.to(device)
-    #         data.group_id = data.group_id.to(device)
-    #         outputs = model(batch_z, batch_z_mask, batch_z_size)
-    #         loss, score = model.my_loss(outputs, y, data.group_id)
-    #         # Backward and optimize
-    #         optimizer.zero_grad()
-    #         loss.backward()
-    #         optimizer.step() 
-    #         scores.append(score)
-    #         list_loss.append(loss)
-    #     losst = torch.cat([torch.tensor([i]) for i in list_loss])
-    #     losst = torch.mean(losst, dim=0)
-    #     score = torch.cat([torch.tensor([[i]]) for i in scores])
-    #     score = torch.mean(score, dim=0)
-    #     print('TRAIN----> Epoch [{}/{}], score: {}, Loss: {:.4f}' .format(epoch_id+1, args.max_epoch, score, losst.item()))
-    #     model.eval()
-    #     with torch.no_grad():
-    #         scores_va = []
-    #         list_loss_va = []
-    #         for data in tqdm(data_loader_va):
-    #             y = data.y.to(device)
-    #             batch_z = data.z.to(device)
-    #             batch_z_size = data.z_size.to(device)
-    #             batch_z_mask = data.z_mask.to(device)
-    #             data.group_id = data.group_id.to(device)
-    #             outputs = model(batch_z, batch_z_mask, batch_z_size)
-    #             loss, score = model.my_loss(outputs, y, data.group_id)
-    #             scores_va.append(score)
-    #             list_loss_va.append(loss)
-    #         losst_va = torch.cat([torch.tensor([i]) for i in list_loss_va])
-    #         losst_va = torch.mean(losst_va, dim=0)
-    #         score = torch.cat([torch.tensor([[i]]) for i in scores_va])
-    #         score = torch.mean(score, dim=0)
-    #         print('VALID----> Epoch [{}/{}], score: {}, Loss: {:.4f}' .format(epoch_id+1, args.max_epoch, score, losst_va.item()))
-    #         list_val_metric.append(score)
-    #         state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': epoch_id}
-    #         model_dir = args.model_dir + '/%s/%s/lr%s-batchsize%s-%s' % (args.compound_name, args.iter, args.lr, args.batch_size, args.model_mode)
-    #         if not os.path.exists(model_dir):
-    #             os.system(f"mkdir -p {model_dir}")
-    #         epoch_model_dir = '%s/epoch-%s' % (model_dir, epoch_id + 1)
-    #         torch.save(state, epoch_model_dir)
-    #     model.eval() 
-    #     with torch.no_grad():
-    #         scores_te = []
-    #         pred = []
-    #         for data in tqdm(data_loader_te):
-    #             y = data.y.to(device)
-    #             batch_z = data.z.to(device)
-    #             batch_z_size = data.z_size.to(device)
-    #             batch_z_mask = data.z_mask.to(device)
-    #             data.group_id = data.group_id.to(device)
-    #             outputs = model(batch_z, batch_z_mask, batch_z_size)
-    #             _, score = model.my_loss(outputs, y, data.group_id)
-    #             pred.append(outputs)
-    #             scores_te.append(score)
-    #         score = torch.cat([torch.tensor([[i]]) for i in scores_te])
-    #         score = torch.mean(score, dim=0)
-    #         print('TE_EPOCH----> score: {}' .format(score))
-    # best_epoch_id = np.argmax(list_val_metric)
-    # print('-----------------------')
-    # print('BEST_epoch_id:', best_epoch_id + 1)
-    # model_dir = args.model_dir + '/%s/%s/lr%s-batchsize%s-%s/epoch-%s' % (args.compound_name, args.iter, args.lr, args.batch_size, args.model_mode, best_epoch_id + 1)
-    # checkpoint = torch.load(model_dir)
-    # model.load_state_dict(checkpoint['net'])
+    for epoch_id in range(args.max_epoch):
+        model.train()
+        scores = []
+        list_loss = []
+        for data in tqdm(data_loader_tr):
+            y = data.y.to(device)
+            batch_z = data.z.to(device)
+            batch_z_size = data.z_size.to(device)
+            batch_z_mask = data.z_mask.to(device)
+            data.group_id = data.group_id.to(device)
+            outputs = model(batch_z, batch_z_mask, batch_z_size)
+            loss, score = model.my_loss(outputs, y, data.group_id)
+            # Backward and optimize
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step() 
+            scores.append(score)
+            list_loss.append(loss)
+        losst = torch.cat([torch.tensor([i]) for i in list_loss])
+        losst = torch.mean(losst, dim=0)
+        score = torch.cat([torch.tensor([[i]]) for i in scores])
+        score = torch.mean(score, dim=0)
+        print('TRAIN----> Epoch [{}/{}], score: {}, Loss: {:.4f}' .format(epoch_id+1, args.max_epoch, score, losst.item()))
+        model.eval()
+        with torch.no_grad():
+            scores_va = []
+            list_loss_va = []
+            for data in tqdm(data_loader_va):
+                y = data.y.to(device)
+                batch_z = data.z.to(device)
+                batch_z_size = data.z_size.to(device)
+                batch_z_mask = data.z_mask.to(device)
+                data.group_id = data.group_id.to(device)
+                outputs = model(batch_z, batch_z_mask, batch_z_size)
+                loss, score = model.my_loss(outputs, y, data.group_id)
+                scores_va.append(score)
+                list_loss_va.append(loss)
+            losst_va = torch.cat([torch.tensor([i]) for i in list_loss_va])
+            losst_va = torch.mean(losst_va, dim=0)
+            score = torch.cat([torch.tensor([[i]]) for i in scores_va])
+            score = torch.mean(score, dim=0)
+            print('VALID----> Epoch [{}/{}], score: {}, Loss: {:.4f}' .format(epoch_id+1, args.max_epoch, score, losst_va.item()))
+            list_val_metric.append(score)
+            state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': epoch_id}
+            model_dir = args.model_dir + '/%s/%s/lr%s-batchsize%s-%s' % (args.compound_name, args.iter, args.lr, args.batch_size, args.model_mode)
+            if not os.path.exists(model_dir):
+                os.system(f"mkdir -p {model_dir}")
+            epoch_model_dir = '%s/epoch-%s' % (model_dir, epoch_id + 1)
+            torch.save(state, epoch_model_dir)
+        model.eval() 
+        with torch.no_grad():
+            scores_te = []
+            pred = []
+            for data in tqdm(data_loader_te):
+                y = data.y.to(device)
+                batch_z = data.z.to(device)
+                batch_z_size = data.z_size.to(device)
+                batch_z_mask = data.z_mask.to(device)
+                data.group_id = data.group_id.to(device)
+                outputs = model(batch_z, batch_z_mask, batch_z_size)
+                _, score = model.my_loss(outputs, y, data.group_id)
+                pred.append(outputs)
+                scores_te.append(score)
+            score = torch.cat([torch.tensor([[i]]) for i in scores_te])
+            score = torch.mean(score, dim=0)
+            print('TE_EPOCH----> score: {}' .format(score))
+    best_epoch_id = np.argmax(list_val_metric)
+    print('-----------------------')
+    print('BEST_epoch_id:', best_epoch_id + 1)
+    model_dir = args.model_dir + '/%s/%s/lr%s-batchsize%s-%s/epoch-%s' % (args.compound_name, args.iter, args.lr, args.batch_size, args.model_mode, best_epoch_id + 1)
+    checkpoint = torch.load(model_dir)
+    model.load_state_dict(checkpoint['net'])
     ######## start test
     model.eval() 
     with torch.no_grad():
