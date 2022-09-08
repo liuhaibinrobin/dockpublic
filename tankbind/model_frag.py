@@ -287,7 +287,7 @@ class IaBNet_with_affinity_frag(torch.nn.Module):
         self.compound_embed_mode = compound_embed_mode
         self.n_trigonometry_module_stack = n_trigonometry_module_stack
         self.readout_mode = readout_mode
-
+        self.loss = NCIYesLoss()
         if protein_embed_mode == 0:
             self.conv_protein = GNN(hidden_channels, embedding_channels)
             self.conv_compound = GNN(hidden_channels, embedding_channels)
@@ -397,7 +397,7 @@ class IaBNet_with_affinity_frag(torch.nn.Module):
         y_pred = b[z_mask]
         # print('y_pred', y_pred.shape)
         y_pred = y_pred.sigmoid() * 10   # normalize to 0 to 10.
-        pooling = True  ##是否返回embedding
+        pooling = False  ##是否返回embedding
         
         if self.readout_mode == 0:
             pair_energy = self.linear_energy(z).squeeze(-1) * z_mask
@@ -418,9 +418,45 @@ class IaBNet_with_affinity_frag(torch.nn.Module):
 
         return y_pred, affinity_pred
 
+    def calculate_loss(self, aff_pred, y_pred, aff_true, y_true, right_pocket):
+        loss = self.loss(aff_pred, y_pred, aff_true, y_true, right_pocket)
+        return loss
+
+class NCIYesLoss(nn.Module):
+    def __init__(self, margin=1, margin_weight=1, dist_weight=1, nci_weight=0, nciyes=False):
+        super().__init__()
+        self.margin_weight = margin_weight 
+        self.dist_weight = dist_weight
+        self.nci_weight = nci_weight
+        self.MarginLoss = TBMarginLoss(margin)
+        self.DistLoss = nn.MSELoss()
+        self.nciyes = nciyes
+
+    def forward(self, aff_pred, y_pred,  aff_true, y_true,right_pocket):
+        #self.margin_weight * self.MarginLoss(aff_pred, aff_true, right_pocket) + self.dist_weight * self.DistLoss(y_pred, y_true) + self.nci_weight * self.NCILoss(y_pred, y_true)        
+        #)
+        loss0 = self.margin_weight * self.MarginLoss(aff_pred, aff_true, right_pocket)
+        loss1 = self.dist_weight * self.DistLoss(y_pred, y_true)
+        loss = loss0 + loss1
+        return loss #, nci_score
+
+class TBMarginLoss(nn.Module):
+    def __init__(self, margin=1):
+        super().__init__()
+        self.margin=margin
+    def forward(self, aff_pred, aff_true, right_pocket):
+        loss = torch.zeros(1).to(aff_pred.device)[0]
+
+        aff_pred = aff_pred - aff_true
+        for _a, _p in zip(aff_pred, right_pocket):
+            if _p:
+                loss += _a**2
+            else:
+                loss += (max(0, (_a + self.margin)))**2
+        return (loss / len(aff_pred))
 
 def get_model(mode, logging, device):
     if mode == 0:
-        logging.info("5 stack, readout2, pred dis map add self attention and GVP embed, compound model GIN")
+        logging.info("5 stack, readout2, pred dis map add self attention and GVP embed, compound model GIN, use fragmentation")
         model = IaBNet_with_affinity_frag().to(device)
     return model
