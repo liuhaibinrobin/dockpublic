@@ -421,6 +421,9 @@ class IaBNet_with_affinity_frag(torch.nn.Module):
     def calculate_loss(self, aff_pred, y_pred, aff_true, y_true, right_pocket):
         loss = self.loss(aff_pred, y_pred, aff_true, y_true, right_pocket)
         return loss
+        
+    def calculate_aff_score(self, aff_pred, aff_true):
+        return nn.MSELoss(aff_pred, aff_true)
 
 class NCIYesLoss(nn.Module):
     def __init__(self, margin=1, margin_weight=1, dist_weight=1, nci_weight=0, nciyes=False):
