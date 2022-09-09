@@ -75,8 +75,7 @@ class InstanceDynamicBatchSampler(torch.utils.data.sampler.Sampler):
         else:
             indices = torch.arange(len(self.dataset), dtype=torch.long)
 
-        while (num_processed < len(self.dataset)
-               and num_steps < self.num_steps):
+        while (num_processed < len(self.dataset) and num_steps < self.num_steps):
             # Fill batch
             for idx in indices[num_processed:]:
                 # Size of sample
@@ -107,11 +106,13 @@ class InstanceDynamicBatchSampler(torch.utils.data.sampler.Sampler):
                 batch.append(idx.item())
                 num_processed += 1
                 batch_n += n
-
-            yield batch
-            batch = []
-            batch_n = 0
-            num_steps += 1
+            if batch != []:
+                yield batch
+                batch = []
+                batch_n = 0
+                num_steps += 1
+            else:
+                break
 
     def __len__(self) -> int:
         return self.num_steps
