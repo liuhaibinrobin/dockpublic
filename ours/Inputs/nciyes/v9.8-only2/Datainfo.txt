@@ -1,0 +1,2 @@
+Data version: v9.8-only2
+PDBs: 30, Ligands: 30, NCIs: 76583

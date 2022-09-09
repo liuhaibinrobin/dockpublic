@@ -1,0 +1,10 @@
+Raw water: 99740.
+Raw both-negative EDs: 617231.
+Raw insufficient Resolution: 102381.
+Raw wrong CP_type: 530037.
+Remove water: 99740 removed, 720217 remain.        -- (Group != water) kept.
+Remove both-negative EDs: 556839 removed, 163378 remain.        -- (ED_2A>=0 or ED_3A>=0) kept.
+Remove insufficent Resolution: 25493 removed, 137885 remain.         -- (Resolution<=2.5) kept.
+Remove empty LigAtomName: 12 removed, 137873 remain.         -- (LigAtomName is not NaN) kept.
+Remove wrong CP_type: 61284 removed, 76589 remain.         -- (CP_type == "(3::-1)") kept.
+Column ResFullID added.

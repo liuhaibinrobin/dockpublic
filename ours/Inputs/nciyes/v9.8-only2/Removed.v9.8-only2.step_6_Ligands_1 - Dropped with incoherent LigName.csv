@@ -1,0 +1,2 @@
+,pdb_code,ligand_name_file,ligand_name_aff,ligand_name_nci,ligand_fpath,affinity,datagroup,release_year
+29,5t52,NGA,A2G/NGA,NGA,../../dataspace/pdb_bind_2020/5t52/5t52_ligand.pdb,9.28,general,2016
