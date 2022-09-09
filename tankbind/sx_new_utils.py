@@ -73,3 +73,5 @@ def sx_get_nci_matrix_with_name(protein_name, ligand_name, res_full_id, atom_nam
         print("Ligand and protein name",ligand_name, protein_name, ": error in sx_get_nci_matrix :", e.__class__.__name__,e)
         return np.zeros((len(res_full_id),len(atom_names))), atom_names, res_full_id
 '''
+
+
