@@ -538,13 +538,28 @@ def main(args):
     #TODO: move all these import to the beginning of this notebook when all codes are finished.
 
     class MyDataset_VS(Dataset):
-        def __init__(self, root, data=None, protein_dict=None, proteinMode=0, compoundMode=1,
+        def __init__(self, root, df_tr=None, df_te=None, df_va=None, df_te2=None, protein_dict=None, proteinMode=0, compoundMode=1,
                     pocket_radius=20, shake_nodes=None, 
                     transform=None, pre_transform=None, pre_filter=None, generate_3D_conf = False,
                     protein_res_id_dict=None, nci_df=None, ligand_atom_id_dict=None, cfg_mode=None,
                     right_pocket_by_distance=True,
                     ):
-            self.data = data
+            self.trainindx = 0
+            self.testindx = 0
+            self.valindx = 0
+            self.test2indx = 0
+            self.test_df = df_te
+            self.train_df = df_tr
+            self.val_df = df_va
+            self.test2_df = df_te2
+            self.testindx = len(self.test_df) 
+            self.expected_test_count = len(self.test_df) 
+            self.trainindx = len(self.train_df) +  self.testindx 
+            self.expected_train_count = len(self.train_df) 
+            self.valindx = len(self.val_df) + self.trainindx
+            self.expected_val_count = len(self.val_df)
+            self.test2indx = len(self.test2_df) + self.valindx 
+            self.expected_test2_count = len(self.test2_df)
             self.protein_dict = protein_dict
             super().__init__(root, transform, pre_transform, pre_filter)
             print(self.processed_paths)
@@ -565,11 +580,19 @@ def main(args):
             return ['data.pt', 'protein.pt']
 
         def process(self):
-            torch.save(self.data, self.processed_paths[0])
+            _data_total = pd.concat([self.test_df, self.train_df, self.val_df, self.test2_df]) 
+            torch.save(_data_total, self.processed_paths[0])
             torch.save(self.protein_dict, self.processed_paths[1])
-            
+
         def len(self):
-            return len(self.data)
+            return self.expected_test_count + self.expected_train_count \
+                + self.expected_val_count + self.expected_test2_count
+
+        def get_idx_split(self):
+            return self.expected_test_count, \
+                self.expected_test_count + self.expected_train_count, \
+                self.expected_test_count + self.expected_train_count + self.expected_val_count, \
+                self.expected_test_count + self.expected_train_count + self.expected_val_count + self.expected_test2_count
 
         def get(self, idx):
             line = self.data.iloc[idx]
@@ -585,16 +608,13 @@ def main(args):
             ligand_ftype = line['ligand_ftype']
             ligand_name = line['ligand_name']
             affinity = line['affinity']
-            
             if self.right_pocket_by_distance:
                 right_pocket_by_distance = line['right_pocket_by_distance']
-            
             if ligand_ftype == ".pdb":
                 mol = Chem.MolFromPDBFile(ligand_fpath)
             elif ligand_ftype == ".sdf":
                 mol = Chem.MolFromMolFile(ligand_fpath)
             mol.Compute2DCoords()  
-            
             if self.cfg_mode == "tankbind":
                 try:
                     coords, compound_node_features, input_atom_edge_list, input_atom_edge_attr_list, pair_dis_distribution = extract_torchdrug_feature_from_mol(mol, has_LAS_mask=True)
@@ -615,7 +635,6 @@ def main(args):
                     data.dataname = protein_name + "_" + ligand_name + "_" + pocket_name
                 except Exception as e:
                     return protein_name+" ERROR_IV : "+str(e)
-            
             elif self.cfg_mode == "nciyes":
                 protein_res_ids = self.protein_res_id_dict[protein_name]
                 if (len(protein_res_ids.keys())-1) != protein_res_ids[list(protein_res_ids.keys())[-1]]:
@@ -646,7 +665,6 @@ def main(args):
                     data.dataname = protein_name + "_" + ligand_name + "_" + pocket_name
                 except Exception as e:
                     return protein_name+" ERROR_IV : "+str(e)
-            
             elif self.cfg_mode == "frag":
                 try:
                     coords, compound_node_features, input_atom_edge_list, input_atom_edge_attr_list, pair_dis_distribution = extract_torchdrug_feature_from_mol(mol, has_LAS_mask=True)
@@ -705,20 +723,16 @@ def main(args):
             qrint(f"Processing {R}dataset{S}:")
             if not cfg_use_saved_files:
                 os.system(f"rm -r {dataset_path}")
-                for _s in ["train", "val", "test", "test2"]:
+                for _s in ["data"]:
                     os.system(f"mkdir -p {dataset_path}{_s}")
-                info_test2 = info[~(info.pdb_code.isin(_train)|info.pdb_code.isin(_val)|info.pdb_code.isin(_test))]
-                test2_set = MyDataset_VS(f"{dataset_path}test2/", data=info_test2, protein_dict=protein_dict, 
-                                        protein_res_id_dict=protein_res_id_dict, nci_df=nci_df, ligand_atom_id_dict=ligand_atom_id_dict, cfg_mode=cfg_mode) if len(info_test2) \
-                            else None        
-            else:
-                test2_set = MyDataset_VS(f"{dataset_path}test2/", data=info[~(info.pdb_code.isin(_train)|info.pdb_code.isin(_val)|info.pdb_code.isin(_test))], 
-                                        protein_dict=protein_dict, protein_res_id_dict=protein_res_id_dict, nci_df=nci_df, ligand_atom_id_dict=ligand_atom_id_dict, cfg_mode=cfg_mode) \
-                            if os.path.exists(f"{dataset_path}test2/processed/data.pt") else None
-            
-            train_set = MyDataset_VS(f"{dataset_path}train/", data=info[info.pdb_code.isin(_train)], protein_dict=protein_dict, protein_res_id_dict=protein_res_id_dict, nci_df=nci_df, ligand_atom_id_dict=ligand_atom_id_dict, cfg_mode=cfg_mode)
-            val_set = MyDataset_VS(f"{dataset_path}val/", data=info[info.pdb_code.isin(_val)], protein_dict=protein_dict, protein_res_id_dict=protein_res_id_dict, nci_df=nci_df, ligand_atom_id_dict=ligand_atom_id_dict, cfg_mode=cfg_mode)
-            test_set = MyDataset_VS(f"{dataset_path}test/", data=info[info.pdb_code.isin(_test)], protein_dict=protein_dict, protein_res_id_dict=protein_res_id_dict, nci_df=nci_df, ligand_atom_id_dict=ligand_atom_id_dict, cfg_mode=cfg_mode)
+            info_test2 = info[~(info.pdb_code.isin(_train)|info.pdb_code.isin(_val)|info.pdb_code.isin(_test))]
+            _total_set = MyDataset_VS(f"{dataset_path}data/", df_tr=info[info.pdb_code.isin(_train)],df_te=info[info.pdb_code.isin(_test)],df_va=info[info.pdb_code.isin(_val)], df_te2=info_test2, \
+                                    protein_dict=protein_dict, protein_res_id_dict=protein_res_id_dict, nci_df=nci_df, ligand_atom_id_dict=ligand_atom_id_dict, cfg_mode=cfg_mode)
+            _te, _tr, _va, _te2 = _total_set.get_idx_split()
+            test_set = _total_set[:_te]
+            train_set = _total_set[_te:_tr]
+            val_set = _total_set[_tr:_va]
+            test2_set = _total_set[_va:_te2]
                 
     if not cfg_timesplit:
         test2_set = None
@@ -729,11 +743,16 @@ def main(args):
         qrint(f"Processing {R}dataset{S}:")
         if not cfg_use_saved_files:
             os.system(f"rm -r {dataset_path}")
-            for _s in ["train", "val", "test", "test2"]:
+            for _s in ["data"]:
                 os.system(f"mkdir -p {dataset_path}{_s}")
-        train_set = MyDataset_VS(f"{dataset_path}train/", data=info.iloc[0:train_val_split], protein_dict=protein_dict, protein_res_id_dict=protein_res_id_dict, nci_df=nci_df, ligand_atom_id_dict=ligand_atom_id_dict, cfg_mode=cfg_mode)
-        val_set = MyDataset_VS(f"{dataset_path}val/", data=info.iloc[train_val_split:val_test_split], protein_dict=protein_dict, protein_res_id_dict=protein_res_id_dict, nci_df=nci_df, ligand_atom_id_dict=ligand_atom_id_dict, cfg_mode=cfg_mode)
-        test_set = MyDataset_VS(f"{dataset_path}test/", data=info.iloc[val_test_split:], protein_dict=protein_dict, protein_res_id_dict=protein_res_id_dict, nci_df=nci_df, ligand_atom_id_dict=ligand_atom_id_dict, cfg_mode=cfg_mode)
+        info_test2 = info[~(info.pdb_code.isin(_train)|info.pdb_code.isin(_val)|info.pdb_code.isin(_test))]
+        _total_set = MyDataset_VS(f"{dataset_path}data/", df_tr=info.iloc[0:train_val_split], df_te=info.iloc[val_test_split:], df_va=info.iloc[train_val_split:val_test_split], df_te2=info_test2, \
+                                    protein_dict=protein_dict, protein_res_id_dict=protein_res_id_dict, nci_df=nci_df, ligand_atom_id_dict=ligand_atom_id_dict, cfg_mode=cfg_mode)
+        _te, _tr, _va, _te2 = _total_set.get_idx_split()
+        test_set = _total_set[:_te]
+        train_set = _total_set[_te:_tr]
+        val_set = _total_set[_tr:_va]
+        test2_set = _total_set[_va:_te2]
         
     qrint(f"Successfully processed {R}dataset{S}s.")
     qrint(f"-- {R}train set{S} : {len(train_set)}")
@@ -868,10 +887,10 @@ def main(args):
                 qrint("\n")
                 qrint(f"Loss: {losst_va.item()}")
                 state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': _epoch}
-                save_model_path = save_model_path + '/%s/lr%s-batchsize%s-%s' % (args.iter, args.lr, args.batch_size, args.config_mode)
-                if not os.path.exists(save_model_path):
-                    os.system(f"mkdir -p {save_model_path}")
-                epoch_save_model_path = '%s/epoch-%s' % (save_model_path, _epoch + 1)
+                _save_model_path = save_model_path + '/%s/lr%s-batchsize%s-%s' % (args.iter, args.lr, args.batch_size, args.config_mode)
+                if not os.path.exists(_save_model_path):
+                    os.system(f"mkdir -p {_save_model_path}")
+                epoch_save_model_path = '%s/epoch-%s' % (_save_model_path, _epoch + 1)
                 torch.save(state, epoch_save_model_path)
     model.eval() 
     with torch.no_grad():
