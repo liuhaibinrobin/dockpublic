@@ -21,6 +21,7 @@ import pickle
 # ## Configuration and Initilization
 # ### Configuration
 
+from torch.utils.tensorboard import SummaryWriter
 
 # You may want to change settings below.
 def main(args):
@@ -70,6 +71,7 @@ def main(args):
     ligand_df_fpath = f"{input_path}{ligand_df_fname}"
     datainfo = f"{input_path}Datainfo.txt"
     p2rank = f"bash {p2rank_path}"
+    writer = SummaryWriter(f"{save_files_path}")
 
     if cfg_mode == "nciyes":
         nci_fname = f"Data.{cfg_data_version}.NCIs.csv"
@@ -830,6 +832,7 @@ def main(args):
         model.train()
         _list_loss = []
         _list_affinity = []
+        _list_score = []
         errors, error_file = [], f"{main_path}train_{_epoch}_errors.txt"
         for i,data in tqdm(enumerate(train_data_loader), total=len(train_data_loader)):
             # qrint(f"Train batch {i}", r=False, newline=False)
@@ -848,20 +851,25 @@ def main(args):
                 y_pred, affinity_pred = model(data)
                 loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
                                             data.right_pocket_by_distance)
+                score = model.calculate_aff_score(affinity_pred, y_pred)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
                 _list_loss.append(loss.detach().cpu())
                 _list_affinity.append(affinity_pred.detach().cpu())
+                _list_score.append(score.detach().cpu())
         
         with open (f"{save_files_path}affinity_dict_train_{_epoch}.pkl", "wb") as f:
             pickle.dump(_list_affinity, f)
         
-        losst = torch.cat([torch.tensor([i]) for i in _list_loss])
-        losst = torch.mean(losst, dim=0)
+        losst = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss]), dim=0)
+        scoret = torch.mean(torch.cat([torch.tensor([i]) for i in _list_score]), dim=0)
         qrint("\n")
         qrint(f"Loss: {losst.item()}")
-        print('TRAIN----> Epoch [{}/{}], Loss: {:.4f}' .format(_epoch+1, args.max_epoch, losst.item()))
+        print('TRAIN----> Epoch [{}/{}], Loss: {:.4f}, Score: {:.4f}' .format(_epoch+1, args.max_epoch, losst.item(), scoret.item()))
+        writer.add_scalar('Loss/train', losst.item(), _epoch)
+        writer.add_scalar('MSE/train', scoret.item(), _epoch)
+
         model.eval()
         
         if val_data_loader is not None:
@@ -869,6 +877,7 @@ def main(args):
                 qrint(f"Val batch {i}", r=False, newline=False)
                 _list_loss_va = []
                 _list_affinity = []
+                _list_score_va = []
                 for data in tqdm(val_data_loader):
                     data = data.to(device)
                     if cfg_mode == "tankbind": # Results : affinity_pred_dict
@@ -877,44 +886,53 @@ def main(args):
                         y_pred, affinity_pred = model(data)
                         loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
                                                     data.right_pocket_by_distance)
+                        score = model.calculate_aff_score(affinity_pred, y_pred)
                         _list_loss_va.append(loss.detach().cpu())
                         _list_affinity.append(affinity_pred.detach().cpu())
-                losst_va = torch.cat([torch.tensor([i]) for i in _list_loss_va])
-                losst_va = torch.mean(losst_va, dim=0)
+                        _list_score_va.append(score.detach().cpu())
+                losst_va = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss_va]), dim=0)
+                score_va = torch.mean(torch.cat([torch.tensor([i]) for i in _list_score_va]), dim=0)
                 with open (f"{save_files_path}affinity_dict_val_{_epoch}.pkl", "wb") as f:
                     pickle.dump(_list_affinity, f)
-                print('VALID----> Epoch [{}/{}], Loss: {:.4f}' .format(_epoch+1, args.max_epoch, losst_va.item()))
+                print('VALID----> Epoch [{}/{}], Loss: {:.4f}, Score: {:.4f}' .format(_epoch+1, args.max_epoch, losst_va.item(), scoret.item()))
                 qrint("\n")
                 qrint(f"Loss: {losst_va.item()}")
+                writer.add_scalar('Loss/valid', losst_va.item(), _epoch)
+                writer.add_scalar('MSE/valid', score_va.item(), _epoch)
                 state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': _epoch}
                 _save_model_path = save_model_path + '/%s/lr%s-batchsize%s-%s' % (args.iter, args.lr, args.batch_size, args.config_mode)
                 if not os.path.exists(_save_model_path):
                     os.system(f"mkdir -p {_save_model_path}")
                 epoch_save_model_path = '%s/epoch-%s' % (_save_model_path, _epoch + 1)
                 torch.save(state, epoch_save_model_path)
-    model.eval() 
-    with torch.no_grad():
-        ## TODO 定义一个score用来评估
-        if test_data_loader is not None:
-            _list_loss_te = []
-            _list_affinity = []
-            for data in tqdm(test_data_loader):
-                data = data.to(device)
-                if cfg_mode == "tankbind": # Results : affinity_pred_dict
-                        data = data.to(device)
+        model.eval() 
+        with torch.no_grad():
+            ## TODO 定义一个score用来评估
+            if test_data_loader is not None:
+                _list_loss_te = []
+                _list_affinity = []
+                _list_score_te = []
+                for data in tqdm(test_data_loader):
+                    data = data.to(device)
+                    if cfg_mode == "tankbind": # Results : affinity_pred_dict
+                            data = data.to(device)
+                            y_pred, affinity_pred = model(data)
+                    elif cfg_mode == "frag": # Results : many
                         y_pred, affinity_pred = model(data)
-                elif cfg_mode == "frag": # Results : many
-                    y_pred, affinity_pred = model(data)
-                    loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
-                            data.right_pocket_by_distance)
-                    _list_loss_te.append(loss.detach().cpu())
-                    _list_affinity.append(affinity_pred.detach().cpu())
-            with open (f"{save_files_path}affinity_dict_test_{_epoch}.pkl", "wb") as f:
-                pickle.dump(_list_affinity, f)
-                
-            losst_te = torch.cat([torch.tensor([i]) for i in _list_loss_te])
-            losst_te = torch.mean(losst_te, dim=0)
-            qrint('TEST----> loss: {}' .format(losst_te))
+                        loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
+                                data.right_pocket_by_distance)
+                        score = model.calculate_aff_score(affinity_pred, y_pred)
+                        _list_loss_te.append(loss.detach().cpu())
+                        _list_affinity.append(affinity_pred.detach().cpu())
+                        _list_score_te.append(score.detach().cpu())
+                with open (f"{save_files_path}affinity_dict_test_{_epoch}.pkl", "wb") as f:
+                    pickle.dump(_list_affinity, f)
+                    
+                losst_te = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss_te]), dim=0)
+                score_te = torch.mean(torch.cat([torch.tensor([i]) for i in _list_score_te]), dim=0)
+                qrint('TEST----> loss: {:.4f}, Score: {:.4f}' .format(losst_te.item(), score_te.item()))
+                writer.add_scalar('Loss/test', losst_te.item(), _epoch)
+                writer.add_scalar('MSE/test', score_te.item(), _epoch)
         
         if test2_data_loader is not None:
             _list_loss_te_2 = []
