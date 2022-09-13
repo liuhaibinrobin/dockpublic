@@ -64,7 +64,7 @@ def main(args):
     p2rank_save_path = f"./Inputs/Savedfiles/p2rank/"
     p2rank_path = "../p2rank_2.3/prank"
     ds_path = "../../../" # Related path used for ds files.
-    save_model_path = f"./Inputs/Savedfiles/{cfg_mode}.model/" #TODO: write your paths here or just keep this.
+    save_model_path = f"./Inputs/Savedfiles/{cfg_mode}.model/"
     pdb_df_fname = f"Data.{cfg_data_version}.PDBs.csv"
     ligand_df_fname = f"Data.{cfg_data_version}.Ligands.csv"
     pdb_df_fpath = f"{input_path}{pdb_df_fname}"
@@ -185,7 +185,6 @@ def main(args):
             elif (cfg_mode == "nciyes"):
                 _protein_dict, _protein_res_id_dict = sx_get_protein_feature(clean_res_list, clean_res_full_id_list)
             elif (cfg_mode == "frag"):
-                #TODO:write your function here
                 try:
                     _protein_dict = get_protein_feature_qsar(clean_res_list)
                 except Exception as e:
@@ -535,9 +534,7 @@ def main(args):
     elif cfg_mode == "frag":
         from utils import construct_data_from_graph_gvp
         nci_df = None
-        #TODO: import your functions here.
 
-    #TODO: move all these import to the beginning of this notebook when all codes are finished.
 
     class MyDataset_VS(Dataset):
         def __init__(self, root, df_tr=None, df_te=None, df_va=None, df_te2=None, protein_dict=None, proteinMode=0, compoundMode=1,
@@ -687,7 +684,7 @@ def main(args):
                     data.dataname = protein_name + "_" + ligand_name + "_" + pocket_name
                 except Exception as e:
                     return protein_name+" ERROR_IV : "+str(e)
-                #TODO: write your codes here. Refer to "if self.cfg_mode=="tankband" above.
+
 
             return data
 
@@ -809,7 +806,6 @@ def main(args):
         model.IaBNet.load_state_dict(torch.load(IaBNetFile, map_location=device))
         
     elif cfg_mode == "frag":
-        #TODO: WRITE YOUR CODE HERE
         #from your_model_file import your_model
         from model_frag import get_model
         model = get_model(0, logging, device)
@@ -851,7 +847,7 @@ def main(args):
                 y_pred, affinity_pred = model(data)
                 loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
                                             data.right_pocket_by_distance)
-                score = model.calculate_aff_score(affinity_pred, y_pred)
+                score = model.calculate_aff_score(affinity_pred, data.affinity)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
@@ -886,7 +882,7 @@ def main(args):
                         y_pred, affinity_pred = model(data)
                         loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
                                                     data.right_pocket_by_distance)
-                        score = model.calculate_aff_score(affinity_pred, y_pred)
+                        score = model.calculate_aff_score(affinity_pred, data.affinity)
                         _list_loss_va.append(loss.detach().cpu())
                         _list_affinity.append(affinity_pred.detach().cpu())
                         _list_score_va.append(score.detach().cpu())
@@ -907,7 +903,6 @@ def main(args):
                 torch.save(state, epoch_save_model_path)
         model.eval() 
         with torch.no_grad():
-            ## TODO 定义一个score用来评估
             if test_data_loader is not None:
                 _list_loss_te = []
                 _list_affinity = []
@@ -921,7 +916,7 @@ def main(args):
                         y_pred, affinity_pred = model(data)
                         loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
                                 data.right_pocket_by_distance)
-                        score = model.calculate_aff_score(affinity_pred, y_pred)
+                        score = model.calculate_aff_score(affinity_pred, data.affinity)
                         _list_loss_te.append(loss.detach().cpu())
                         _list_affinity.append(affinity_pred.detach().cpu())
                         _list_score_te.append(score.detach().cpu())
