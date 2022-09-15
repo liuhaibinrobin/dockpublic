@@ -543,22 +543,14 @@ def main(args):
                     protein_res_id_dict=None, nci_df=None, ligand_atom_id_dict=None, cfg_mode=None,
                     right_pocket_by_distance=True,
                     ):
-            self.trainindx = 0
-            self.testindx = 0
-            self.valindx = 0
-            self.test2indx = 0
             self.test_df = df_te
             self.train_df = df_tr
             self.val_df = df_va
             self.test2_df = df_te2
-            self.testindx = len(self.test_df) 
-            self.expected_test_count = len(self.test_df) 
-            self.trainindx = len(self.train_df) +  self.testindx 
-            self.expected_train_count = len(self.train_df) 
-            self.valindx = len(self.val_df) + self.trainindx
-            self.expected_val_count = len(self.val_df)
-            self.test2indx = len(self.test2_df) + self.valindx 
-            self.expected_test2_count = len(self.test2_df)
+            self.expected_test_count = len(self.test_df) if self.test_df is not None else 0
+            self.expected_train_count = len(self.train_df) if self.train_df is not None else 0
+            self.expected_val_count = len(self.val_df) if self.val_df is not None else 0
+            self.expected_test2_count = len(self.test2_df) if self.test2_df is not None else 0
             self.protein_dict = protein_dict
             super().__init__(root, transform, pre_transform, pre_filter)
             print(self.processed_paths)
@@ -744,8 +736,7 @@ def main(args):
             os.system(f"rm -r {dataset_path}")
             for _s in ["data"]:
                 os.system(f"mkdir -p {dataset_path}{_s}")
-        info_test2 = info[~(info.pdb_code.isin(_train)|info.pdb_code.isin(_val)|info.pdb_code.isin(_test))]
-        _total_set = MyDataset_VS(f"{dataset_path}data/", df_tr=info.iloc[0:train_val_split], df_te=info.iloc[val_test_split:], df_va=info.iloc[train_val_split:val_test_split], df_te2=info_test2, \
+        _total_set = MyDataset_VS(f"{dataset_path}data/", df_tr=info.iloc[0:train_val_split], df_te=info.iloc[val_test_split:], df_va=info.iloc[train_val_split:val_test_split], \
                                     protein_dict=protein_dict, protein_res_id_dict=protein_res_id_dict, nci_df=nci_df, ligand_atom_id_dict=ligand_atom_id_dict, cfg_mode=cfg_mode)
         _te, _tr, _va, _te2 = _total_set.get_idx_split()
         test_set = _total_set[:_te]
@@ -847,15 +838,15 @@ def main(args):
                 y_pred, affinity_pred = model(data)
                 loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
                                             data.right_pocket_by_distance)
-                score = model.calculate_aff_score(affinity_pred, data.affinity)
+                score = model.calculate_aff_score(affinity_pred, data.affinity).detach().cpu()
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
                 _list_loss.append(loss.detach().cpu())
                 _list_affinity.append(affinity_pred.detach().cpu())
-                _list_score.append(score.detach().cpu())
+                _list_score.append(score)
         
-        with open (f"{save_files_path}affinity_dict_train_{_epoch}.pkl", "wb") as f:
+        with open (f"{save_files_path}{args.iter}/affinity_dict_train_{_epoch}.pkl", "wb") as f:
             pickle.dump(_list_affinity, f)
         
         losst = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss]), dim=0)
@@ -882,15 +873,15 @@ def main(args):
                         y_pred, affinity_pred = model(data)
                         loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
                                                     data.right_pocket_by_distance)
-                        score = model.calculate_aff_score(affinity_pred, data.affinity)
+                        score = model.calculate_aff_score(affinity_pred, data.affinity).detach().cpu()
                         _list_loss_va.append(loss.detach().cpu())
                         _list_affinity.append(affinity_pred.detach().cpu())
-                        _list_score_va.append(score.detach().cpu())
+                        _list_score_va.append(score)
                 losst_va = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss_va]), dim=0)
                 score_va = torch.mean(torch.cat([torch.tensor([i]) for i in _list_score_va]), dim=0)
-                with open (f"{save_files_path}affinity_dict_val_{_epoch}.pkl", "wb") as f:
+                with open (f"{save_files_path}{args.iter}/affinity_dict_val_{_epoch}.pkl", "wb") as f:
                     pickle.dump(_list_affinity, f)
-                print('VALID----> Epoch [{}/{}], Loss: {:.4f}, Score: {:.4f}' .format(_epoch+1, args.max_epoch, losst_va.item(), scoret.item()))
+                print('VALID----> Epoch [{}/{}], Loss: {:.4f}, Score: {:.4f}' .format(_epoch+1, args.max_epoch, losst_va.item(), score_va.item()))
                 qrint("\n")
                 qrint(f"Loss: {losst_va.item()}")
                 writer.add_scalar('Loss/valid', losst_va.item(), _epoch)
@@ -916,11 +907,11 @@ def main(args):
                         y_pred, affinity_pred = model(data)
                         loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
                                 data.right_pocket_by_distance)
-                        score = model.calculate_aff_score(affinity_pred, data.affinity)
+                        score = model.calculate_aff_score(affinity_pred, data.affinity).detach().cpu()
                         _list_loss_te.append(loss.detach().cpu())
                         _list_affinity.append(affinity_pred.detach().cpu())
-                        _list_score_te.append(score.detach().cpu())
-                with open (f"{save_files_path}affinity_dict_test_{_epoch}.pkl", "wb") as f:
+                        _list_score_te.append(score)
+                with open (f"{save_files_path}{args.iter}/affinity_dict_test_{_epoch}.pkl", "wb") as f:
                     pickle.dump(_list_affinity, f)
                     
                 losst_te = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss_te]), dim=0)
@@ -928,7 +919,8 @@ def main(args):
                 qrint('TEST----> loss: {:.4f}, Score: {:.4f}' .format(losst_te.item(), score_te.item()))
                 writer.add_scalar('Loss/test', losst_te.item(), _epoch)
                 writer.add_scalar('MSE/test', score_te.item(), _epoch)
-        
+    model.eval()    
+    with torch.no_grad(): 
         if test2_data_loader is not None:
             _list_loss_te_2 = []
             for data in tqdm(test2_data_loader):
@@ -936,6 +928,7 @@ def main(args):
                         data = data.to(device)
                         y_pred, affinity_pred = model(data)
                 elif cfg_mode == "frag": # Results : many
+                    data = data.to(device)
                     y_pred, affinity_pred = model(data)
                     loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
                             data.right_pocket_by_distance)
