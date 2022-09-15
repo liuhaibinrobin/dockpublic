@@ -91,6 +91,7 @@ class TBDataset(Dataset):
                 # data.x = embed
                 # data.x = data.x.reshape(1,128)
                 data.z = z.view(-1,128)
+                data.smiles = smiles_list[idx]
                 data.z_size = data.z.shape[0]
                 data.z_mask = z_mask.view(-1)
                 data.y = torch.from_numpy(np.array(label)).to(torch.double)
@@ -419,6 +420,7 @@ def main(args):
     print('-----------------------')
     print('BEST_epoch_id:', best_epoch_id + 1)
     model_dir = args.model_dir + '/%s/%s/lr%s-batchsize%s-%s/epoch-%s' % (args.compound_name, args.iter, args.lr, args.batch_size, args.model_mode, best_epoch_id + 1)
+    # model_dir = 'model_dir/PRMT5/1/lr0.001-batchsize32-init/epoch-3'
     checkpoint = torch.load(model_dir)
     model.load_state_dict(checkpoint['net'])
     ######## start test
@@ -444,12 +446,17 @@ def main(args):
         pred_list = []
         for i in pred_numpy:
             pred_list.append(i)
-        smile_path = './data/%s/test.csv' % (args.compound_name)
-        df = pd.read_csv(smile_path,sep=',')
+        # smile_path = './data/%s/test.csv' % (args.compound_name)
+        # df = pd.read_csv(smile_path,sep=',')
+        # df['score'] = pred_list
+        # df = df.drop(columns=['group'])
+        # df = df.drop(columns=['label'])
+        df = pd.DataFrame()
         df['score'] = pred_list
-        # df = df.rename(columns={'smiles': 'SMILES'})
-        df = df.drop(columns=['group'])
-        df = df.drop(columns=['label'])
+        df['smiles'] = ''
+        for index, row in df.iterrows():
+            row['smiles'] = dataset_test[index].smiles
+            df.iloc[index] = row
         df.to_csv('./SAR-interface/output/%s/%s/%s-%s-%s.csv'%(args.compound_name, args.iter, args.lr, args.batch_size, args.model_mode), index=False,encoding='utf-8')
         print('TEST----> score: {}' .format(score))
         
@@ -467,7 +474,7 @@ if __name__ == '__main__':
     parser.add_argument("--max_epoch", type=int, default=25)
     parser.add_argument("--gpu_id", type=int, default=0)
     parser.add_argument("--compound_name", 
-            choices=['PDL1','HPK1_3','HPK1_4','KRAS_G12D','MAT2A','SOS1','ALK', 'BRAF', 'BTK', 'CDK4', 'EGFR', 'FGFR1', 'JAK2', 'NTRK1', 'VEGFR2','PRMT5'])
+            choices=['PDL1','HPK1_3','HPK1_4','KRAS_G12D','MAT2A','SOS1','ALK', 'BRAF', 'BTK', 'CDK4', 'EGFR', 'FGFR1', 'JAK2', 'NTRK1', 'VEGFR2','PRMT5','PRMT5_ly'])
     parser.add_argument("--data_path", type=str, default='data')
     parser.add_argument("--init_model", type=str, default="../saved_models/self_dock.pt")
     parser.add_argument("--model_dir", type=str, default='model_dir')
