@@ -118,7 +118,7 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 
 train, train_after_warm_up, valid, test, all_pocket_test, info = get_data(args.data, logging, addNoise=args.addNoise)
-logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
+logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {glen(valid)}, test: {len(test)}")
 
 num_workers = 10
 sampler = RandomSampler(train, replacement=True, num_samples=args.sample_n)
