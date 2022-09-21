@@ -61,6 +61,7 @@ def main(args):
     input_path = f"./Inputs/{cfg_mode}/{cfg_data_version}/"
     output_path = f"./Outputs/{cfg_mode}/"
     save_files_path = f"./Inputs/Savedfiles/{cfg_mode}.{cfg_data_version}/"
+    save_middle_output_path = f"./Inputs/Savedfiles/{cfg_mode}.{cfg_data_version}/{args.iter}/"
     p2rank_save_path = f"./Inputs/Savedfiles/p2rank/"
     p2rank_path = "../p2rank_2.3/prank"
     ds_path = "../../../" # Related path used for ds files.
@@ -71,7 +72,6 @@ def main(args):
     ligand_df_fpath = f"{input_path}{ligand_df_fname}"
     datainfo = f"{input_path}Datainfo.txt"
     p2rank = f"bash {p2rank_path}"
-    writer = SummaryWriter(f"{save_files_path}")
 
     if cfg_mode == "nciyes":
         nci_fname = f"Data.{cfg_data_version}.NCIs.csv"
@@ -109,7 +109,6 @@ def main(args):
         os.system(f"rm -r {main_path}")
     for _path in [save_files_path, save_model_path, main_path]:
         os.system(f"mkdir -p {_path}")
-        
     def qrint(target, jupyter= cfg_jupyter, log=log_fpath, R=R, B=B, S=S, r=True, newline=True):
         end = "\n" if newline else " "
         if r:
@@ -153,6 +152,8 @@ def main(args):
         nci_df = pd.read_csv(nci_df_fpath, index_col=0)
         qrint(f"Loaded {R}nci_df{S} from {B}{nci_df_fpath}{S} with length {len(nci_df)}")
 
+    from torch.utils.tensorboard import SummaryWriter
+    writer = SummaryWriter(f"{main_path}")
 
     # ## Running!
 
@@ -803,140 +804,165 @@ def main(args):
         # modelFile = "../saved_models/self_dock.pt"
         # model.load_state_dict(torch.load(modelFile, map_location=device))
 
+    from sx_new_class import InstanceDynamicBatchSampler
+    mx = args.max_node
     logging.basicConfig(level=logging.INFO)
     _ = model.eval()
+    
+    if args.cfg_running_mode == "train":
+        train_data_loader = DataLoader(train_set, batch_sampler = InstanceDynamicBatchSampler(dataset=train_set, max_num=mx, mode="node", shuffle=True), follow_batch=['x', 'y', 'compound_pair'], num_workers=3)
+        val_data_loader = DataLoader(val_set, batch_sampler = InstanceDynamicBatchSampler(dataset=val_set, max_num=mx, mode="node", shuffle=False), follow_batch=['x', 'y', 'compound_pair'], num_workers=3) if len(val_set) else None
+        test_data_loader = DataLoader(test_set, batch_sampler = InstanceDynamicBatchSampler(dataset=test_set, max_num=mx, mode="node", shuffle=False), follow_batch=['x', 'y', 'compound_pair'], num_workers=1) if len(test_set) else None
+        test2_data_loader = DataLoader(test2_set,batch_sampler = InstanceDynamicBatchSampler(dataset=test2_set, max_num=mx, mode="node", shuffle=False), follow_batch=['x', 'y', 'compound_pair'], num_workers=1) if test2_set else None
+    else:
+        test_data_loader = DataLoader(test_set, batch_sampler = InstanceDynamicBatchSampler(dataset=test_set, max_num=mx, mode="node", shuffle=False), follow_batch=['x', 'y', 'compound_pair'], num_workers=1) if len(test_set) else None
 
-    train_data_loader = DataLoader(train_set, batch_size=batch_size, follow_batch=['x', 'y', 'compound_pair'], shuffle=True, num_workers=args.num_workers)
-    val_data_loader = DataLoader(val_set, batch_size=batch_size, follow_batch=['x', 'y', 'compound_pair'], shuffle=False, num_workers=args.num_workers)  if len(val_set) else None
-    test_data_loader = DataLoader(test_set, batch_size=batch_size, follow_batch=['x', 'y', 'compound_pair'], shuffle=False, num_workers=args.num_workers) if len(test_set) else None
-    test2_data_loader = DataLoader(test2_set, batch_size=batch_size, follow_batch=['x', 'y', 'compound_pair'], shuffle=False, num_workers=args.num_workers) if test2_set else None
     optimizer = torch.optim.Adam(model.parameters(),lr=learning_rate)
     list_val_metric = []
 
-
-    for _epoch in range(args.max_epoch):
-        qrint(f"Training Epoch: {_epoch}")
-        model.train()
-        _list_loss = []
-        _list_affinity = []
-        _list_score = []
-        errors, error_file = [], f"{main_path}train_{_epoch}_errors.txt"
-        for i,data in tqdm(enumerate(train_data_loader), total=len(train_data_loader)):
-            # qrint(f"Train batch {i}", r=False, newline=False)
-            if cfg_checkdata2:
-                checkdata2(data)
-                if isinstance(data, str) or isinstance(data, list):
-                    errors.append(data)
-                    with open(error_file, "a") as f:
-                        f.write("\n"+str(data)+"\n")    
-                    continue
-            data = data.to(device)
-            if cfg_mode == "tankbind": # Results : affinity_pred_dictbb
-                y_pred, affinity_pred = model(data)
-            elif cfg_mode == "frag": # Results : many
+    if args.cfg_running_mode == "train":
+        global_steps_train = 0
+        global_steps_val = 0
+        global_steps_test = 0
+        global_samples_train = 0
+        global_samples_val = 0
+        global_samples_test = 0
+        for _epoch in range(args.max_epoch):
+            qrint(f"Training Epoch: {_epoch}")
+            model.train()
+            _list_loss = []
+            errors, error_file = [], f"{main_path}train_{_epoch}_errors.txt"
+            for i,data in tqdm(enumerate(train_data_loader), total=len(train_data_loader)):
+                # qrint(f"Train batch {i}", r=False, newline=False)
+                if cfg_checkdata2:
+                    checkdata2(data)
+                    if isinstance(data, str) or isinstance(data, list):
+                        errors.append(data)
+                        with open(error_file, "a") as f:
+                            f.write("\n"+str(data)+"\n")    
+                        continue
+                global_samples_train += len(data)
                 data = data.to(device)
-                y_pred, affinity_pred = model(data)
-                loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
-                                            data.right_pocket_by_distance)
-                score = model.calculate_aff_score(affinity_pred, data.affinity).detach().cpu()
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-                _list_loss.append(loss.detach().cpu())
-                _list_affinity.append(affinity_pred.detach().cpu())
-                _list_score.append(score)
-        
-        with open (f"{save_files_path}{args.iter}/affinity_dict_train_{_epoch}.pkl", "wb") as f:
-            pickle.dump(_list_affinity, f)
-        
-        losst = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss]), dim=0)
-        scoret = torch.mean(torch.cat([torch.tensor([i]) for i in _list_score]), dim=0)
-        qrint("\n")
-        qrint(f"Loss: {losst.item()}")
-        print('TRAIN----> Epoch [{}/{}], Loss: {:.4f}, Score: {:.4f}' .format(_epoch+1, args.max_epoch, losst.item(), scoret.item()))
-        writer.add_scalar('Loss/train', losst.item(), _epoch)
-        writer.add_scalar('MSE/train', scoret.item(), _epoch)
-
-        model.eval()
-        
-        if val_data_loader is not None:
-            with torch.no_grad():
-                qrint(f"Val batch {i}", r=False, newline=False)
-                _list_loss_va = []
-                _list_affinity = []
-                _list_score_va = []
-                for data in tqdm(val_data_loader):
-                    data = data.to(device)
-                    if cfg_mode == "tankbind": # Results : affinity_pred_dict
-                        y_pred, affinity_pred = model(data)
-                    elif cfg_mode == "frag": # Results : many
-                        y_pred, affinity_pred = model(data)
-                        loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
-                                                    data.right_pocket_by_distance)
-                        score = model.calculate_aff_score(affinity_pred, data.affinity).detach().cpu()
-                        _list_loss_va.append(loss.detach().cpu())
-                        _list_affinity.append(affinity_pred.detach().cpu())
-                        _list_score_va.append(score)
-                losst_va = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss_va]), dim=0)
-                score_va = torch.mean(torch.cat([torch.tensor([i]) for i in _list_score_va]), dim=0)
-                with open (f"{save_files_path}{args.iter}/affinity_dict_val_{_epoch}.pkl", "wb") as f:
-                    pickle.dump(_list_affinity, f)
-                print('VALID----> Epoch [{}/{}], Loss: {:.4f}, Score: {:.4f}' .format(_epoch+1, args.max_epoch, losst_va.item(), score_va.item()))
-                qrint("\n")
-                qrint(f"Loss: {losst_va.item()}")
-                writer.add_scalar('Loss/valid', losst_va.item(), _epoch)
-                writer.add_scalar('MSE/valid', score_va.item(), _epoch)
-                state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': _epoch}
-                _save_model_path = save_model_path + '/%s/lr%s-batchsize%s-%s' % (args.iter, args.lr, args.batch_size, args.config_mode)
-                if not os.path.exists(_save_model_path):
-                    os.system(f"mkdir -p {_save_model_path}")
-                epoch_save_model_path = '%s/epoch-%s' % (_save_model_path, _epoch + 1)
-                torch.save(state, epoch_save_model_path)
-        model.eval() 
-        with torch.no_grad():
-            if test_data_loader is not None:
-                _list_loss_te = []
-                _list_affinity = []
-                _list_score_te = []
-                for data in tqdm(test_data_loader):
-                    data = data.to(device)
-                    if cfg_mode == "tankbind": # Results : affinity_pred_dict
-                            data = data.to(device)
-                            y_pred, affinity_pred = model(data)
-                    elif cfg_mode == "frag": # Results : many
-                        y_pred, affinity_pred = model(data)
-                        loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
-                                data.right_pocket_by_distance)
-                        score = model.calculate_aff_score(affinity_pred, data.affinity).detach().cpu()
-                        _list_loss_te.append(loss.detach().cpu())
-                        _list_affinity.append(affinity_pred.detach().cpu())
-                        _list_score_te.append(score)
-                with open (f"{save_files_path}{args.iter}/affinity_dict_test_{_epoch}.pkl", "wb") as f:
-                    pickle.dump(_list_affinity, f)
-                    
-                losst_te = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss_te]), dim=0)
-                score_te = torch.mean(torch.cat([torch.tensor([i]) for i in _list_score_te]), dim=0)
-                qrint('TEST----> loss: {:.4f}, Score: {:.4f}' .format(losst_te.item(), score_te.item()))
-                writer.add_scalar('Loss/test', losst_te.item(), _epoch)
-                writer.add_scalar('MSE/test', score_te.item(), _epoch)
-    model.eval()    
-    with torch.no_grad(): 
-        if test2_data_loader is not None:
-            _list_loss_te_2 = []
-            for data in tqdm(test2_data_loader):
-                if cfg_mode == "tankbind": # Results : affinity_pred_dict
-                        data = data.to(device)
-                        y_pred, affinity_pred = model(data)
+                if cfg_mode == "tankbind": # Results : affinity_pred_dictbb
+                    y_pred, affinity_pred = model(data)
                 elif cfg_mode == "frag": # Results : many
                     data = data.to(device)
                     y_pred, affinity_pred = model(data)
-                    loss = model.calculate_loss(affinity_pred, y_pred,  data.affinity, data.dis_map,
-                            data.right_pocket_by_distance)
-                    _list_loss_te_2.append(loss.detach().cpu())
-            losst_te_2 = torch.cat([torch.tensor([i]) for i in _list_loss_te_2])
-            losst_te_2 = torch.mean(losst_te_2, dim=0)
-            qrint('TEST2----> loss: {}' .format(losst_te_2))
+                    loss = model.calculate_loss(affinity_pred, y_pred, None, data.affinity, data.dis_map,
+                                                None, data.right_pocket_by_distance, i, data.y_batch, None)
+                    optimizer.zero_grad()
+                    if loss.grad_fn is not None:
+                        loss.backward()
+                    optimizer.step()
+                _list_loss.append(loss.detach().cpu())
+                loss_item = loss.item()
+                writer.add_scalar(f'BatchLoss/train', loss_item, global_steps_train)
+                writer.add_scalar(f'SamplesLoss/train', loss_item, global_samples_train)
+                global_steps_train += 1
 
+                del loss
+            
+            writer.add_scalar(f'EpochBatchNum/train', global_steps_train, _epoch)
+            writer.add_scalar(f'EpochSampleNum/train', global_samples_train, _epoch)
+            losst = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss]), dim=0)
+            # scoret = torch.mean(torch.cat([torch.tensor([i]) for i in _list_score]), dim=0)
+            qrint("\n")
+            print('TRAIN----> Epoch [{}/{}], Loss: {:.4f}' .format(_epoch+1, args.max_epoch, losst.item()))
+            writer.add_scalar('Loss/train', losst.item(), _epoch)
+            # writer.add_scalar('MSE/train', scoret.item(), _epoch)
+
+            model.eval()
+            
+            if val_data_loader is not None:
+                with torch.no_grad():
+                    qrint(f"Val batch {i}", r=False, newline=False)
+                    val_affinity_df = pd.DataFrame(columns=["PDBCode", "LigName", "Pocket", "PredAffinity", "TrueAffinity", "IsRightPocket", "Score"])
+                    _list_loss_va = []
+                    for i, data in tqdm(enumerate(val_data_loader), total=len(val_data_loader)):
+                        global_samples_val += len(data)
+                        data = data.to(device)
+                        if cfg_mode == "tankbind": # Results : affinity_pred_dict
+                            y_pred, affinity_pred = model(data)
+                        elif cfg_mode == "frag": # Results : many
+                            y_pred, affinity_pred = model(data)
+                            loss = model.calculate_loss(affinity_pred, y_pred, None, data.affinity, data.dis_map,
+                                                None, data.right_pocket_by_distance, i, data.y_batch, None)
+                            _list_loss_va.append(loss.detach().cpu())
+                            loss_item = loss.item()
+                            writer.add_scalar(f'BatchLoss/valid', loss_item, global_steps_val)
+                            writer.add_scalar(f'SamplesLoss/valid', loss_item, global_samples_val)
+                            global_steps_val += 1
+
+                        for _name, _affpred, _afftrue, _rightpocket in zip(data.to("cpu").dataname, affinity_pred.detach().cpu(), data.affinity.detach().cpu(), data.to("cpu").right_pocket_by_distance):
+                            #print(data.dataname, affinity_pred, data.affinity, data.right_pocket_by_distance)
+                            sample_score = (_affpred.item()-_afftrue.item())**2
+                            _namelist = _name.split(sep="_")
+                            val_affinity_df.loc[_name] = [_namelist[0], _namelist[1], _namelist[3], _affpred.item(), _afftrue.item(), _rightpocket, sample_score]
+                    
+                    writer.add_scalar(f'EpochBatchNum/valid', global_steps_val, _epoch)
+                    writer.add_scalar(f'EpochSampleNum/train', global_samples_val, _epoch)
+
+                    val_affinity_df = val_affinity_df.sort_index()    
+                    val_affinity_df.to_csv(f"{main_path}Affinity_result_val_epoch_{_epoch}.csv", index=True)
+                    mean_score_val_epoch = val_affinity_df.groupby(['PDBCode']).apply(lambda x: x.loc[x.PredAffinity.idxmax(), "Score"]).mean()
+                    mean_affinity_val_epoch = val_affinity_df.groupby(['PDBCode']).apply(lambda x: x.loc[x.PredAffinity.idxmax(), "PredAffinity"]).mean()
+                    losst_va = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss_va]), dim=0)
+                    print('VALID----> Epoch [{}/{}], Loss: {:.4f}' .format(_epoch+1, args.max_epoch, losst_va.item()))
+                    qrint("\n")
+                    writer.add_scalar('Loss/valid', losst_va.item(), _epoch)
+                    writer.add_scalar('Score/valid', mean_score_val_epoch, _epoch)
+                    writer.add_scalar('Affinity/valid', mean_affinity_val_epoch, _epoch)
+                    state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': _epoch}
+                    _save_model_path = save_model_path + f'/{_dirname}-%s/lr%s-batchsize%s-%s' % (args.iter, args.lr, args.batch_size, args.config_mode)
+                    if not os.path.exists(_save_model_path):
+                        os.system(f"mkdir -p {_save_model_path}")
+                    epoch_save_model_path = '%s/epoch-%s' % (_save_model_path, _epoch + 1)
+                    torch.save(state, epoch_save_model_path)
+            model.eval() 
+            with torch.no_grad():
+                if test_data_loader is not None:
+                    test_affinity_df = pd.DataFrame(columns=["PDBCode", "LigName", "Pocket", "PredAffinity", "TrueAffinity", "IsRightPocket", "Score"])
+                    _list_loss_te = []
+                    for i, data in tqdm(enumerate(test_data_loader), total=len(test_data_loader)):
+                        global_samples_test += len(data)
+                        data = data.to(device)
+                        if cfg_mode == "tankbind": # Results : affinity_pred_dict
+                                data = data.to(device)
+                                y_pred, affinity_pred = model(data)
+                        elif cfg_mode == "frag": # Results : many
+                            y_pred, affinity_pred = model(data)
+                            loss = model.calculate_loss(affinity_pred, y_pred, None, data.affinity, data.dis_map,
+                                                        None, data.right_pocket_by_distance, i, data.y_batch, None)
+                            _list_loss_te.append(loss.detach().cpu())
+                            loss_item = loss.item()
+                            writer.add_scalar(f'BatchLoss/test', loss_item, global_steps_test)
+                            writer.add_scalar(f'SamplesLoss/test', loss_item, global_samples_test)
+                            global_steps_test += 1 
+
+                        for _name, _affpred, _afftrue, _rightpocket in zip(data.to("cpu").dataname, affinity_pred.detach().cpu(), data.affinity.detach().cpu(), data.to("cpu").right_pocket_by_distance):
+                            #print(data.dataname, affinity_pred, data.affinity, data.right_pocket_by_distance)
+                            sample_score = (_affpred.item()-_afftrue.item())**2
+                            _namelist = _name.split(sep="_")
+                            test_affinity_df.loc[_name] = [_namelist[0], _namelist[1], _namelist[3], _affpred.item(), _afftrue.item(), _rightpocket, sample_score]
+
+                    writer.add_scalar(f'EpochBatchNum/test', global_steps_test, _epoch)
+                    writer.add_scalar(f'EpochSampleNum/test', global_samples_test, _epoch)
+                    
+                    
+                    test_affinity_df = test_affinity_df.sort_index()    
+                    test_affinity_df.to_csv(f"{main_path}Affinity_result_test_epoch_{_epoch}.csv", index=True)
+                    mean_score_epoch = test_affinity_df.groupby(['PDBCode']).apply(lambda x: x.loc[x.PredAffinity.idxmax(), "Score"]).mean()
+                    mean_affinity_epoch = test_affinity_df.groupby(['PDBCode']).apply(lambda x: x.loc[x.PredAffinity.idxmax(), "PredAffinity"]).mean()
+                    losst_te = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss_te]), dim=0)
+
+                    qrint('TEST----> loss: {:.4f}' .format(losst_te.item()))
+                    writer.add_scalar('Loss/test', losst_te.item(), _epoch)
+                    writer.add_scalar('Score/test', mean_score_epoch, _epoch)
+                    writer.add_scalar('Affinity/test', mean_affinity_epoch, _epoch)  
+            with torch.no_grad(): 
+                if test2_data_loader is not None:
+                    pass
+    writer.close()
         
 
 if __name__=="__main__":
@@ -955,6 +981,8 @@ if __name__=="__main__":
     parser.add_argument("--config_mode", choices=['tankbind', "nciyes", "frag"], default='frag')
     parser.add_argument("--data_version", type=str, default='v1.0')    
     parser.add_argument("--first_run", type=bool, default=False) 
+    parser.add_argument("--max_node", type=int, default=1200)
+    parser.add_argument("--cfg_running_mode", choices=["train", "inference"], default="train") 
     args = parser.parse_args()
     
     main(args)

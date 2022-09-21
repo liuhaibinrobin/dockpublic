@@ -12,6 +12,9 @@ from torch_scatter import scatter_mean
 from GATv2 import GAT
 from GINv2 import GIN
 from IPython import embed
+import traceback
+import pickle
+import numpy as np
 
 class GNN(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels):
@@ -418,30 +421,93 @@ class IaBNet_with_affinity_frag(torch.nn.Module):
 
         return y_pred, affinity_pred
 
-    def calculate_loss(self, aff_pred, y_pred, aff_true, y_true, right_pocket):
-        loss = self.loss(aff_pred, y_pred, aff_true, y_true, right_pocket)
-        return loss
+    def calculate_loss(self, aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch, pair_shape):
+        return self.loss(aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch, pair_shape)
 
-    def calculate_aff_score(self, aff_pred, aff_true):
-        return torch.sqrt((((aff_pred - aff_true)**2).sum(axis=-1)).mean())
 
 class NCIYesLoss(nn.Module):
-    def __init__(self, margin=1, margin_weight=1, dist_weight=1, nci_weight=0, nciyes=False):
+    def __init__(self, margin=1, margin_weight=1, dist_weight=1, nci_weight=1, nciyes=False, class_weight=None, nci_under_sampling=True):
         super().__init__()
         self.margin_weight = margin_weight 
         self.dist_weight = dist_weight
         self.nci_weight = nci_weight
         self.MarginLoss = TBMarginLoss(margin)
-        self.DistLoss = nn.MSELoss()
+        self.DistLoss = TBDistLoss()
+        self.nci_under_sampling = nci_under_sampling
+        #class_weight = torch.tensor([1,1],dtype=torch.float32) if (class_weight is None) else class_weight
+        if nciyes and (class_weight is None):
+            self.NCILoss = nn.BCELoss()
+            print(self.NCILoss)
+        elif nciyes and (class_weight is not None):
+            self.NCILoss = NCIClassifierLoss(class_weight, self.nci_under_sampling)
+            print(self.NCILoss)
+        print("$ NCIYesLoss.nciyes = ", nciyes)
         self.nciyes = nciyes
+    
+    def forward(self, aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch, pair_shape):
+        try:
+            loss = self.margin_weight * self.MarginLoss(aff_pred, aff_true, right_pocket)
+            if sum(right_pocket):
+                loss += self.dist_weight * self.DistLoss(y_pred, y_true, right_pocket, y_batch)
+                loss += self.nci_weight * self.NCILoss(nci_pred, nci_true.long(), right_pocket, y_batch, pair_shape) if self.nciyes else 0
+            return loss
+        except Exception as e:
+            print("\n")
+            print(f" Error in <NCIYesLoss> with batch {i}. Exception info: {e.__class__.__name__, e}")
+            print(traceback.format_exc())
+            print("\n")
+            return None #, None
 
-    def forward(self, aff_pred, y_pred,  aff_true, y_true,right_pocket):
-        #self.margin_weight * self.MarginLoss(aff_pred, aff_true, right_pocket) + self.dist_weight * self.DistLoss(y_pred, y_true) + self.nci_weight * self.NCILoss(y_pred, y_true)        
-        #)
-        loss0 = self.margin_weight * self.MarginLoss(aff_pred, aff_true, right_pocket)
-        loss1 = self.dist_weight * self.DistLoss(y_pred, y_true)
-        loss = loss0 + loss1
-        return loss #, nci_score
+
+class NCIClassifierLoss(nn.Module):
+    def __init__(self,class_weight, nci_under_sampling):
+        super().__init__()
+        self.loss = nn.CrossEntropyLoss(weight=class_weight)
+        self.under_sampling = nci_under_sampling
+    def forward(self, nci_pred, nci_true, right_pocket, y_batch, pair_shape):
+        device = nci_pred.device
+        samples = []
+        shapes = []
+        for i, (_right, _shape) in enumerate(zip(right_pocket, pair_shape)):
+            if _right == True:
+                samples.append(i)
+                shapes.append(_shape)
+        samples = torch.tensor(samples).to(device)
+        _nci_pred = None
+        for i, _shape in zip(samples, shapes):
+            if _nci_pred is None:
+                _nci_pred = nci_pred[i, 0:_shape[0], 0:_shape[1]].flatten(end_dim=-2)
+            else:
+                _nci_pred = torch.cat(
+                    (_nci_pred, nci_pred[i,0:_shape[0],0:_shape[1]].flatten(end_dim=-2))
+                )
+        index = torch.isin(y_batch, samples)
+        nci_true = nci_true[index]
+        trues = torch.where(nci_true == True)[0].data
+        falses = torch.where(nci_true == False)[0].data
+        falses = torch.tensor(
+            np.random.choice(
+                np.array(falses.to("cpu")), 
+                size = 2*len(trues), 
+                replace=False)
+        ).to(device)
+        tf = torch.cat((trues, falses))
+        return self.loss(_nci_pred[tf], nci_true[tf]) if len(tf) else 0
+
+
+class TBDistLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.loss = nn.MSELoss()
+    def forward(self, y_pred, y_true, right_pocket, y_batch):
+        device = y_pred.device
+        samples = []
+        for i, _right in enumerate(right_pocket):
+            if _right == True:
+                samples.append(i)
+        samples = torch.tensor(samples).to(device)
+        index = torch.isin(y_batch, samples)
+        return self.loss(y_pred[index], y_true[index])
 
 class TBMarginLoss(nn.Module):
     def __init__(self, margin=1):
@@ -449,14 +515,15 @@ class TBMarginLoss(nn.Module):
         self.margin=margin
     def forward(self, aff_pred, aff_true, right_pocket):
         loss = torch.zeros(1).to(aff_pred.device)[0]
-
+        
         aff_pred = aff_pred - aff_true
         for _a, _p in zip(aff_pred, right_pocket):
             if _p:
                 loss += _a**2
             else:
-                loss += (max(0, (_a + self.margin)))**2
+                loss += (max(0, (_a + self.margin).relu()))**2
         return (loss / len(aff_pred))
+
 
 def get_model(mode, logging, device):
     if mode == 0:
