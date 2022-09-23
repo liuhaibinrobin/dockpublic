@@ -970,7 +970,7 @@ if __name__=="__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--batch_size", type=int, default=8)
-    parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--max_epoch", type=int, default=20)
     parser.add_argument("--gpu_id", type=int, default=0)
     parser.add_argument("--data_path", type=str, default='data')
