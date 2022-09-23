@@ -30,18 +30,18 @@ truepocket = 1
 # cp_name = "SOS1"
 # csv_name = "SOS1-ID-SMILES.csv"
 
-# pdb_name = "7s1s"
-# cp_name = "PRMT5"
-# csv_name = "PRMT5-ID-SMILES4.csv"
+pdb_name = "7s1s"
+cp_name = "PRMT5_ly"
+csv_name = "prmt5_ly_test_1.csv"
 # number = 14
 
 # pdb_name = "7kac"
 # cp_name = "HPK1_3"
 # csv_name = "HPK1_3-ID-SMILES_check.csv"
 
-pdb_name = "7kac"
-cp_name = "HPK1_3"
-csv_name = "HPK1_3-ID-SMILES.csv"
+# pdb_name = "7kac"
+# cp_name = "HPK1_3"
+# csv_name = "HPK1_3-ID-SMILES.csv"
 
 # cp_name = "HPK1_4"
 # csv_name = "HPK1_4-ID-SMILES.csv"
