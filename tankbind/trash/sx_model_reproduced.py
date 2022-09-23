@@ -3,6 +3,8 @@ import torch_geometric.transforms as T
 from torch_geometric.nn import SAGEConv, to_hetero
 from torch_geometric.utils import to_dense_batch
 from torch import nn
+from torch import Tensor
+from typing import List
 from torch.nn import Linear
 import sys
 import torch.nn as nn
@@ -28,9 +30,8 @@ class GNN(torch.nn.Module):
         return x
 
 
-
 class GVP_embedding(nn.Module):
-    '''eeee
+    '''
     Modified based on https://github.com/drorlab/gvp-pytorch/blob/main/gvp/models.py
     GVP-GNN for Model Quality Assessment as described in manuscript.
     
@@ -464,6 +465,7 @@ class NCIYes_IaBNet(torch.nn.Module):
                                               readout_mode, nciyes)
         self.NCIClassifier = NCIClassifier(hidden_channels, hidden_channels, output_classes) if self.nciyes else None
         self.loss = NCIYesLoss(margin, margin_weight, dist_weight, nci_weight, nciyes = self.nciyes, class_weight = self.class_weight)
+        #self.score = nn.MSELoss(reduction="sum")
 
     def forward(self, data, i):
         try:
@@ -473,20 +475,62 @@ class NCIYes_IaBNet(torch.nn.Module):
                 #print("asegdsdags")
                 nci_pred = self.NCIClassifier(z, z_mask, data.pair_shape)                
                 return y_pred, affinity_pred, nci_pred
-            
-            
-            
             else:
                 return self.IaBNet(data)
         except Exception as e:
-            print(f" Error in <NCIYes_IaBNet> with batch {i}. Exception info: {e.__class__.__name__, e}")
+            print(f" Error in <NCIYes_IaBNet> with batch {i}. Exception info: {e.__class__.__name__, e}  ")
+            print(traceback.format_exc())
             return None, None
         
     def calculate_loss(self, aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch, pair_shape):
         loss = self.loss(aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch, pair_shape)
         return loss
 
-# TODO: 这里要搞一下 维度才能用
+
+    
+class NCIYesLoss(nn.Module):
+    def __init__(self, margin=1, margin_weight=1, dist_weight=1, nci_weight=1, nciyes=False, class_weight=None, nci_under_sampling=True):
+        super().__init__()
+        self.margin_weight = margin_weight 
+        self.dist_weight = dist_weight
+        self.nci_weight = nci_weight
+        self.MarginLoss = TBMarginLoss(margin)
+        self.DistLoss = TBDistLoss()
+        self.nci_under_sampling = nci_under_sampling
+        if nciyes and (class_weight is None):
+            self.NCILoss = nn.BCELoss()
+        elif nciyes and (class_weight is not None):
+            #pridnt(class_weight)
+            self.NCILoss = NCIClassifierLoss(class_weight, self.nci_under_sampling)
+        print("++++++ Loss function, nciyes is", nciyes)
+        self.nciyes = nciyes
+    
+    def forward(self, aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch, pair_shape):
+        try:
+            loss = self.margin_weight * self.MarginLoss(aff_pred, aff_true, right_pocket)
+            #print("LOSS", loss)
+            if sum(right_pocket):
+                loss1 = self.dist_weight * self.DistLoss(y_pred, y_true, right_pocket, y_batch)
+                loss2 = self.nci_weight * self.NCILoss(nci_pred, nci_true.long(), right_pocket, y_batch, pair_shape) if self.nciyes else 0
+                print(f"Batch_{i}_3LOSS:"+str(loss)+str(loss1)+str(loss2), end="  ")
+                #loss = loss +loss2
+                loss = loss+loss1+loss2
+                del loss1
+                del loss2
+            else:
+                print(f"Batch_{i}_1LOSS:"+str(loss), end="  ")
+            return loss
+         
+        except Exception as e:
+            import pickle
+            with open(f"exception_{i}.pkl","wb") as f:
+                pickle.dump([aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch, pair_shape], f)
+            #import pdb
+            #pdb.set_trace()
+            print(f" Error in <NCIYesLoss> with batch {i}. Exception info: {e.__class__.__name__, e}")
+            return None #, None
+
+
 class NCIClassifierLoss(nn.Module):
     def __init__(self,class_weight, nci_under_sampling):
         super().__init__()
@@ -502,7 +546,6 @@ class NCIClassifierLoss(nn.Module):
                 shapes.append(_shape)
         samples = torch.tensor(samples).to(device)
         _nci_pred = None
-        
         for i, _shape in zip(samples, shapes):
             if _nci_pred is None:
                 _nci_pred = nci_pred[i, 0:_shape[0], 0:_shape[1]].flatten(end_dim=-2)
@@ -511,19 +554,9 @@ class NCIClassifierLoss(nn.Module):
                     (_nci_pred, nci_pred[i,0:_shape[0],0:_shape[1]].flatten(end_dim=-2))
                 )
         index = torch.isin(y_batch, samples)
-        
-        #prdint(f"== <NCIClassifierLoss>: original == nci_pred.shape {nci_pred.shape} _nci_pred.shape {_nci_pred.shape}, nci_true.shape {nci_true.shape}, index.shape {index.shape}")
-        
-        #pridnt(y_batch, samples)
-        #prdint("index", index)
-        #pridnt("nci1",nci_true.sum())
         nci_true = nci_true[index]
-        #prdint("nci2",nci_true.sum())
-        #pridnt("nci_true", nci_true)
         trues = torch.where(nci_true == True)[0].data
-        #pridnt("trues", trues)
         falses = torch.where(nci_true == False)[0].data
-        #pridnt("falses", falses)
         falses = torch.tensor(
             np.random.choice(
                 np.array(falses.to("cpu")), 
@@ -531,57 +564,33 @@ class NCIClassifierLoss(nn.Module):
                 replace=False)
         ).to(device)
         tf = torch.cat((trues, falses))
-        #pdrint(trues, falses, tf, nci_true.shape, _nci_pred.shape)
-        #prdint(f"== <NCIClassifierLoss>: indexed  == nci_pred.shape {nci_pred.shape}  _nci_pred.shape {_nci_pred.shape}, 
-        #nci_true.shape {nci_true.shape}, index.shape {index.shape}")
-        #return self.loss(nci_pred[index], nci_true.flatten()[index])
-        
         return self.loss(_nci_pred[tf], nci_true[tf]) if len(tf) else 0
 
 
-    
-class NCIYesLoss(nn.Module):
-    def __init__(self, margin=1, margin_weight=1, dist_weight=1, nci_weight=1, nciyes=False, class_weight=None, nci_under_sampling=True):
+class TBDistLoss(nn.Module):
+    def __init__(self):
         super().__init__()
-        self.margin_weight = margin_weight 
-        self.dist_weight = dist_weight
-        self.nci_weight = nci_weight
-        self.MarginLoss = TBMarginLoss(margin)
-        self.DistLoss = nn.MSELoss()
-        self.nci_under_sampling = nci_under_sampling
-        if nciyes and (class_weight is None):
-            self.NCILoss = nn.BCELoss()
-        elif nciyes and (class_weight is not None):
-            #pridnt(class_weight)
-            self.NCILoss = NCIClassifierLoss(class_weight, self.nci_under_sampling)
-        self.nciyes = nciyes
-    
-    #loss = self.loss(aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch)
-    def forward(self, aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch, pair_shape):
-        #self.margin_weight * self.MarginLoss(aff_pred, aff_true, right_pocket) + self.dist_weight * self.DistLoss(y_pred, y_true) + self.nci_weight * self.NCILoss(y_pred, y_true)        
-        #)
-        try:
-            loss0 = self.margin_weight * self.MarginLoss(aff_pred, aff_true, right_pocket)
-            loss1 = self.dist_weight * self.DistLoss(y_pred, y_true)
-            if sum(right_pocket):
-                loss2 = self.nci_weight * self.NCILoss(nci_pred, nci_true.long(), right_pocket, y_batch, pair_shape) if self.nciyes else 0
-                loss = loss0+loss1+loss2
-            else:
-                loss = loss0+loss1
-        #nci_score = 0
-        #for (_p,_t) in zip(nci_pred, nci_true):
-        #    if (_p > 0.5 and _t == True) or (_p < 0.5 and _t == False):
-        #        nci_score += 1
-        #nci_score = nci_score / len(nci_pred)
-            return loss #, nci_score
-        except Exception as e:
-            import pickle
-            with open(f"exception_{i}.pkl","wb") as f:
-                pickle.dump([aff_pred, y_pred, nci_pred, aff_true, y_true, nci_true, right_pocket, i, y_batch, pair_shape], f)
-            #import pdb
-            #pdb.set_trace()
-            print(f" Error in <NCIYesLoss> with batch {i}. Exception info: {e.__class__.__name__, e}")
-            return None #, None
+        self.loss = nn.MSELoss()
+    def forward(self, y_pred, y_true, right_pocket, y_batch):
+        device = y_pred.device
+        samples = []
+        for i, _right in enumerate(right_pocket):
+            if _right == True:
+                samples.append(i)
+        samples = torch.tensor(samples).to(device)
+        index = torch.isin(y_batch, samples)
+        #print(index.shape)
+        #print(y_pred.shape)
+        #print(y_true.shape)
+        #aa = y_pred[index]
+        #bb = y_true[index]
+        #print(aa.shape)
+        #print(bb.shape)
+        #print(aa)
+        #print("==========")
+        #print(bb)
+        return self.loss(y_pred[index], y_true[index])
+        #return 0
 
 class TBMarginLoss(nn.Module):
     def __init__(self, margin=1):
@@ -604,3 +613,104 @@ def sx_get_model(mode, logging, device, **kwargs):
         logging.info("5 stack, readout2, pred dis map add self attention and GVP embed, compound model GIN")
         model = NCIYes_IaBNet(**kwargs).to(device)
     return model
+
+
+
+
+
+
+
+# == reproduced ====================================================================================================================
+# 用于旧版训练脚本的 新Loss
+class NFTLoss(nn.Module):
+    """Loss function for tankbind, nci and frag.
+    Args:
+        margin (int | float): value of margin for margin loss.
+        margin_weight (int) : weight of margin loss.
+        dist_weight (int) : weight of dist loss.
+        nci_weight (int) : weight of nci classification loss.
+        with_nci (bool) : whether nci classifier is used.
+        nci_under_sampling (bool) : if with_nci == True, whether under sampling strategy is applied.
+        nci_class_weight (Tuple[int, int]) : weight of loss from positive/negative samples in NCI classification loss (MSELoss).
+    """
+    def __init__(self, margin=1, margin_weight=1, dist_weight=1, nci_weight=1, with_nci=True, nci_under_sampling=True, nci_class_weight=None):
+        super().__init__()
+        self.margin_weight = margin_weight
+        self.dist_weight = dist_weight
+        
+        self.with_nci = with_nci
+        self.nci_weight = nci_weight
+        
+        self.MarginLoss = NFTMarginLoss(margin=margin)
+        self.DistLoss = nn.MSELoss() 
+        self.NCILoss = NFTNCILoss(nci_class_weight, nci_under_sampling) if with_nci else None
+
+
+    def forward(self, aff_pred, aff_true, y_pred, y_true, right_pocket, batch_index, y_batch, pair_shape=None, nci_pred=None, nci_true=None):
+        try:
+            loss_m, loss_m_seq = self.MarginLoss(aff_pred, aff_true, right_pocket)
+            return (self.margin_weight * self.MarginLoss(aff_pred, aff_true, right_pocket) + 
+                    self.margin_weight * self.DistLoss(y_pred, y_true)+ 
+                    (self.NCILoss(nci_pred, nci_true.long(), right_pocket, y_batch, pair_shape)
+                     if (sum(right_pocket) and self.with_nci) else 0))
+        except Exception as e:
+            print(f"Exception of batch {i} in NFTLoss(): Info:\n{e.__class__.__name__, e}")
+            return None
+    
+    def loss_calcul_score(self, aff_pred, aff_true): #TODO: by sample as a list
+        return self.DistLoss(aff_pred, aff_true) if self.return_mean else self.DistLoss(aff_pred, aff_true) * len(aff_true)
+    
+class NFTMarginLoss(nn.Module):
+    """Class of the marginal loss function for afinity prediction.
+        Loss function instantiated with this class returns a marginal MSE Loss depending on the pocket's nature (right/decoys)
+    Args:
+        margin (int | float): value of margin for decoys.
+    """
+    def __init__(self, margin=1):
+        super().__init__()
+        self.margin = margin
+    def forward(self, aff_pred, aff_true, right_pocket):
+        loss = torch.zeros(1).to(aff_pred.device)[0]
+        aff_diff = aff_pred - aff_true
+        for _a, _p in zip(aff_diff, right_pocket):
+            _loss = _a**2 if _p else (max(0, (_a + self.margin).relu()))**2
+            loss += _loss
+            loss_list.append(_loss.detach().cpu().item())
+        return loss
+    
+class NFTNCILoss(nn.Module):
+    def __init__(self, class_weight, nci_under_sampling):
+        super().__init__()
+        self.loss = nn.CrossEntropyLoss(weight=class_weight)
+        self.under_sampling = nci_under_sampling
+    def forward(self, nci_pred, nci_true, right_pocket, y_batch, pair_shape):
+        device = nci_pred.device
+        samples = []
+        shapes = []
+        for i, (_right, _shape) in enumerate(zip(right_pocket, pair_shape)):
+            if _right == True:
+                samples.append(i)
+                shapes.append(_shape)
+        samples = torch.tensor(samples).to(device)
+        _nci_pred = None
+        for i, _shape in zip(samples, shapes):
+            if _nci_pred is None:
+                _nci_pred = nci_pred[i, 0:_shape[0], 0:_shape[1]].flatten(end_dim=-2)
+            else:
+                _nci_pred = torch.cat(
+                    (_nci_pred, nci_pred[i,0:_shape[0],0:_shape[1]].flatten(end_dim=-2))
+                )
+        index = torch.isin(y_batch, samples)
+        nci_true = nci_true[index]
+        trues = torch.where(nci_true == True)[0].data
+        falses = torch.where(nci_true == False)[0].data
+        falses = torch.tensor(
+            np.random.choice(
+                np.array(falses.to("cpu")), 
+                size = 2*len(trues), 
+                replace=False)
+        ).to(device)
+        tf = torch.cat((trues, falses))
+        return self.loss(_nci_pred[tf], nci_true[tf]) if len(tf) else 0
+    
+    
