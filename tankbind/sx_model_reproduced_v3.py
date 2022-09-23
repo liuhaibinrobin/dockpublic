@@ -573,21 +573,27 @@ class TBDistLoss(nn.Module):
         index = torch.isin(y_batch, samples)
         return self.loss(y_pred[index], y_true[index])
 
+
+
 class TBMarginLoss(nn.Module):
+    """Loss module equivalent to `tankbind.utils.my_affinity_criterion`\n
+    Args:
+        margin (int): the margin value.
+    """
     def __init__(self, margin=1):
         super().__init__()
         self.margin=margin
     def forward(self, aff_pred, aff_true, right_pocket):
-        loss = torch.zeros(1).to(aff_pred.device)[0]
-        
-        aff_pred = aff_pred - aff_true
-        for _a, _p in zip(aff_pred, right_pocket):
-            if _p:
-                loss += _a**2
-            else:
-                loss += (max(0, (_a + self.margin).relu()))**2
-        return (loss / len(aff_pred))
-    
+        #mask = torch.tensor(right_pocket).to(aff_pred.device)
+        right_pocket = np.array(right_pocket)
+        affinity_loss = torch.zeros(aff_pred.shape, dtype=torch.float64).to(aff_pred.device)
+        #print(aff_pred, aff_true, right_pocket)
+        affinity_loss[right_pocket] = ((aff_pred-aff_true)**2)[right_pocket]
+        affinity_loss[~right_pocket] = (((aff_pred-(aff_true-self.margin).relu()**2)))[~right_pocket]
+        return affinity_loss.mean()
+
+
+
 
 def sx_get_model(mode, logging, device, **kwargs):
     if mode == 0:
@@ -682,6 +688,9 @@ class NFTNCILoss(nn.Module):
                     (_nci_pred, nci_pred[i,0:_shape[0],0:_shape[1]].flatten(end_dim=-2))
                 )
         index = torch.isin(y_batch, samples)
+        
+        # np.random.seed(hash(str(nci_pred)))
+        
         nci_true = nci_true[index]
         trues = torch.where(nci_true == True)[0].data
         falses = torch.where(nci_true == False)[0].data
@@ -695,3 +704,18 @@ class NFTNCILoss(nn.Module):
         return self.loss(_nci_pred[tf], nci_true[tf]) if len(tf) else 0
     
     
+class TBMarginLoss_OLD(nn.Module):
+    def __init__(self, margin=1):
+        super().__init__()
+        self.margin=margin
+    def forward(self, aff_pred, aff_true, right_pocket):
+        loss = None
+        print("AFSAGSA", aff_pred, right_pocket)
+        aff_pred = aff_pred - aff_true
+        for _a, _p in zip(aff_pred, right_pocket):
+            if _p:
+                loss = _a**2 if loss is None else loss + _a**2
+            else:
+                loss = (torch.max(0, (_a + self.margin).relu()))**2 if loss is None else loss + (max(0, (_a + self.margin).relu()))**2
+        print(loss)
+        return (loss / len(aff_pred))
