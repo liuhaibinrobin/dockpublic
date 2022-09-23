@@ -45,7 +45,7 @@ def main(args):
 
     cfg_timesplit = True # If timesplit is applicated for splitting the dataset.
 
-    cfg_custom_dir_name = "DemoNCI0" # Prefix in the name of the output folder.
+    cfg_custom_dir_name = "DemoNCI1" # Prefix in the name of the output folder.
     cfg_train = True # If you want to train the model.
     cfg_distinguish_by_timestamp = True # If true, a timestamp is added to your output dir name.
 

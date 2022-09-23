@@ -1,7 +1,7 @@
 
 def main(args):
     
-    import pandas as pd
+    
     import time
     time.strftime("%H:%M:%S")
 
@@ -25,7 +25,7 @@ def main(args):
 
     cfg_data_version = "v9.8-only2" # "v9.8-only2"
     cfg_timesplit = True # If timesplit is applicated for splitting the dataset.
-    cfg_custom_dir_name = "Submit_jobs_0916_NCI" # Prefix in the name of the output folder.
+    cfg_custom_dir_name = "SJ-NCIYES" # Prefix in the name of the output folder.
     cfg_distinguish_by_timestamp = True # If true, a timestamp is added to your output dir name.
 
 
@@ -47,7 +47,7 @@ def main(args):
     input_path = f"../../TankBind/ours/Inputs/{cfg_mode}/{cfg_data_version}/"
     output_path = f"./Outputs/{cfg_mode}/"
     save_files_path = f"../../TankBind/ours/Inputs/Savedfiles/{cfg_mode}.{cfg_data_version}/"
-    p2rank_save_path = f"../../TankBind/ours/Inputs/Savedfiles/p2rank/"
+    p2rank_save_path = f"./Inputs/Savedfiles/p2rank/"
     p2rank_path = "../p2rank_2.3/prank"
     ds_path = "../../../" # Related path used for ds files.
     save_model_path = f"./Inputs/Savedfiles/{cfg_mode}.model/" #TODO: write your paths here or just keep this.
@@ -932,8 +932,8 @@ def main(args):
                             loss = model.calculate_loss(affinity_pred, y_pred, nci_pred, data.affinity, data.dis_map,
                                                         data.nci_sequence, data.right_pocket_by_distance, i, data.y_batch, data.pair_shape)
                             #score = model.calculate_aff_score(affinity_pred, data.affinity).detach().cpu()
-                            _list_loss_va.append(loss.detach().cpu())
-                            _list_nci.append(nci_pred.detach().cpu())
+                            _list_loss_va.append(loss)
+                            _list_nci.append(nci_pred)
                             #_list_score_va.append(score)
                             writer.add_scalar(f'BatchLoss/valid_{_epoch}', loss.detach().cpu()/len(data), i)
                             #writer.add_scalar(f'BatchScore/valid_{_epoch}', score/len(data), i)
@@ -943,7 +943,7 @@ def main(args):
                     
                     nci_dict[f"val_{_epoch}"] = _list_nci
                     qrint('VALID----> Epoch [{}/{}], Loss: {:.4f}' .format(_epoch+1, args.max_epoch, losst_va.item()))
-                    #qrint('VALID----> Epoch [{}/{}], Score: {:.4f}' .format(_epoch+1, args.max_epoch, score_va.item()))
+                    qrint('VALID----> Epoch [{}/{}], Score: {:.4f}' .format(_epoch+1, args.max_epoch, score_va.item()))
                     writer.add_scalar('Loss/valid', losst_va.item(), _epoch)
                     #writer.add_scalar('Score/valid', score_va.item(), _epoch)
                     state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': _epoch}
@@ -957,7 +957,6 @@ def main(args):
             model.eval() 
             with torch.no_grad():
                if test_data_loader is not None:
-                    test_affinity_df = pd.DataFrame(columns=["PDBCode", "LigName", "Pocket", "PredAffinity", "TrueAffinity", "IsRightPocket", "Score"])
                     _list_loss_te = []
                     _list_nci = []
                     #_list_score_te = []
@@ -968,36 +967,23 @@ def main(args):
                                 y_pred, affinity_pred = model(data)
                         elif cfg_mode == "nciyes": # Results : many
                             y_pred, affinity_pred, nci_pred = model(data, i)
-                            #print(affinity_pred)
                             loss = model.calculate_loss(affinity_pred, y_pred, nci_pred, data.affinity, data.dis_map,
                                                         data.nci_sequence, data.right_pocket_by_distance, i, data.y_batch, data.pair_shape)
                             #score = model.calculate_aff_score(affinity_pred, data.affinity)
-                            _list_loss_te.append(loss.detach().cpu())
-                            _list_nci.append(nci_pred.detach().cpu())
+                            _list_loss_te.append(loss)
+                            _list_nci.append(nci_pred)
                             #_list_score_te.append(score)
                             writer.add_scalar(f'BatchLoss/test_{_epoch}', loss.detach().cpu()/len(data), i)
-                            #writer.add_scalar(f'BatchScore/test_{_epoch}', score/len(data), i)
-                            
-                        for _name, _affpred, _afftrue, _rightpocket in zip(data.dataname, affinity_pred.detach().cpu(), data.affinity.detach().cpu(), data.right_pocket_by_distance):
-                            #print(data.dataname, affinity_pred, data.affinity, data.right_pocket_by_distance)
-                            sample_score = (_affpred.item()-_afftrue.item())**2
-                            _namelist = _name.split(sep="_")
-                            test_affinity_df.loc[_name] = [_namelist[0], _namelist[1], _namelist[3], _affpred.item(), _afftrue.item(), _rightpocket, sample_score]
-                    
-                    test_affinity_df = test_affinity_df.sort_index()    
-                    test_affinity_df.to_csv(f"{main_path}Affinity_result_epoch_{_epoch}.csv", index=True)
-                    mean_score_epoch = test_affinity_df.groupby(['PDBCode']).apply(lambda x: x.loc[x.PredAffinity.idxmax(), "Score"]).mean()
-                    mean_affinity_epoch = test_affinity_df.groupby(['PDBCode']).apply(lambda x: x.loc[x.PredAffinity.idxmax(), "PredAffinity"]).mean()
+                            writer.add_scalar(f'BatchScore/test_{_epoch}', score/len(data), i)
                     nci_dict[f"test_{_epoch}"] = _list_nci
                     losst_te = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss_te]), dim=0)
                     #score_te = torch.mean(torch.cat([torch.tensor([i]) for i in _list_score_te]), dim=0)
                     qrint('TEST----> loss: {}' .format(losst_te))
-                    #qrint('TEST----> Epoch [{}/{}], Score: {:.4f}' .format(_epoch+1, args.max_epoch, score_te.item()))
+                    qrint('TEST----> Epoch [{}/{}], Score: {:.4f}' .format(_epoch+1, args.max_epoch, score_te.item()))
                     #with open (f"{main_path}/epoch_{_epoch}_scores_test.pkl", "wb") as f:
                      #   pickle.dump(score_te, f)
                     writer.add_scalar('Loss/test', losst_te.item(), _epoch)
-                    writer.add_scalar('Score/test', mean_score_epoch, _epoch)
-                    writer.add_scalar('Affinity/test', mean_affinity_epoch, _epoch)
+                    #writer.add_scalar('Score/test', score_te.item(), _epoch)
             if test2_data_loader is not None:
                 _list_loss_te_2 = []
                 for i, data in tqdm(enumerate(test2_data_loader), total=len(test2_data_loader)):
@@ -1009,8 +995,8 @@ def main(args):
                         loss = model.calculate_loss(affinity_pred, y_pred, nci_pred, data.affinity, data.dis_map,
                                                     data.nci_sequence, data.right_pocket_by_distance, i, data.y_batch, data.pair_shape)
                         #score = model.calculate_aff_score(affinity_pred, data.affinity)
-                        _list_loss_te_2.append(loss.detach().cpu())
-                        _list_nci.append(nci_pred.detach().cpu())
+                        _list_loss_te_2.append(loss)
+                        _list_nci.append(nci_pred)
                         #_list_score_te.append(score)
                         writer.add_scalar(f'BatchLoss/test2_{_epoch}', loss.detach().cpu()/len(data), i)
                         writer.add_scalar(f'BatchScore/test2_{_epoch}', score/len(data), i)
