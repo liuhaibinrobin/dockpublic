@@ -589,7 +589,7 @@ class TBMarginLoss(nn.Module):
         affinity_loss = torch.zeros(aff_pred.shape, dtype=torch.float64).to(aff_pred.device)
         #print(aff_pred, aff_true, right_pocket)
         affinity_loss[right_pocket] = ((aff_pred-aff_true)**2)[right_pocket]
-        affinity_loss[~right_pocket] = (((aff_pred-(aff_true-self.margin).relu()**2)))[~right_pocket]
+        affinity_loss[~right_pocket] = (((aff_pred-(aff_true-self.margin).relu())**2))[~right_pocket]
         return affinity_loss.mean()
 
 

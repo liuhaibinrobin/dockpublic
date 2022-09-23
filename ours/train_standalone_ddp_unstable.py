@@ -767,7 +767,7 @@ def main(rank, size, args):
                 txtlog.qrint(f"Processing {R}dataset{S}:")
                 if not cfg_use_saved_files:
                     #print("yes i do delete your data dude")
-                    os.system(f"rm -r {dataset_path}")
+                    #os.system(f"rm -r {dataset_path}")
                     for _s in ["data"]:
                         os.system(f"mkdir -p {dataset_path}{_s}")
                 info_test2 = info[~(info.pdb_code.isin(_train)|info.pdb_code.isin(_val)|info.pdb_code.isin(_test))]
@@ -892,15 +892,14 @@ def main(rank, size, args):
     #print("MODEL++", str(model))
 
 
-    from sx_new_class import InstanceDynamicBatchSampler
-    from sx_ddp_samplers import DistributedDynamicBatchSampler  #, OldDistributedDynamicBatchSampler
+    from sx_samplers import DistributedDynamicBatchSampler, InstanceDynamicBatchSampler  #, OldDistributedDynamicBatchSampler
     
     logging.basicConfig(level=logging.INFO)
     if cfg_running_mode == "train":
         print("train!")
         if args.dist:
             train_data_loader = DataLoader(train_set,
-                                        batch_sampler = DistributedDynamicIndexSampler(
+                                        batch_sampler = DistributedDynamicBatchSampler(
                                             dataset=train_set, dyn_max_num=args.max_node, dyn_mode="node",
                                             num_replicas=args.world_size, rank=args.rank, shuffle=True,
                                             seed = args.seed, dyn_num_steps=args.dyn_num_steps), 
