@@ -23,6 +23,11 @@ import argparse
 from torch.utils.data import RandomSampler
 from torch.utils.data import WeightedRandomSampler
 import random
+
+from torch.utils.tensorboard import SummaryWriter
+
+writer = SummaryWriter("./logs")
+
 def Seed_everything(seed=42):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
@@ -159,6 +164,13 @@ data_warmup_epochs = args.data_warm_up_epochs
 warm_up_epochs = args.warm_up_epochs
 logging.info(f"warming up epochs: {warm_up_epochs}, data warming up epochs: {data_warmup_epochs}")
 
+
+global_steps_train = 0
+global_steps_val = 0
+global_steps_test = 0
+global_samples_train = 0
+global_samples_val = 0
+global_samples_test = 0
 for epoch in range(200):
     model.train()
     y_list = []
@@ -230,6 +242,14 @@ for epoch in range(200):
         affinity_pred_list.append(affinity_pred.detach())
         # torch.cuda.empty_cache()
 
+        writer.add_scalar(f'BatchLoss/train', loss.item(), global_steps_train)
+        writer.add_scalar(f'SamplesLoss/train', loss.item(), global_samples_train)
+        writer.add_scalar(f'contact_loss/train', contact_loss.item(), global_samples_train)
+        writer.add_scalar(f'affinity_loss/train', affinity_loss.item(), global_samples_train)
+        global_steps_train+=1
+        global_samples_train+=len(data)
+
+
     y = torch.cat(y_list)
     y_pred = torch.cat(y_pred_list)
     # print(y.min(), y.max())
@@ -251,6 +271,15 @@ for epoch in range(200):
     metrics_list.append(metrics)
     # print(metrics_list)
     # release memory
+
+    writer.add_scalar('Loss/train', metrics["loss"], epoch)
+    writer.add_scalar(f'EpochBatchNum/train', global_steps_train, epoch)
+    writer.add_scalar(f'EpochSampleNum/train', global_samples_train, epoch)
+
+    #===================validation========================================
+
+
+
     y = None
     y_pred = None
     # torch.cuda.empty_cache()
@@ -271,11 +300,28 @@ for epoch in range(200):
     valid_metrics_list.append(metrics)
     logging.info(f"epoch {epoch:<4d}, valid, " + print_metrics(metrics) + ending_message)
 
+    writer.add_scalar('Loss/validation_loss', metrics["loss"], epoch)
+    writer.add_scalar('Loss/validation_y_loss', metrics["y loss"], epoch)
+    writer.add_scalar('Loss/validation_affinity_loss', metrics["affinity loss"], epoch)
+    writer.add_scalar('RMSE/validation', metrics["RMSE"], epoch)
+    writer.add_scalar('Pearson/validation', metrics["Pearson"], epoch)
+    writer.add_scalar('native_auroc/validation', metrics["native_auroc"], epoch)
+    writer.add_scalar('selected_auroc/validation', metrics["selected_auroc"], epoch)
+    #====================test============================================================
+
+
     saveFileName = f"{pre}/results/epoch_{epoch}.pt"
     metrics = evaulate_with_affinity(test_loader, model, criterion, affinity_criterion, args.relative_k,
                                         device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
     test_metrics_list.append(metrics)
     logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
+    writer.add_scalar('Loss/test', metrics["loss"], epoch)
+    writer.add_scalar('Loss/test_y_loss', metrics["y loss"], epoch)
+    writer.add_scalar('Loss/test_affinity_loss', metrics["affinity loss"], epoch)
+    writer.add_scalar('RMSE/test', metrics["RMSE"], epoch)
+    writer.add_scalar('Pearson/test', metrics["Pearson"], epoch)
+    writer.add_scalar('native_auroc/test', metrics["native_auroc"], epoch)
+    writer.add_scalar('selected_auroc/test', metrics["selected_auroc"], epoch)
 
 
     # saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
