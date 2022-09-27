@@ -986,7 +986,7 @@ def main(args):
                             epoch_model_dir = f"{model_dirname}/epoch_{_epoch}"
                             
                             # DDP MODIFIED
-                            if rank == 0:
+                            if dist.get_rank() == 0:
                                 torch.save(state, epoch_model_dir)
                             
                     model.eval() 
