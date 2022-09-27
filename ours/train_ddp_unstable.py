@@ -25,31 +25,11 @@ import torch.distributed as dist
 
 from Bio.PDB import PDBParser
 from rdkit import Chem
+
 from torch.utils.tensorboard import SummaryWriter
-
 from torch.multiprocessing import Process
-
-os.environ['MASTER_ADDR'] = 'localhost'
-os.environ['MASTER_PORT'] = '35709'
-#os.environ['CUDA_VISIBLE_DEVICES']=['0', '4']
-
-
-def init_distributed_mode(args):
-    '''initilize DDP
-    '''
-    args.rank = int(os.environ["RANK"])
-    args.world_size = int(os.environ["WORLD_SIZE"])
-    args.gpu = 0  # 默认worker都使用0号卡
-
-    args.distributed = True
-
-    torch.cuda.set_device(args.gpu)
-    args.dist_backend = "nccl"
     
-    dist.init_process_group(
-        backend=args.dist_backend, init_method=args.dist_url, world_size=args.world_size, rank=args.rank
-    )
-    
+
 def get_full_id_old(full_id_ls: list, resname):
     chain_id = full_id_ls[2]
     res_id = full_id_ls[3][1]
@@ -73,35 +53,44 @@ class TxtLog:
                 f.write(time.strftime("[%m-%d %H:%M:%S] ")+target.replace("\n", "                 \n")+"\n")
             else:
                 f.write("\n")
+                
+def init_distributed_mode(args):
+    '''initilize DDP
+    '''
+    args.rank = int(os.environ["RANK"])
+    args.world_size = int(os.environ["WORLD_SIZE"])
+    args.gpu = 0  # 默认worker都使用0号卡
 
+    args.distributed = True
 
-def main(rank, size, args):
-    dist.init_process_group(backend="gloo", rank=rank, world_size=size)
-    mm = {
-        0:0,
-        1:1,
-        2:2,
-        3:3,
-    }
-    d_rank = mm[rank]
-    torch.cuda.set_device(d_rank)
-    args.rank = rank
-    args.d_rank = mm[rank]
+    torch.cuda.set_device(args.gpu)
+    args.dist_backend = "nccl"
+    
+    dist.init_process_group(
+        backend=args.dist_backend, init_method=args.dist_url, world_size=args.world_size, rank=args.rank)
+
+def main(args):
+    
     print(args)
+    
+    # Seed Locking
     seed = args.seed
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-    #torch.backends.cudnn.deterministic = True
-    #os.environ['PYTHONHASHSEED'] = str(seed)
+    torch.backends.cudnn.deterministic = True
+    os.environ['PYTHONHASHSEED'] = str(seed)
 
     # DDP MODIFIED
-    # if args.dist:
-    #    init_distributed_mode(args)
+    if args.distributed:
+        init_distributed_mode(args)
+        device = torch.device("cuda")
+        
+
+
 
     # Configuration and Initilization Part
-    # ### Configuration
     cfg_use_saved_files = True # If you have already generated all the data required.
     cfg_save_files = False # If you want to save generated data.
     
@@ -109,12 +98,9 @@ def main(rank, size, args):
     
     cfg_split_strategy = (0.5,0.25,0.25)
     cfg_data_version = args.data_version
-    
     cfg_timesplit = True # If timesplit is applicated for splitting the dataset.
     cfg_mode = ["tankbind", "nciyes", "fragmentation"]
     cfg_mode = args.config_mode 
-    cfg_data_version = args.data_version
-
     cfg_running_mode = ["train", "inference"]
     cfg_running_mode = args.running_mode
 
@@ -162,7 +148,7 @@ def main(rank, size, args):
         R, B, S = "", "", "" 
     
     
-    dirname = args.dir_prefix + "_" + "rank-" + str(rank)+"-"+time.strftime("%y-%m-%d_%H%M%S")
+    dirname = args.dir_prefix + "_" + "rank-" + str(args.rank)+"-"+time.strftime("%y-%m-%d_%H%M%S")
     
     main_path = f"{output_path}{dirname}/"
     log_fpath = f"{main_path}log.txt"
@@ -176,18 +162,6 @@ def main(rank, size, args):
         f.write("INITIALIZED")
     txtlog = TxtLog(jupyter=cfg_jupyter, log_fpath=log_fpath, R=R, B=B, S=S)
     txtlog.qrint(f"{save_files_path}")
-    # def txtlog.qrint(target, jupyter= cfg_jupyter, log=log_fpath, R=R, B=B, S=S, r=True):
-    #     if r:
-    #         print(target)
-    #     if jupyter:
-    #         target = target.replace(R,"").replace(B,"").replace(S,"")
-    #     with open(log_fpath, "a") as f:
-    #         if target != "\n":
-    #             f.write(time.strftime("[%m-%d %H:%M:%S] ")+target.replace("\n", "                 \n")+"\n")
-    #         else:
-    #             f.write("\n")
-
-
 
     def saveconfig(cfg_use_saved_files, cfg_save_files, B=B, R=R, S=S):
         txtlog.qrint(f"{R}cfg_use_saved_files{S}={B}{cfg_use_saved_files}{S}, {R}cfg_save_files{S}={B}{cfg_save_files}{S}.")
@@ -842,7 +816,7 @@ def main(rank, size, args):
             shapes = []
             ff = True
 
-            # check nci record in right_pocket
+            # check nci record in rightpocket
             for i, _right in enumerate(data.right_pocket_by_distance):
                 if _right == True:
                     samples.append(i)
@@ -862,8 +836,6 @@ def main(rank, size, args):
     # %%
     import logging
     from torch_geometric.loader import DataLoader
-
-    device = f"cuda:{args.d_rank}"
     CUDA_LAUNCH_BLOCKING=1
     if True:
         if cfg_mode == "tankbind":
@@ -886,24 +858,19 @@ def main(rank, size, args):
             model.load_state_dict(torch.load(modelFile, map_location=device))#?
 
 
-    # Distributed
-    #if args.dist:
-    #print("MODEL--")
-    #print(type(model))
-    #print("MODEL---------")
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[rank], find_unused_parameters=True, broadcast_buffers=False)
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True, broadcast_buffers=False)
     logging.basicConfig(level=logging.INFO)
     #print("MODEL++", str(model))
 
 
     from sx_samplers import DistributedDynamicBatchSampler, InstanceDynamicBatchSampler  #, OldDistributedDynamicBatchSampler
     
-    with open("dyn_sample_info_0.pkl", "rb") as f:
+    with open("/home/jovyan/BetaBind/ours/dyn_sample_info_0.pkl", "rb") as f:
         dyn_sample_info = pickle.load(f)
     
     logging.basicConfig(level=logging.INFO)
     if cfg_running_mode == "train":
-        if args.dist:
+        if args.distributed:
             train_data_loader = DataLoader(train_set,
                                         batch_sampler = DistributedDynamicBatchSampler(
                                             dataset=train_set, dyn_max_num=args.max_node, # dyn_mode="node",
@@ -915,7 +882,7 @@ def main(rank, size, args):
             train_data_loader = DataLoader(train_set, batch_sampler = InstanceDynamicBatchSampler(dataset=train_set, max_num=args.max_node, mode="node", shuffle=True), follow_batch=['x', 'y', 'compound_pair'], num_workers=3) 
         val_data_loader = DataLoader(val_set, batch_sampler = InstanceDynamicBatchSampler(dataset=val_set, max_num=args.max_node, mode="node", shuffle=True), follow_batch=['x', 'y', 'compound_pair'], num_workers=3) if len(val_set) else None
         test_data_loader = DataLoader(test_set, batch_sampler = InstanceDynamicBatchSampler(dataset=test_set, max_num=args.max_node, mode="node", shuffle=True), follow_batch=['x', 'y', 'compound_pair'], num_workers=1) if len(test_set) else None
-        test2_data_loader = DataLoader(test2_set,batch_sampler = InstanceDynamicBatchSampler(dataset=test2_set, max_num=args.max_node, mode="node", shuffle=True), follow_batch=['x', 'y', 'compound_pair'], num_workers=1) if test2_set else None
+        # test2_data_loader = DataLoader(test2_set,batch_sampler = InstanceDynamicBatchSampler(dataset=test2_set, max_num=args.max_node, mode="node", shuffle=True), follow_batch=['x', 'y', 'compound_pair'], num_workers=1) if test2_set else None
     else:
         test_data_loader = DataLoader(test_set, batch_sampler = InstanceDynamicBatchSampler(dataset=test_set, max_num=args.max_node, mode="node", shuffle=True), follow_batch=['x', 'y', 'compound_pair'], num_workers=1) if len(test_set) else None
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -976,148 +943,118 @@ def main(rank, size, args):
             writer.add_scalar('Loss/train', loss_epoch.item(), _epoch)
             
             
-            model.eval()
-            if val_data_loader is not None:
-                with torch.no_grad():
-                    _list_loss_va = []
-                    
-                    for i, data in tqdm(enumerate(val_data_loader), total=len(val_data_loader)):
-                        global_samples_val += len(data)
-                        data = data.to(device)
-                        if cfg_mode == "tankbind": # Results : affinity_pred_dict
-                            y_pred, affinity_pred = model(data)
-                        elif cfg_mode == "nciyes": # Results : many
-                            y_pred, affinity_pred, nci_pred = model(data, i)
-                            loss, loss_values = model.module.calculate_loss(affinity_pred, y_pred, nci_pred, data.affinity, data.dis_map,
-                                                        data.nci_sequence, data.right_pocket_by_distance, i, data.y_batch, data.pair_shape)
-                        
-                        _list_loss_va.append(loss.detach().cpu())
-                        loss_item = loss.item()
-                        writer.add_scalar(f'BatchLoss/valid', loss_item, global_steps_val)
-                        writer.add_scalar(f'BatchLoss/valid-aff', loss_values[0], global_steps_val)
-                        writer.add_scalar(f'BatchLoss/valid-dist', loss_values[1], global_steps_val)
-                        writer.add_scalar(f'BatchLoss/valid-nci', loss_values[2], global_steps_val)
-                        writer.add_scalar(f'SamplesLoss/valid', loss_item, global_samples_val)
-                        writer.add_scalar(f'SamplesLoss/valid-aff', loss_values[0], global_samples_val)
-                        writer.add_scalar(f'SamplesLoss/valid-dist', loss_values[1], global_samples_val)
-                        writer.add_scalar(f'SamplesLoss/valid-nci', loss_values[2], global_samples_val)
-                        global_steps_val += 1
+            if args.distributed:
+                if dist.get_rank() == 0:
+                    model.eval()
+                    if val_data_loader is not None:
+                        with torch.no_grad():
+                            _list_loss_va = []
                             
-                    writer.add_scalar(f'EpochBatchNum/valid', global_steps_val, _epoch)
-                    writer.add_scalar(f'EpochSampleNum/train', global_samples_val, _epoch)
-
-                    losst_va = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss_va]), dim=0)
-                    txtlog.qrint('VALID----> Epoch [{}/{}], Loss: {:.4f}' .format(_epoch+1, args.max_epoch, losst_va.item()))
-                    writer.add_scalar('Loss/valid', losst_va.item(), _epoch)
-                    state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': _epoch}
-                    model_dirname = f"{save_model_path}{dirname}"
-                    if not os.path.exists(model_dirname):
-                        os.system(f"mkdir -p {model_dirname}")
-                        
-                    epoch_model_dir = f"{model_dirname}/epoch_{_epoch}"
-                    
-                    # DDP MODIFIED
-                    if rank == 0:
-                        torch.save(state, epoch_model_dir)
-                    
-            model.eval() 
-            with torch.no_grad():
-               if test_data_loader is not None:
-                    test_affinity_df = pd.DataFrame(columns=["PDBCode", "LigName", "Pocket", "PredAffinity", "TrueAffinity", "IsRightPocket", "Score"])
-                    _list_loss_te = []
-                    for i, data in tqdm(enumerate(test_data_loader), total=len(test_data_loader)):
-                        global_samples_test += len(data)
-                        data = data.to(device)
-                        if cfg_mode == "tankbind": # Results : affinity_pred_dict
+                            for i, data in tqdm(enumerate(val_data_loader), total=len(val_data_loader)):
+                                global_samples_val += len(data)
                                 data = data.to(device)
-                                y_pred, affinity_pred = model(data)
-                        elif cfg_mode == "nciyes": # Results : many
-                            y_pred, affinity_pred, nci_pred = model(data, i)
-                            loss, loss_values = model.module.calculate_loss(affinity_pred, y_pred, nci_pred, data.affinity, data.dis_map,
-                                                        data.nci_sequence, data.right_pocket_by_distance, i, data.y_batch, data.pair_shape)
-                            nci_accuracy, nci_recall = model.module.loss.NCILoss.eval_classification(
-                                nci_pred, data.nci_sequence, data.right_pocket_by_distance, data.y_batch, data.pair_shape)
+                                if cfg_mode == "tankbind": # Results : affinity_pred_dict
+                                    y_pred, affinity_pred = model(data)
+                                elif cfg_mode == "nciyes": # Results : many
+                                    y_pred, affinity_pred, nci_pred = model(data, i)
+                                    loss, loss_values = model.module.calculate_loss(affinity_pred, y_pred, nci_pred, data.affinity, data.dis_map,
+                                                                data.nci_sequence, data.right_pocket_by_distance, i, data.y_batch, data.pair_shape)
+                                
+                                _list_loss_va.append(loss.detach().cpu())
+                                loss_item = loss.item()
+                                writer.add_scalar(f'BatchLoss/valid', loss_item, global_steps_val)
+                                writer.add_scalar(f'BatchLoss/valid-aff', loss_values[0], global_steps_val)
+                                writer.add_scalar(f'BatchLoss/valid-dist', loss_values[1], global_steps_val)
+                                writer.add_scalar(f'BatchLoss/valid-nci', loss_values[2], global_steps_val)
+                                writer.add_scalar(f'SamplesLoss/valid', loss_item, global_samples_val)
+                                writer.add_scalar(f'SamplesLoss/valid-aff', loss_values[0], global_samples_val)
+                                writer.add_scalar(f'SamplesLoss/valid-dist', loss_values[1], global_samples_val)
+                                writer.add_scalar(f'SamplesLoss/valid-nci', loss_values[2], global_samples_val)
+                                global_steps_val += 1
+                                    
+                            writer.add_scalar(f'EpochBatchNum/valid', global_steps_val, _epoch)
+                            writer.add_scalar(f'EpochSampleNum/train', global_samples_val, _epoch)
+
+                            losst_va = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss_va]), dim=0)
+                            txtlog.qrint('VALID----> Epoch [{}/{}], Loss: {:.4f}' .format(_epoch+1, args.max_epoch, losst_va.item()))
+                            writer.add_scalar('Loss/valid', losst_va.item(), _epoch)
+                            state = {'net':model.state_dict(), 'optimizer':optimizer.state_dict(), 'epoch': _epoch}
+                            model_dirname = f"{save_model_path}{dirname}"
+                            if not os.path.exists(model_dirname):
+                                os.system(f"mkdir -p {model_dirname}")
+                                
+                            epoch_model_dir = f"{model_dirname}/epoch_{_epoch}"
                             
-                            _list_loss_te.append(loss.detach().cpu())
-                            loss_item = loss.item()
-                            writer.add_scalar(f'BatchLoss/test', loss_item, global_steps_test)
-                            writer.add_scalar(f'SamplesLoss/test', loss_item, global_samples_test)
-                            writer.add_scalar(f'BatchLoss/test-aff', loss_values[0], global_steps_test)
-                            writer.add_scalar(f'BatchLoss/test-dist', loss_values[1], global_steps_test)
-                            writer.add_scalar(f'BatchLoss/test-nci', loss_values[2], global_steps_test)
-                            if nci_accuracy != -1:
-                                writer.add_scalar(f'BatchLoss/nci-accuracy', nci_accuracy, global_steps_test)
-                                writer.add_scalar(f'BatchLoss/nci-t_nums', nci_recall, global_steps_test)
-                            writer.add_scalar(f'SamplesLoss/test-aff', loss_values[0], global_samples_test)
-                            writer.add_scalar(f'SamplesLoss/test-dist', loss_values[1], global_samples_test)
-                            writer.add_scalar(f'SamplesLoss/test-nci', loss_values[2], global_samples_test)
-                            if nci_accuracy != -1:
-                                writer.add_scalar(f'SamplesLoss/nci-accuracy', nci_accuracy, global_samples_test)
-                                writer.add_scalar(f'SamplesLoss/nci-t_nums', nci_recall, global_samples_test)
-                            global_steps_test += 1  
-                        
-                        for _name, _affpred, _afftrue, _rightpocket in zip(data.to("cpu").dataname, affinity_pred.detach().cpu(), data.affinity.detach().cpu(), data.to("cpu").right_pocket_by_distance):
-                            #print(data.dataname, affinity_pred, data.affinity, data.right_pocket_by_distance)
-                            sample_score = (_affpred.item()-_afftrue.item())**2
-                            _namelist = _name.split(sep="_")
-                            test_affinity_df.loc[_name] = [_namelist[0], _namelist[1], _namelist[3], _affpred.item(), _afftrue.item(), _rightpocket, sample_score]
+                            # DDP MODIFIED
+                            if rank == 0:
+                                torch.save(state, epoch_model_dir)
+                            
+                    model.eval() 
+                    with torch.no_grad():
+                        if test_data_loader is not None:
+                            test_affinity_df = pd.DataFrame(columns=["PDBCode", "LigName", "Pocket", "PredAffinity", "TrueAffinity", "IsRightPocket", "Score"])
+                            _list_loss_te = []
+                            for i, data in tqdm(enumerate(test_data_loader), total=len(test_data_loader)):
+                                global_samples_test += len(data)
+                                data = data.to(device)
+                                if cfg_mode == "tankbind": # Results : affinity_pred_dict
+                                        data = data.to(device)
+                                        y_pred, affinity_pred = model(data)
+                                elif cfg_mode == "nciyes": # Results : many
+                                    y_pred, affinity_pred, nci_pred = model(data, i)
+                                    loss, loss_values = model.module.calculate_loss(affinity_pred, y_pred, nci_pred, data.affinity, data.dis_map,
+                                                                data.nci_sequence, data.right_pocket_by_distance, i, data.y_batch, data.pair_shape)
+                                    nci_accuracy, nci_recall = model.module.loss.NCILoss.eval_classification(
+                                        nci_pred, data.nci_sequence, data.right_pocket_by_distance, data.y_batch, data.pair_shape)
+                                    
+                                    _list_loss_te.append(loss.detach().cpu())
+                                    loss_item = loss.item()
+                                    writer.add_scalar(f'BatchLoss/test', loss_item, global_steps_test)
+                                    writer.add_scalar(f'SamplesLoss/test', loss_item, global_samples_test)
+                                    writer.add_scalar(f'BatchLoss/test-aff', loss_values[0], global_steps_test)
+                                    writer.add_scalar(f'BatchLoss/test-dist', loss_values[1], global_steps_test)
+                                    writer.add_scalar(f'BatchLoss/test-nci', loss_values[2], global_steps_test)
+                                    if nci_accuracy != -1:
+                                        writer.add_scalar(f'BatchLoss/nci-accuracy', nci_accuracy, global_steps_test)
+                                        writer.add_scalar(f'BatchLoss/nci-t_nums', nci_recall, global_steps_test)
+                                    writer.add_scalar(f'SamplesLoss/test-aff', loss_values[0], global_samples_test)
+                                    writer.add_scalar(f'SamplesLoss/test-dist', loss_values[1], global_samples_test)
+                                    writer.add_scalar(f'SamplesLoss/test-nci', loss_values[2], global_samples_test)
+                                    if nci_accuracy != -1:
+                                        writer.add_scalar(f'SamplesLoss/nci-accuracy', nci_accuracy, global_samples_test)
+                                        writer.add_scalar(f'SamplesLoss/nci-t_nums', nci_recall, global_samples_test)
+                                    global_steps_test += 1  
+                                
+                                for _name, _affpred, _afftrue, _rightpocket in zip(data.to("cpu").dataname, affinity_pred.detach().cpu(), data.affinity.detach().cpu(), data.to("cpu").right_pocket_by_distance):
+                                    #print(data.dataname, affinity_pred, data.affinity, data.right_pocket_by_distance)
+                                    sample_score = (_affpred.item()-_afftrue.item())**2
+                                    _namelist = _name.split(sep="_")
+                                    test_affinity_df.loc[_name] = [_namelist[0], _namelist[1], _namelist[3], _affpred.item(), _afftrue.item(), _rightpocket, sample_score]
+                            
+                            writer.add_scalar(f'EpochBatchNum/test', global_steps_test, _epoch)
+                            writer.add_scalar(f'EpochSampleNum/test', global_samples_test, _epoch)
+                            
+                            
+                            test_affinity_df = test_affinity_df.sort_index()    
+                            test_affinity_df.to_csv(f"{main_path}Affinity_result_epoch_{_epoch}.csv", index=True)
+                            mean_score_epoch = test_affinity_df.groupby(['PDBCode']).apply(lambda x: x.loc[x.PredAffinity.idxmax(), "Score"]).mean()
+                            mean_affinity_epoch = test_affinity_df.groupby(['PDBCode']).apply(lambda x: x.loc[x.PredAffinity.idxmax(), "PredAffinity"]).mean()
+                            #nci_dict[f"test_{_epoch}"] = _list_nci
+                            losst_te = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss_te]), dim=0)
+                            #score_te = torch.mean(torch.cat([torch.tensor([i]) for i in _list_score_te]), dim=0)
+                            txtlog.qrint('TEST----> loss: {}' .format(losst_te))
+                            #txtlog.qrint('TEST----> Epoch [{}/{}], Score: {:.4f}' .format(_epoch+1, args.max_epoch, score_te.item()))
+                            #with open (f"{main_path}/epoch_{_epoch}_scores_test.pkl", "wb") as f:
+                            #   pickle.dump(score_te, f)
+                            writer.add_scalar('Loss/test', losst_te.item(), _epoch)
+                            writer.add_scalar('Score/test', mean_score_epoch, _epoch)
+                            writer.add_scalar('Affinity/test', mean_affinity_epoch, _epoch)
                     
-                    writer.add_scalar(f'EpochBatchNum/test', global_steps_test, _epoch)
-                    writer.add_scalar(f'EpochSampleNum/test', global_samples_test, _epoch)
                     
                     
-                    test_affinity_df = test_affinity_df.sort_index()    
-                    test_affinity_df.to_csv(f"{main_path}Affinity_result_epoch_{_epoch}.csv", index=True)
-                    mean_score_epoch = test_affinity_df.groupby(['PDBCode']).apply(lambda x: x.loc[x.PredAffinity.idxmax(), "Score"]).mean()
-                    mean_affinity_epoch = test_affinity_df.groupby(['PDBCode']).apply(lambda x: x.loc[x.PredAffinity.idxmax(), "PredAffinity"]).mean()
-                    #nci_dict[f"test_{_epoch}"] = _list_nci
-                    losst_te = torch.mean(torch.cat([torch.tensor([i]) for i in _list_loss_te]), dim=0)
-                    #score_te = torch.mean(torch.cat([torch.tensor([i]) for i in _list_score_te]), dim=0)
-                    txtlog.qrint('TEST----> loss: {}' .format(losst_te))
-                    #txtlog.qrint('TEST----> Epoch [{}/{}], Score: {:.4f}' .format(_epoch+1, args.max_epoch, score_te.item()))
-                    #with open (f"{main_path}/epoch_{_epoch}_scores_test.pkl", "wb") as f:
-                     #   pickle.dump(score_te, f)
-                    writer.add_scalar('Loss/test', losst_te.item(), _epoch)
-                    writer.add_scalar('Score/test', mean_score_epoch, _epoch)
-                    writer.add_scalar('Affinity/test', mean_affinity_epoch, _epoch)
-                    
-                    
-                    
-                    
-            if test2_data_loader is not None:
-                pass
+
 
     writer.close()
-
-
-    '''
-    import pickle
-    if cfg_mode == "tankbind":
-        pass
-    elif cfg_mode == "nciyes":
-        with open(f"{main_path}errors.pkl", "wb") as f:
-            pickle.dump(errors, f)
-        with open(f"{main_path}y_pred_dict.pkl", "wb") as f:
-            pickle.dump(y_pred_dict, f)
-        with open(f"{main_path}nci_pred_dict.pkl", "wb") as f:
-            pickle.dump(nci_pred_dict, f)
-        with open(f"{main_path}nci_true_dict.pkl", "wb") as f:
-            pickle.dump(nci_true_dict, f)
-        with open(f"{main_path}affinity_pred_dict.pkl", "wb") as f:
-            pickle.dump(affinity_pred_dict, f)
-        with open(f"{main_path}data_name_dict.pkl", "wb") as f:
-            pickle.dump(data_name_dict, f)    
-        with open(f"{main_path}dis_map_dict.pkl", "wb") as f:
-            pickle.dump(dis_map_dict, f)
-        with open(f"{main_path}loss_dict.pkl", "wb") as f:
-            pickle.dump(loss_dict, f)
-        with open(f"{main_path}right_pocket_dict.pkl", "wb") as f:
-            pickle.dump(right_pocket_dict, f)
-    elif cfg_mode == "frag":
-        pass
-        #TODO: write your codes here
-    '''
-
 
 
 if __name__=="__main__":
@@ -1142,25 +1079,13 @@ if __name__=="__main__":
     parser.add_argument("--jupyter", type=bool, default=False)
     parser.add_argument("--max_node", type=int, default=500)
     parser.add_argument('--dyn_num_steps', type=int, default=None)
-    
-    parser.add_argument('--dist', type=bool, default=False)
-    parser.add_argument('--local_rank', type=int, help='local rank, will passed by ddp')
-    parser.add_argument("--gpu", type=int, default=0)
+    parser.add_argument("--gpu", type=int, default=0)  
+    parser.add_argument('--distributed', type=bool, default=False)
+    parser.add_argument('--local_rank', type=int, help='local rank, will be passed by ddp')
     parser.add_argument("--world_size", default=1, type=int, help="number of distributed processes")
     parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
-
-    
     args = parser.parse_args()
     
     
     
-    processes = []
-    ranks = [0, 1]
-    size = len(ranks)
-    for rank in ranks:
-        
-        p = Process(target=main, args=(rank,size,args))
-        p.start()
-        processes.append(p)
-    for p in processes:
-        p.join()
+    main(args)
