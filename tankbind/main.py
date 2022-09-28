@@ -300,13 +300,13 @@ for epoch in range(200):
     valid_metrics_list.append(metrics)
     logging.info(f"epoch {epoch:<4d}, valid, " + print_metrics(metrics) + ending_message)
 
-    writer.add_scalar('Loss/validation_loss', metrics["loss"], epoch)
-    writer.add_scalar('Loss/validation_y_loss', metrics["y loss"], epoch)
-    writer.add_scalar('Loss/validation_affinity_loss', metrics["affinity loss"], epoch)
-    writer.add_scalar('RMSE/validation', metrics["RMSE"], epoch)
-    writer.add_scalar('Pearson/validation', metrics["Pearson"], epoch)
-    writer.add_scalar('native_auroc/validation', metrics["native_auroc"], epoch)
-    writer.add_scalar('selected_auroc/validation', metrics["selected_auroc"], epoch)
+    # writer.add_scalar('Loss/validation_loss', metrics["loss"], epoch)
+    # writer.add_scalar('Loss/validation_y_loss', metrics["y loss"], epoch)
+    # writer.add_scalar('Loss/validation_affinity_loss', metrics["affinity loss"], epoch)
+    # writer.add_scalar('RMSE/validation', metrics["RMSE"], epoch)
+    # writer.add_scalar('Pearson/validation', metrics["Pearson"], epoch)
+    # writer.add_scalar('native_auroc/validation', metrics["native_auroc"], epoch)
+    # writer.add_scalar('selected_auroc/validation', metrics["selected_auroc"], epoch)
     #====================test============================================================
 
 
@@ -315,6 +315,12 @@ for epoch in range(200):
                                         device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
     test_metrics_list.append(metrics)
     logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
+
+
+    saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
+    metrics = evaulate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
+                                        device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
+    logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
     writer.add_scalar('Loss/test', metrics["loss"], epoch)
     writer.add_scalar('Loss/test_y_loss', metrics["y loss"], epoch)
     writer.add_scalar('Loss/test_affinity_loss', metrics["affinity loss"], epoch)
@@ -322,12 +328,6 @@ for epoch in range(200):
     writer.add_scalar('Pearson/test', metrics["Pearson"], epoch)
     writer.add_scalar('native_auroc/test', metrics["native_auroc"], epoch)
     writer.add_scalar('selected_auroc/test', metrics["selected_auroc"], epoch)
-
-
-    # saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
-    # metrics = evaulate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
-    #                                     device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
-    # logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
 
     if epoch % 1 == 0:
         torch.save(model.state_dict(), f"{pre}/models/epoch_{epoch}.pt")

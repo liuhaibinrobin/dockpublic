@@ -177,8 +177,7 @@ def get_data(data_mode, logging, addNoise=None):
         all_pocket_test = TankBindDataSet(all_pocket_test_fileName)
         # all_pocket_test.compound_dict = torch.load(f"{pre}/compound_dict.pt")
         # info is used to evaluate the test set. 
-        info = None
-        # info = pd.read_csv(f"{pre}/apr23_testset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)
+        info = pd.read_csv(f"{pre}/test_dataset/apr23_testset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)
 
     if data_mode == "1":
         logging.info(f"self-docking, same as data mode 0 except using LAS_distance constraint masked compound pair distance")
