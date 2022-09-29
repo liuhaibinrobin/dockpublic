@@ -265,7 +265,7 @@ class ProteinGraphDataset_qsar(data.Dataset):
     -node_s     node scalar features, shape [n_nodes, 14] 
     -node_v     node vector features, shape [n_nodes, 3, 3]
     -edge_s     edge scalar features, shape [n_edges, 64]
-    -edge_v     edge scalar features, shape [n_edges, 1, 9]
+    -edge_v     edge scalar features, shape [n_edges, 3, 3]
     -edge_index edge indices, shape [2, n_edges]
     -mask       node mask, `False` for nodes with missing data that are excluded from message passing
     
