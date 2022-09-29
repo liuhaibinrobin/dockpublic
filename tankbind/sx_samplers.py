@@ -4,7 +4,8 @@ from typing import Iterator, List, Optional
 from torch_geometric.data.hetero_data import HeteroData
 
 from typing import TypeVar, Optional, Iterator
-
+from tqdm import tqdm
+import pickle
 import torch
 from torch.utils.data import Sampler, Dataset
 import torch.distributed as dist
@@ -145,6 +146,14 @@ class DistributedDynamicBatchSampler(Sampler[T_co]):
                  shuffle: bool = True, seed: int = 0,
                  dyn_skip_too_big: bool = False,
                  dyn_num_steps: Optional[int] = None) -> None:
+        
+        print("Initializing DDPS with parameters:")
+        print(f" dataset: {dataset}\n"
+              f" dyn_max_num: {dyn_max_num}  dyn_mode: {dyn_mode}  dyn_sample_info: {dyn_sample_info}\n"
+              f" num_replicas: {num_replicas}  rank: {rank}  shuffle: {shuffle}  seed: {seed}\n"
+              f"dyn_skip_too_big: {dyn_skip_too_big}  dyn_num_steps: {dyn_num_steps}")
+        
+        
         if dyn_mode is None and dyn_sample_info is None:
             raise ValueError("You have to specify `dyn_mode` or `dyn_sample_info`.")
         if dyn_mode is not None and dyn_sample_info is not None:
@@ -178,12 +187,32 @@ class DistributedDynamicBatchSampler(Sampler[T_co]):
         self.total_size = len(self.dataset)
         self.shuffle = shuffle
         self.seed = seed
-
-        self.dyn_sample_info = dyn_sample_info if dyn_sample_info is not None else (
-            [data.num_nodes if isinstance(data, HeteroData) else -1 for data in self.dataset]
-            if self.dyn_mode == "node"
-            else [data.num_edges if isinstance(data, HeteroData) else -1 for data in self.dataset]
-            ) 
+        print("Processing dyn_sample_info!")
+        if dyn_sample_info:
+            self.dyn_sample_info = dyn_sample_info
+        
+        else:
+            dyn_sample_info = []
+            for i, data in tqdm(enumerate(self.dataset), total=len(self.dataset)):
+                try:
+                    if self.dyn_mode == "node":
+                        dyn_sample_info.append(data.num_nodes)
+                    else:
+                        dyn_sample_info.append(data.num_edges)
+                except:
+                    dyn_sample_info.append(-1)
+            with open(f"dyn_sample_info_{self.rank}.pkl", "wb") as f:
+                pickle.dump(dyn_sample_info, f)
+        
+        self.dyn_sample_info = dyn_sample_info
+        """
+        with open(f"dyn_sample_info_{self.rank}.pkl", "wb") as f:
+            pickle.dump(dyn_sample_info, f)
+        
+        #with open(f"dyn_sample_info_{self.rank}", "rb") as f:
+        #    self.dyn_sample_info = pickle.load(f)      
+        """
+        print("Processed dyn_sample_info!")
     
     def __iter__(self) -> Iterator[T_co]:
         #print("Epoch", self.epoch, "Seed", self.seed)
@@ -201,12 +230,41 @@ class DistributedDynamicBatchSampler(Sampler[T_co]):
         batch = []
         batch_n = 0
         num_steps = 0
-        num_processed = 0
+        for idx in tqdm(indices):
+            n = self.dyn_sample_info[idx]
+            # print(f"{self.rank}:{i}: -idx",idx," -n", n, " -batch_n", batch_n)
+            if n == -1: # False Sample
+                continue
+            if batch_n + n > self.dyn_max_num:  # Exceed
+                if batch: # Already has some index in the current batch list
+                    num_steps += 1 # Step += 1
+                    batched_indices.append(batch)  # Save current batch to batched_indices list
+                    if n > self.dyn_max_num:  # If current sample is too large
+                        if self.dyn_skip_too_big:  # Skip too large sample
+                            batch = []
+                            batch_n = 0
+                            continue
+                        else:  # Or raise warning
+                            warnings.warn(f"Size of data sample at index {idx} is larger "
+                                          f"than {self.dyn_max_num} {self.dyn_mode}s: got {n} {self.dyn_mode}s.")
+                    else:  # If current sample is small enough
+                        batch = [idx]
+                        batch_n = n
+            else:  # Not exceed
+                batch.append(idx)
+                batch_n += n        
+                    
+        if batch:  # Save last batch if exists.
+            batched_indices.append(batch)
         
+        '''
         while num_processed < len(indices) and (num_steps < self.dyn_num_steps):
+            #print(self.rank, ":", num_processed, len(indices), num_steps, self.dyn_num_steps)
             for idx in indices[num_processed:]:
+                #print(self.rank,"::", idx)
                 num_processed += 1
                 n = self.dyn_sample_info[idx]
+                #print(self.rank, ":: n =", n)
                 if n == -1:
                     continue
                 if batch_n + n > self.dyn_max_num:
@@ -221,21 +279,22 @@ class DistributedDynamicBatchSampler(Sampler[T_co]):
                     
                 batch.append(idx.item())
                 batch_n += n
+            # print(self.rank, ":: after for", batch)
             if batch:
                 #print(batch, type(batch))
                 num_steps += 1
                 batched_indices.append(batch)
                 batch = []
                 batch_n = 0
+        '''
         
         self.total_size = len(batched_indices)//self.num_replicas*self.num_replicas
         self.num_batch = self.total_size//self.num_replicas
         #print("Batched_indices before split", batched_indices)
         batched_indices = batched_indices[self.rank:self.total_size:self.num_replicas]
         #print("My batched indices", batched_indices)
-
         #print("Batched_indices", batched_indices)
-
+        print(f"Rank {self.rank}, Indices {batched_indices}")
         for _batch in batched_indices:
             yield _batch
             
