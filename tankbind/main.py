@@ -89,7 +89,8 @@ parser.add_argument("--resultFolder", type=str, default="./result/",
                     help="information you want to keep a record.")
 parser.add_argument("--label", type=str, default="",
                     help="information you want to keep a record.")
-
+parser.add_argument("--use_contact_loss", type=int, default=0,
+                    help="whether to upgrade contact loss during training, 0 means use, other means not use")
 args = parser.parse_args()
 
 
@@ -230,7 +231,10 @@ for epoch in range(200):
                                                                 native_pocket_mask, decoy_gap=args.decoy_gap)
 
         # print(contact_loss.item(), affinity_loss.item())
-        loss = contact_loss + affinity_loss
+        if args.use_contact_loss == 0:
+            loss = contact_loss + affinity_loss
+        else:
+            loss = affinity_loss
         loss.backward()
         optimizer.step()
         batch_loss += len(y_pred)*contact_loss.item()
