@@ -2,42 +2,44 @@ tankbind_src_folder_path = "../tankbind/"
 import sys
 sys.path.insert(0, tankbind_src_folder_path)
 
-from Bio.PDB.PDBList import PDBList   # pip install biopython if import failure
+
+from Bio.PDB import PDBParser
+import rdkit.Chem as Chem
+from feature_utils import get_protein_feature
+from feature_utils import extract_torchdrug_feature_from_mol
 import os
 import numpy as np
 import pandas as pd
+import torch
+torch.set_num_threads(1)
+from data import TankBind_prediction
+import logging
+from torch_geometric.loader import DataLoader
+from tqdm import tqdm    # pip install tqdm if fails.
+from model import get_model
+from generation_utils import get_LAS_distance_constraint_mask, get_info_pred_distance, write_with_new_coords
+
+#prepare dir
 pre = "./7kac/"
 pdir = f"{pre}/PDBs/"
 pdb = '7kac'
 os.system(f"mkdir -p {pdir}")
-# pdbl = PDBList()
-# native_pdb = pdbl.retrieve_pdb_file(pdb, pdir=pdir, file_format='pdb')
 
-from Bio.PDB import PDBParser
+
 parser = PDBParser(QUIET=True)
-#s = parser.get_structure(pdb, native_pdb)
 
 
-from feature_utils import split_protein_and_ligand
 
-import rdkit.Chem as Chem
-from feature_utils import generate_sdf_from_smiles_using_rdkit
-
-from feature_utils import get_protein_feature
-
+#protein feature
 proteinFile = f"{pre}/{pdb}_protein.pdb"
 parser = PDBParser(QUIET=True)
 s = parser.get_structure("x", proteinFile)
 res_list = list(s.get_residues())
-
 protein_dict = {}
 protein_dict[pdb] = get_protein_feature(res_list)
 
 
-
-
-from feature_utils import extract_torchdrug_feature_from_mol
-from rdkit.Chem import AllChem
+#compound feature
 ligandName="%s_ligand"%(pdb)
 compound_dict = {}
 ligandFile=f"{pre}/{ligandName}.sdf"
@@ -46,17 +48,8 @@ for mol in Chem.SDMolSupplier(ligandFile):
         raise Exception
     compound_dict[pdb+f"_{ligandName}"+"_rdkit"] = extract_torchdrug_feature_from_mol(mol, has_LAS_mask=True)
 
-compound_dict = {}
-for ligandName in ['STI', 'FYH']:
-    rdkitMolFile = f"{pre}/{pdb}_{ligandName}_mol_from_rdkit.sdf"
-    mol = Chem.MolFromMolFile(rdkitMolFile)
-    compound_dict[pdb+f"_{ligandName}"+"_rdkit"] = extract_torchdrug_feature_from_mol(mol, has_LAS_mask=True)
 
-
-
-
-
-
+#p2r
 pdb_list = [pdb]
 ds = f"{pre}/protein_list.ds"
 with open(ds, "w") as out:
@@ -82,15 +75,13 @@ for pdb in pdb_list:
             com = ",".join([str(a.round(3)) for a in com])
             info.append([pdb, compound_name, f"pocket_{ith_pocket+1}", com])
 info = pd.DataFrame(info, columns=['protein_name', 'compound_name', 'pocket_name', 'pocket_com'])
-info
+print(info)
 
 
 
 
 
-import torch
-torch.set_num_threads(1)
-from data import TankBind_prediction
+#model choose pocket
 
 dataset_path = f"{pre}/{pdb}_dataset/"
 os.system(f"rm -r {dataset_path}")
@@ -100,10 +91,7 @@ dataset = TankBind_prediction(dataset_path, data=info, protein_dict=protein_dict
 dataset_path = f"{pre}/{pdb}_dataset/"
 dataset = TankBind_prediction(dataset_path)
 
-import logging
-from torch_geometric.loader import DataLoader
-from tqdm import tqdm    # pip install tqdm if fails.
-from model import get_model
+
 # from utils import *
 
 
@@ -140,7 +128,7 @@ info.to_csv(f"{pre}/info_with_predicted_affinity.csv")
 
 
 chosen = info.loc[info.groupby(['protein_name', 'compound_name'],sort=False)['affinity'].agg('idxmax')].reset_index()
-chosen
+print(chosen)
 
 
 #from predicted interaction distance map to sdf¶
@@ -148,7 +136,7 @@ chosen
 import matplotlib.pyplot as plt
 
 
-from generation_utils import get_LAS_distance_constraint_mask, get_info_pred_distance, write_with_new_coords
+
 device = 'cpu'
 for i, line in chosen.iterrows():
     idx = line['index']
