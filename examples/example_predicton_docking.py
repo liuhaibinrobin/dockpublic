@@ -137,6 +137,8 @@ import matplotlib.pyplot as plt
 
 
 
+
+
 device = 'cpu'
 for i, line in chosen.iterrows():
     idx = line['index']
@@ -148,10 +150,19 @@ for i, line in chosen.iterrows():
     n_compound = coords.shape[0]
     n_protein = protein_nodes_xyz.shape[0]
     y_pred = y_pred_list[idx].reshape(n_protein, n_compound).to(device)
-    y = dataset[idx].dis_map.reshape(n_protein, n_compound).to(device)
+    y_true = dataset[idx].dis_map.reshape(n_protein, n_compound).to(device)
+
+    np.round(y_pred.numpy(),3)
+    np.round(y_true.numpy(), 3)
+    np.savetxt("%s/%s_y_pred.csv"%(pre,ligandName), np.round(y_pred.numpy(),3), delimiter=",")
+    np.savetxt("%s/%s_y_true.csv" % (pre,ligandName), np.round(y_true.numpy(), 3), delimiter=",")
+
+
     compound_pair_dis_constraint = torch.cdist(coords, coords)
     rdkitMolFile = ligandFile
     mol = Chem.MolFromMolFile(rdkitMolFile)
+
+
     LAS_distance_constraint_mask = get_LAS_distance_constraint_mask(mol).bool()
     info = get_info_pred_distance(coords, y_pred, protein_nodes_xyz, compound_pair_dis_constraint,
                                   LAS_distance_constraint_mask=LAS_distance_constraint_mask,
