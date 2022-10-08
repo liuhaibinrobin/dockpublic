@@ -175,9 +175,12 @@ def get_data(data_mode, logging, addNoise=None):
 
         all_pocket_test_fileName = f"{pre}/test_dataset/"
         all_pocket_test = TankBindDataSet(all_pocket_test_fileName)
+        all_pocket_valid_fileName = f"{pre}/valid_dataset/"
+        all_pocket_valid = TankBindDataSet(all_pocket_valid_fileName)
         # all_pocket_test.compound_dict = torch.load(f"{pre}/compound_dict.pt")
         # info is used to evaluate the test set. 
         info = pd.read_csv(f"{pre}/test_dataset/apr23_testset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)
+        info_va = pd.read_csv(f"{pre}/valid_dataset/apr23_validset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)
 
     if data_mode == "1":
         logging.info(f"self-docking, same as data mode 0 except using LAS_distance constraint masked compound pair distance")
@@ -206,7 +209,8 @@ def get_data(data_mode, logging, addNoise=None):
         all_pocket_test.compound_dict = torch.load(f"{pre}/pdbbind_test_compound_dict_based_on_rdkit.pt")
         # info is used to evaluate the test set.
         info = None
+        info_va = None
         # info = pd.read_csv(f"{pre}/apr23_testset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)
 
 
-    return train, train_after_warm_up, valid, test, all_pocket_test, info
+    return train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info, info_va
