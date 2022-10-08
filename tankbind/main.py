@@ -89,7 +89,8 @@ parser.add_argument("--resultFolder", type=str, default="./result/",
                     help="information you want to keep a record.")
 parser.add_argument("--label", type=str, default="",
                     help="information you want to keep a record.")
-
+parser.add_argument("--use_contact_loss", type=int, default=0,
+                    help="whether to upgrade contact loss during training, 0 means use, other means not use")
 args = parser.parse_args()
 
 
@@ -122,7 +123,7 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 
 
-train, train_after_warm_up, valid, test, all_pocket_test, info = get_data(args.data, logging, addNoise=args.addNoise)
+train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info, info_va = get_data(args.data, logging, addNoise=args.addNoise)
 logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
 
 num_workers = 10
@@ -134,7 +135,7 @@ valid_batch_size = test_batch_size = 4
 valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair'], shuffle=False, pin_memory=False, num_workers=num_workers)
 test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair'], shuffle=False, pin_memory=False, num_workers=num_workers)
 all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair'], shuffle=False, pin_memory=False, num_workers=4)
-
+all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batch=['x', 'compound_pair'], shuffle=False, pin_memory=False, num_workers=4)
 # import model is put here due to an error related to torch.utils.data.ConcatDataset after importing torchdrug.
 from model import *
 device = 'cuda'
@@ -230,7 +231,10 @@ for epoch in range(200):
                                                                 native_pocket_mask, decoy_gap=args.decoy_gap)
 
         # print(contact_loss.item(), affinity_loss.item())
-        loss = contact_loss + affinity_loss
+        if args.use_contact_loss == 0:
+            loss = contact_loss + affinity_loss
+        else:
+            loss = affinity_loss
         loss.backward()
         optimizer.step()
         batch_loss += len(y_pred)*contact_loss.item()
@@ -285,7 +289,8 @@ for epoch in range(200):
     # torch.cuda.empty_cache()
     model.eval()
     use_y_mask = args.use_equivalent_native_y_mask or args.use_y_mask
-    metrics = evaulate_with_affinity(valid_loader, model, criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, use_y_mask=use_y_mask)
+    saveFileName = f"{pre}/results/single_valid_epoch_{epoch}.pt"
+    metrics = evaulate_with_affinity(all_pocket_valid_loader, model, criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va, saveFileName=saveFileName)
     if metrics["auroc"] <= best_auroc and metrics['f1_1'] <= best_f1_1:
         # not improving. (both metrics say there is no improving)
         epoch_not_improving += 1
@@ -298,7 +303,7 @@ for epoch in range(200):
             best_f1_1 = metrics['f1_1']
         ending_message = " "
     valid_metrics_list.append(metrics)
-    logging.info(f"epoch {epoch:<4d}, valid, " + print_metrics(metrics) + ending_message)
+    logging.info(f"epoch {epoch:<4d}, single_valid, " + print_metrics(metrics) + ending_message)
 
     writer.add_scalar('Loss/validation_loss', metrics["loss"], epoch)
     writer.add_scalar('Loss/validation_y_loss', metrics["y loss"], epoch)
@@ -315,6 +320,12 @@ for epoch in range(200):
                                         device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
     test_metrics_list.append(metrics)
     logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
+
+
+    saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
+    metrics = evaulate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
+                                        device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
+    logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
     writer.add_scalar('Loss/test', metrics["loss"], epoch)
     writer.add_scalar('Loss/test_y_loss', metrics["y loss"], epoch)
     writer.add_scalar('Loss/test_affinity_loss', metrics["affinity loss"], epoch)
@@ -322,12 +333,6 @@ for epoch in range(200):
     writer.add_scalar('Pearson/test', metrics["Pearson"], epoch)
     writer.add_scalar('native_auroc/test', metrics["native_auroc"], epoch)
     writer.add_scalar('selected_auroc/test', metrics["selected_auroc"], epoch)
-
-
-    # saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
-    # metrics = evaulate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
-    #                                     device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
-    # logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
 
     if epoch % 1 == 0:
         torch.save(model.state_dict(), f"{pre}/models/epoch_{epoch}.pt")
