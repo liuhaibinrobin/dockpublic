@@ -18,6 +18,8 @@ import scipy.spatial
 import requests
 from rdkit.Geometry import Point3D
 
+from collections import defaultdict
+
 from torchdrug import data as td     # conda install torchdrug -c milagraph -c conda-forge -c pytorch -c pyg if fail to import
 
 def read_mol(sdf_fileName, mol2_fileName, verbose=False):
@@ -49,6 +51,8 @@ def read_mol(sdf_fileName, mol2_fileName, verbose=False):
         print(sio.getvalue())
     sys.stderr = stderr
     return mol, problem
+
+
 
 
 def write_renumbered_sdf(toFile, sdf_fileName, mol2_fileName):
@@ -219,6 +223,41 @@ def get_protein_feature(res_list):
     protein = dataset[0]
     x = (protein.x, protein.seq, protein.node_s, protein.node_v, protein.edge_index, protein.edge_s, protein.edge_v)
     return x
+
+
+def nciyes_get_protein_feature(res_list, res_full_id_list):
+    '''Returns a dict which maps residue name to list of indices of residues with\
+        corresponding names in addition to the return of ~`get_protein_feature`.\
+            Such a list may contain multi indices due to non-uniqueness of residue name.
+    '''
+    accept_list = [True if (('N' in res) and ('CA' in res) and ('C' in res) and ('O' in res)) else False for res in res_list ]
+    res_list = [_res for (_res, _accept) in zip(res_list, accept_list) if _accept==True]
+    res_full_id_list = [_res for (_res, _accept) in zip(res_full_id_list, accept_list) if _accept==True]
+    
+    res_id2index_dict = defaultdict(list)
+    
+    for i in range(len(res_full_id_list)):
+        res_id2index_dict[i].append(res_full_id_list[i])
+    
+    # construct the input for ProteinGraphDataset
+    # which requires name, seq, and a list of shape N * 4 * 3
+    structure = {}
+    structure['name'] = "placeholder"
+    structure['seq'] = "".join([three_to_one.get(res.resname) for res in res_list])
+    coords = []
+    for res in res_list:
+        res_coords = []
+        for atom in [res['N'], res['CA'], res['C'], res['O']]:
+            res_coords.append(list(atom.coord))
+        coords.append(res_coords)
+    structure['coords'] = coords
+    torch.set_num_threads(1)        # this reduce the overhead, and speed up the process for me.
+    dataset = gvp.data.ProteinGraphDataset([structure])
+    protein = dataset[0]
+    x = (protein.x, protein.seq, protein.node_s, protein.node_v, protein.edge_index, protein.edge_s, protein.edge_v)
+    return x, res_id2index_dict      
+    
+    
 
 # Seed_everything(seed=42)
 
