@@ -152,10 +152,10 @@ for i, line in chosen.iterrows():
     y_pred = y_pred_list[idx].reshape(n_protein, n_compound).to(device)
     y_true = dataset[idx].dis_map.reshape(n_protein, n_compound).to(device)
 
-    np.round(y_pred.numpy(),3)
-    np.round(y_true.numpy(), 3)
-    np.savetxt("%s/%s_y_pred.csv"%(pre,ligandName), np.round(y_pred.numpy(),3), delimiter=",")
-    np.savetxt("%s/%s_y_true.csv" % (pre,ligandName), np.round(y_true.numpy(), 3), delimiter=",")
+    y_pred_r=np.round(y_pred.numpy(),3)
+    y_true_r=np.round(y_true.numpy(), 3)
+    np.savetxt("%s/%s_y_pred.csv"%(pre,ligandName), y_pred_r, delimiter=",")
+    np.savetxt("%s/%s_y_true.csv" % (pre,ligandName),y_true_r , delimiter=",")
 
 
     compound_pair_dis_constraint = torch.cdist(coords, coords)
