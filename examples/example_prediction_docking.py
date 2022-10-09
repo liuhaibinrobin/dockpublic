@@ -152,13 +152,13 @@ for i, line in chosen.iterrows():
     y_pred = y_pred_list[idx].reshape(n_protein, n_compound).to(device)
     y_true = dataset[idx].dis_map.reshape(n_protein, n_compound).to(device)
 
-    y_pred_non_cutoff=y_pred[y_true == 10]
-    y_true_non_cutoff=y_true[y_true == 10]
+    y_pred_non_cutoff=y_pred[y_true != 10]
+    y_true_non_cutoff=y_true[y_true != 10]
     non_cutoff_num=y_true_non_cutoff.shape[0]
     non_cutoff_rmsd=torch.sqrt(torch.sum((y_pred_non_cutoff-y_true_non_cutoff)**2)/non_cutoff_num)
     print("non_cutoff_rmsd",non_cutoff_rmsd,"non_cutoff_num",non_cutoff_num)
-    y_pred_cutoff = y_pred[y_true != 10]
-    y_true_cutoff = y_true[y_true != 10]
+    y_pred_cutoff = y_pred[y_true == 10]
+    y_true_cutoff = y_true[y_true == 10]
     cutoff_num = y_true_cutoff.shape[0]
     cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
     print("cutoff_rmsd",cutoff_rmsd,"cutoff_num",cutoff_num)
