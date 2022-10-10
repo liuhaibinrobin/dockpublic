@@ -158,25 +158,25 @@ for i, line in chosen.iterrows():
         y_true_cutoff=y_true[y_true < 10]
         cutoff_num=y_true_cutoff.shape[0]
         cutoff_rmsd=torch.sqrt(torch.sum((y_pred_cutoff-y_true_cutoff)**2)/cutoff_num)
-        print(json.dumps({"cutoff_rmsd<10":cutoff_rmsd,"cutoff_num<10":cutoff_num}),file=fp_rmsd_out)
+        print(json.dumps({"cutoff_rmsd<10":float(cutoff_rmsd),"cutoff_num<10":float(cutoff_num)}),file=fp_rmsd_out)
 
         y_pred_cutoff = y_pred[y_true >= 10]
         y_true_cutoff = y_true[y_true >= 10]
         cutoff_num = y_true_cutoff.shape[0]
         cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
-        print(json.dumps({"cutoff_rmsd>=10": cutoff_rmsd, "cutoff_num>=10": cutoff_num}), file=fp_rmsd_out)
+        print(json.dumps({"cutoff_rmsd>=10": float(cutoff_rmsd), "cutoff_num>=10": float(cutoff_num)}), file=fp_rmsd_out)
 
         y_pred_cutoff = y_pred[y_true < 4]
         y_true_cutoff = y_true[y_true < 4]
         cutoff_num = y_true_cutoff.shape[0]
         cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
-        print(json.dumps({"cutoff_rmsd<4": cutoff_rmsd, "cutoff_num<4": cutoff_num}), file=fp_rmsd_out)
+        print(json.dumps({"cutoff_rmsd<4": float(cutoff_rmsd), "cutoff_num<4": float(cutoff_num)}), file=fp_rmsd_out)
 
         y_pred_cutoff = y_pred[y_true >= 4]
         y_true_cutoff = y_true[y_true >= 4]
         cutoff_num = y_true_cutoff.shape[0]
         cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
-        print(json.dumps({"cutoff_rmsd>=4": cutoff_rmsd, "cutoff_num>=4": cutoff_num}), file=fp_rmsd_out)
+        print(json.dumps({"cutoff_rmsd>=4": float(cutoff_rmsd), "cutoff_num>=4": float(cutoff_num)}), file=fp_rmsd_out)
 
     np.savetxt("%s/%s_y_pred.csv"%(pre,ligandName), y_pred.numpy(), delimiter=",")
     np.savetxt("%s/%s_y_true.csv" % (pre,ligandName),y_true.numpy() , delimiter=",")
