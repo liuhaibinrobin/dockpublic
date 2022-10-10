@@ -2,7 +2,7 @@ tankbind_src_folder_path = "../tankbind/"
 import sys
 sys.path.insert(0, tankbind_src_folder_path)
 
-
+import json
 from Bio.PDB import PDBParser
 import rdkit.Chem as Chem
 from feature_utils import get_protein_feature
@@ -152,22 +152,34 @@ for i, line in chosen.iterrows():
     y_pred = y_pred_list[idx].reshape(n_protein, n_compound).to(device)
     y_true = dataset[idx].dis_map.reshape(n_protein, n_compound).to(device)
 
-    y_pred_non_cutoff=y_pred[y_true != 10]
-    y_true_non_cutoff=y_true[y_true != 10]
-    non_cutoff_num=y_true_non_cutoff.shape[0]
-    non_cutoff_rmsd=torch.sqrt(torch.sum((y_pred_non_cutoff-y_true_non_cutoff)**2)/non_cutoff_num)
-    print("non_cutoff_rmsd",non_cutoff_rmsd,"non_cutoff_num",non_cutoff_num)
-    y_pred_cutoff = y_pred[y_true == 10]
-    y_true_cutoff = y_true[y_true == 10]
-    cutoff_num = y_true_cutoff.shape[0]
-    cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
-    print("cutoff_rmsd",cutoff_rmsd,"cutoff_num",cutoff_num)
 
+    with open("%s/rmsd_ana.txt"%(pre),"w") as fp_rmsd_out:
+        y_pred_cutoff=y_pred[y_true < 10]
+        y_true_cutoff=y_true[y_true < 10]
+        cutoff_num=y_true_cutoff.shape[0]
+        cutoff_rmsd=torch.sqrt(torch.sum((y_pred_cutoff-y_true_cutoff)**2)/cutoff_num)
+        print(json.dumps({"cutoff_rmsd<10":cutoff_rmsd,"cutoff_num<10":cutoff_num}),file=fp_rmsd_out)
 
-    y_pred_r=np.round(y_pred.numpy(),3)
-    y_true_r=np.round(y_true.numpy(), 3)
-    np.savetxt("%s/%s_y_pred.csv"%(pre,ligandName), y_pred_r, delimiter=",")
-    np.savetxt("%s/%s_y_true.csv" % (pre,ligandName),y_true_r , delimiter=",")
+        y_pred_cutoff = y_pred[y_true >= 10]
+        y_true_cutoff = y_true[y_true >= 10]
+        cutoff_num = y_true_cutoff.shape[0]
+        cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
+        print(json.dumps({"cutoff_rmsd>=10": cutoff_rmsd, "cutoff_num>=10": cutoff_num}), file=fp_rmsd_out)
+
+        y_pred_cutoff = y_pred[y_true < 4]
+        y_true_cutoff = y_true[y_true < 4]
+        cutoff_num = y_true_cutoff.shape[0]
+        cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
+        print(json.dumps({"cutoff_rmsd<4": cutoff_rmsd, "cutoff_num<4": cutoff_num}), file=fp_rmsd_out)
+
+        y_pred_cutoff = y_pred[y_true >= 4]
+        y_true_cutoff = y_true[y_true >= 4]
+        cutoff_num = y_true_cutoff.shape[0]
+        cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
+        print(json.dumps({"cutoff_rmsd>=4": cutoff_rmsd, "cutoff_num>=4": cutoff_num}), file=fp_rmsd_out)
+
+    np.savetxt("%s/%s_y_pred.csv"%(pre,ligandName), y_pred.numpy(), delimiter=",")
+    np.savetxt("%s/%s_y_true.csv" % (pre,ligandName),y_true.numpy() , delimiter=",")
 
 
     compound_pair_dis_constraint = torch.cdist(coords, coords)
