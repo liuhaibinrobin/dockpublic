@@ -4,6 +4,8 @@ import torch
 from torch_geometric.data import Dataset, InMemoryDataset, download_url
 from utils import construct_data_from_graph_gvp
 
+import os
+
 
 class TankBind_prediction(Dataset):
     def __init__(self, root, data=None, protein_dict=None, compound_dict=None, proteinMode=0, compoundMode=1,
@@ -150,6 +152,7 @@ class TankBindDataSet(Dataset):
                 pass
         return data
 
+
 class NFTankBindDataSet(Dataset):
     """Dataset for NFT model."""
     def __init__(self, root, data=None, protein_dict=None, compound_dict=None, proteinMode=0, compoundMode=1,
@@ -278,15 +281,19 @@ class NFTankBindDataSet(Dataset):
                 pass
         return data
 
-def get_data(data_mode, logging, addNoise=None):
-    pre = "/home/jovyan/TankBind/fragmentation/pdb_data/all_pdbbind"
+
+def get_data_reproduced(data_mode, logging, addNoise=None, pre=None):
+
+    if not os.path.exists(pre):
+        raise ValueError(f"The pre path {pre} not exists.")
+
     if data_mode == "0":
-        logging.info(f"re-docking, using dataset: apr22_pdbbind_gvp_pocket_radius20 pred distance map.")
         logging.info(f"compound feature based on torchdrug")
         add_noise_to_com = float(addNoise) if addNoise else None
 
         # compoundMode = 1 is for GIN model.
-        new_dataset = TankBindDataSet(f"{pre}/dataset", add_noise_to_com=add_noise_to_com)
+        new_dataset = NFTankBindDataSet(f"{pre}/dataset", add_noise_to_com=add_noise_to_com)
+
         # load compound features extracted using torchdrug.
         # new_dataset.compound_dict = torch.load(f"{pre}/compound_dict.pt")
         new_dataset.data = new_dataset.data.query("c_length < 100 and native_num_contact > 5").reset_index(drop=True)
@@ -302,43 +309,13 @@ def get_data(data_mode, logging, addNoise=None):
         test = new_dataset[test_index]
 
         all_pocket_test_fileName = f"{pre}/test_dataset/"
-        all_pocket_test = TankBindDataSet(all_pocket_test_fileName)
+        all_pocket_test = NFTankBindDataSet(all_pocket_test_fileName)
         all_pocket_valid_fileName = f"{pre}/valid_dataset/"
-        all_pocket_valid = TankBindDataSet(all_pocket_valid_fileName)
+        all_pocket_valid = NFTankBindDataSet(all_pocket_valid_fileName)
         # all_pocket_test.compound_dict = torch.load(f"{pre}/compound_dict.pt")
         # info is used to evaluate the test set.
-        info = pd.read_csv(f"{pre}/test_dataset/apr23_testset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)
+        info_test = pd.read_csv(f"{pre}/test_dataset/apr23_testset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)
         info_va = pd.read_csv(f"{pre}/valid_dataset/apr23_validset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)
-
-    if data_mode == "1":
-        logging.info(f"self-docking, same as data mode 0 except using LAS_distance constraint masked compound pair distance")
-        add_noise_to_com = float(addNoise) if addNoise else None
-
-        # compoundMode = 1 is for GIN model.
-        new_dataset = TankBindDataSet(f"{pre}/apr22_pdbbind_gvp_pocket_radius20", add_noise_to_com=add_noise_to_com)
-        # load GIN embedding for compounds.
-        new_dataset.compound_dict = torch.load(f"{pre}/pdbbind_compound_dict_with_LAS_distance_constraint_mask.pt")
-        new_dataset.data = new_dataset.data.query("c_length < 100 and native_num_contact > 5").reset_index(drop=True)
-        d = new_dataset.data
-        only_native_train_index = d.query("use_compound_com and group =='train'").index.values
-        train = new_dataset[only_native_train_index]
-        # train = train1
-        train_index = d.query("group =='train'").index.values
-        train_after_warm_up = new_dataset[train_index]
-
-        # train = torch.utils.data.ConcatDataset([train1, train2])
-        valid_index = d.query("use_compound_com and group =='valid'").index.values
-        valid = new_dataset[valid_index]
-        test_index = d.query("use_compound_com and group =='test'").index.values
-        test = new_dataset[test_index]
-
-        all_pocket_test_fileName = f"{pre}/apr23_testset_pdbbind_gvp_pocket_radius20/"
-        all_pocket_test = TankBindDataSet(all_pocket_test_fileName)
-        all_pocket_test.compound_dict = torch.load(f"{pre}/pdbbind_test_compound_dict_based_on_rdkit.pt")
-        # info is used to evaluate the test set.
-        info = None
-        info_va = None
-        # info = pd.read_csv(f"{pre}/apr23_testset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)
-
-
-    return train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info, info_va
+    else:
+        raise ValueError(f"data_mode {data_mode} not defined!")
+    return train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info_test, info_va
