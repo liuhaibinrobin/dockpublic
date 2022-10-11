@@ -23,6 +23,12 @@ import argparse
 from torch.utils.data import RandomSampler
 from torch.utils.data import WeightedRandomSampler
 import random
+import math
+from torch.utils.tensorboard import SummaryWriter
+
+writer = SummaryWriter("./logs")
+
+
 def Seed_everything(seed=42):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
@@ -30,6 +36,7 @@ def Seed_everything(seed=42):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
+
 
 Seed_everything(seed=42)
 
@@ -51,10 +58,10 @@ parser.add_argument("--addNoise", type=str, default=None,
 pair_interaction_mask = parser.add_mutually_exclusive_group()
 # use_equivalent_native_y_mask is probably a better choice.
 pair_interaction_mask.add_argument("--use_y_mask", action='store_true',
-                    help="mask the pair interaction during pair interaction loss evaluation based on data.real_y_mask. \
+                                   help="mask the pair interaction during pair interaction loss evaluation based on data.real_y_mask. \
                     real_y_mask=True if it's the native pocket that ligand binds to.")
 pair_interaction_mask.add_argument("--use_equivalent_native_y_mask", action='store_true',
-                    help="mask the pair interaction during pair interaction loss evaluation based on data.equivalent_native_y_mask. \
+                                   help="mask the pair interaction during pair interaction loss evaluation based on data.equivalent_native_y_mask. \
                     real_y_mask=True if most of the native interaction between ligand and protein happen inside this pocket.")
 
 parser.add_argument("--use_affinity_mask", type=int, default=0,
@@ -84,9 +91,11 @@ parser.add_argument("--resultFolder", type=str, default="./result/",
                     help="information you want to keep a record.")
 parser.add_argument("--label", type=str, default="",
                     help="information you want to keep a record.")
-
+parser.add_argument("--use_contact_loss", type=int, default=0,
+                    help="whether to upgrade contact loss during training, 0 means use, other means not use")
+parser.add_argument("--use_weighted_rmsd_loss", type=bool, default=False,
+                    help="whether to change contact weight according to distance")
 args = parser.parse_args()
-
 
 timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
 
@@ -109,29 +118,35 @@ os.system(f"mkdir -p {pre}/src")
 os.system(f"cp *.py {pre}/src/")
 os.system(f"cp -r gvp {pre}/src/")
 
-
 torch.set_num_threads(1)
 # # ----------without this, I could get 'RuntimeError: received 0 items of ancdata'-----------
 torch.multiprocessing.set_sharing_strategy('file_system')
 
-
-
-
-train, train_after_warm_up, valid, test, all_pocket_test, info = get_data(args.data, logging, addNoise=args.addNoise)
-logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
+train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info, info_va = get_data(args.data, logging,
+                                                                                                     addNoise=args.addNoise)
+logging.info(
+    f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
 
 num_workers = 10
 sampler = RandomSampler(train, replacement=True, num_samples=args.sample_n)
-train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair'], sampler=sampler, pin_memory=False, num_workers=num_workers)
+train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair'], sampler=sampler,
+                          pin_memory=False, num_workers=num_workers)
 sampler2 = RandomSampler(train_after_warm_up, replacement=True, num_samples=args.sample_n)
-train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair'], sampler=sampler2, pin_memory=False, num_workers=num_workers)
+train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size,
+                                        follow_batch=['x', 'compound_pair'], sampler=sampler2, pin_memory=False,
+                                        num_workers=num_workers)
 valid_batch_size = test_batch_size = 4
-valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair'], shuffle=False, pin_memory=False, num_workers=num_workers)
-test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair'], shuffle=False, pin_memory=False, num_workers=num_workers)
-all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair'], shuffle=False, pin_memory=False, num_workers=4)
-
+valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair'], shuffle=False,
+                          pin_memory=False, num_workers=num_workers)
+test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair'], shuffle=False,
+                         pin_memory=False, num_workers=num_workers)
+all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair'], shuffle=False,
+                                    pin_memory=False, num_workers=4)
+all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batch=['x', 'compound_pair'], shuffle=False,
+                                     pin_memory=False, num_workers=4)
 # import model is put here due to an error related to torch.utils.data.ConcatDataset after importing torchdrug.
 from model import *
+
 device = 'cuda'
 model = get_model(args.mode, logging, device)
 
@@ -140,8 +155,13 @@ if args.restart:
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 # model.train()
 if args.pred_dis:
-    criterion = nn.MSELoss()
-    pred_dis = True
+    if args.use_weighted_rmsd_loss:
+        criterion = weighted_rmsd_loss
+        print('use weighted rmsd loss!!!')
+        pred_dis = True
+    else:
+        criterion = nn.MSELoss()
+        pred_dis = True
 else:
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(args.posweight))
 
@@ -159,6 +179,12 @@ data_warmup_epochs = args.data_warm_up_epochs
 warm_up_epochs = args.warm_up_epochs
 logging.info(f"warming up epochs: {warm_up_epochs}, data warming up epochs: {data_warmup_epochs}")
 
+global_steps_train = 0
+global_steps_val = 0
+global_steps_test = 0
+global_samples_train = 0
+global_samples_val = 0
+global_samples_test = 0
 for epoch in range(200):
     model.train()
     y_list = []
@@ -166,6 +192,10 @@ for epoch in range(200):
     affinity_list = []
     affinity_pred_list = []
     batch_loss = 0.0
+    batch_loss_5A = 0.0
+    num_nan_loss_5A = 0
+    batch_loss_10A = 0.0
+    num_nan_loss_10A = 0
     affinity_batch_loss = 0.0
     if epoch < data_warmup_epochs:
         data_it = tqdm(train_loader)
@@ -195,6 +225,17 @@ for epoch in range(200):
 
         if args.pred_dis:
             contact_loss = criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
+            with torch.no_grad():
+                if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=5)):
+                    num_nan_loss_5A += len(y_pred)
+                    contact_loss_cat_off_rmsd_5 = torch.zeros(1).to(y_pred.device)[0]
+                else:
+                    contact_loss_cat_off_rmsd_5 = cut_off_rmsd(y_pred, dis_map, cut_off=5)
+                if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=10)):
+                    num_nan_loss_10A += len(y_pred)
+                    contact_loss_cat_off_rmsd_10 = torch.zeros(1).to(y_pred.device)[0]
+                else:
+                    contact_loss_cat_off_rmsd_10 = cut_off_rmsd(y_pred, dis_map, cut_off=10)
         else:
             contact_loss = criterion(y_pred, y) if len(y) > 0 else torch.tensor([0]).to(y.device)
             y_pred = y_pred.sigmoid()
@@ -202,7 +243,7 @@ for epoch in range(200):
             base_relative_k = args.relative_k
             if args.relative_k_mode == 0:
                 # increase exponentially. reach base_relative_k at epoch = warm_up_epochs.
-                relative_k = min(base_relative_k * (2**epoch) / (2**warm_up_epochs), base_relative_k)
+                relative_k = min(base_relative_k * (2 ** epoch) / (2 ** warm_up_epochs), base_relative_k)
             if args.relative_k_mode == 1:
                 # increase linearly
                 relative_k = min(base_relative_k / warm_up_epochs * epoch, base_relative_k)
@@ -213,22 +254,36 @@ for epoch in range(200):
             affinity_loss = relative_k * affinity_criterion(affinity_pred, affinity)
         elif args.affinity_loss_mode == 1:
             native_pocket_mask = data.is_equivalent_native_pocket
-            affinity_loss =  relative_k * my_affinity_criterion(affinity_pred,
-                                                                affinity, 
-                                                                native_pocket_mask, decoy_gap=args.decoy_gap)
+            affinity_loss = relative_k * my_affinity_criterion(affinity_pred,
+                                                               affinity,
+                                                               native_pocket_mask, decoy_gap=args.decoy_gap)
 
         # print(contact_loss.item(), affinity_loss.item())
-        loss = contact_loss + affinity_loss
+        if args.use_contact_loss == 0:
+            loss = contact_loss + affinity_loss
+        else:
+            loss = affinity_loss
         loss.backward()
         optimizer.step()
-        batch_loss += len(y_pred)*contact_loss.item()
-        affinity_batch_loss += len(affinity_pred)*affinity_loss.item()
+        batch_loss += len(y_pred) * contact_loss.item()
+        batch_loss_5A += len(y_pred) * contact_loss_cat_off_rmsd_5.item()
+        batch_loss_10A += len(y_pred) * contact_loss_cat_off_rmsd_10.item()
+        affinity_batch_loss += len(affinity_pred) * affinity_loss.item()
         # print(f"{loss.item():.3}")
         y_list.append(y)
         y_pred_list.append(y_pred.detach())
         affinity_list.append(data.affinity)
         affinity_pred_list.append(affinity_pred.detach())
         # torch.cuda.empty_cache()
+
+        writer.add_scalar(f'BatchLoss/train', loss.item(), global_steps_train)
+        writer.add_scalar(f'SamplesLoss/train', loss.item(), global_samples_train)
+        writer.add_scalar(f'contact_loss/train', contact_loss.item(), global_samples_train)
+        writer.add_scalar(f'contact_loss_5A_batch/train', contact_loss_cat_off_rmsd_5.item(), global_samples_train)
+        writer.add_scalar(f'contact_loss_10A_batch/train', contact_loss_cat_off_rmsd_10.item(), global_samples_train)
+        writer.add_scalar(f'affinity_loss/train', affinity_loss.item(), global_samples_train)
+        global_steps_train += 1
+        global_samples_train += len(data)
 
     y = torch.cat(y_list)
     y_pred = torch.cat(y_pred_list)
@@ -243,7 +298,9 @@ for epoch in range(200):
 
     affinity = torch.cat(affinity_list)
     affinity_pred = torch.cat(affinity_pred_list)
-    metrics = {"loss":batch_loss/len(y_pred) + affinity_batch_loss/len(affinity_pred)}
+    metrics = {"loss": batch_loss / len(y_pred) + affinity_batch_loss / len(affinity_pred)}
+    metrics.update({"contact_loss_5A": batch_loss_5A / (len(y_pred) - num_nan_loss_5A),
+                    "contact_loss_10A": batch_loss_10A / (len(y_pred) - num_nan_loss_10A)})
     # torch.cuda.empty_cache()
     metrics.update(myMetric(y_pred, y, threshold=contact_threshold))
     metrics.update(affinity_metrics(affinity_pred, affinity))
@@ -251,12 +308,23 @@ for epoch in range(200):
     metrics_list.append(metrics)
     # print(metrics_list)
     # release memory
+
+    writer.add_scalar('Loss/train', metrics["loss"], epoch)
+    writer.add_scalar('Loss_contact_5A/train', metrics["contact_loss_5A"], epoch)
+    writer.add_scalar('Loss_contact_10A/train', metrics["contact_loss_10A"], epoch)
+    writer.add_scalar(f'EpochBatchNum/train', global_steps_train, epoch)
+    writer.add_scalar(f'EpochSampleNum/train', global_samples_train, epoch)
+
+    # ===================validation========================================
+
     y = None
     y_pred = None
     # torch.cuda.empty_cache()
     model.eval()
     use_y_mask = args.use_equivalent_native_y_mask or args.use_y_mask
-    metrics = evaulate_with_affinity(valid_loader, model, criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, use_y_mask=use_y_mask)
+    saveFileName = f"{pre}/results/single_valid_epoch_{epoch}.pt"
+    metrics = evaulate_with_affinity(all_pocket_valid_loader, model, criterion, affinity_criterion, args.relative_k,
+                                     device, pred_dis=pred_dis, info=info_va, saveFileName=saveFileName)
     if metrics["auroc"] <= best_auroc and metrics['f1_1'] <= best_f1_1:
         # not improving. (both metrics say there is no improving)
         epoch_not_improving += 1
@@ -269,19 +337,38 @@ for epoch in range(200):
             best_f1_1 = metrics['f1_1']
         ending_message = " "
     valid_metrics_list.append(metrics)
-    logging.info(f"epoch {epoch:<4d}, valid, " + print_metrics(metrics) + ending_message)
+    logging.info(f"epoch {epoch:<4d}, single_valid, " + print_metrics(metrics) + ending_message)
+
+    writer.add_scalar('Loss/validation_loss', metrics["loss"], epoch)
+    writer.add_scalar('Loss/validation_y_loss', metrics["y loss"], epoch)
+    writer.add_scalar('Loss/validation_y_loss_5A', metrics["y loss 5A"], epoch)
+    writer.add_scalar('Loss/validation_y_loss_10A', metrics["y loss 10A"], epoch)
+    writer.add_scalar('Loss/validation_affinity_loss', metrics["affinity loss"], epoch)
+    writer.add_scalar('RMSE/validation', metrics["RMSE"], epoch)
+    writer.add_scalar('Pearson/validation', metrics["Pearson"], epoch)
+    writer.add_scalar('native_auroc/validation', metrics["native_auroc"], epoch)
+    writer.add_scalar('selected_auroc/validation', metrics["selected_auroc"], epoch)
+    # ====================test============================================================
 
     saveFileName = f"{pre}/results/epoch_{epoch}.pt"
     metrics = evaulate_with_affinity(test_loader, model, criterion, affinity_criterion, args.relative_k,
-                                        device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
+                                     device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
     test_metrics_list.append(metrics)
     logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
 
-
-    # saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
-    # metrics = evaulate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
-    #                                     device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
-    # logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
+    saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
+    metrics = evaulate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
+                                     device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
+    logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
+    writer.add_scalar('Loss/test', metrics["loss"], epoch)
+    writer.add_scalar('Loss/test_y_loss', metrics["y loss"], epoch)
+    writer.add_scalar('Loss/test_y_loss_5A', metrics["y loss 5A"], epoch)
+    writer.add_scalar('Loss/test_y_loss_10A', metrics["y loss 10A"], epoch)
+    writer.add_scalar('Loss/test_affinity_loss', metrics["affinity loss"], epoch)
+    writer.add_scalar('RMSE/test', metrics["RMSE"], epoch)
+    writer.add_scalar('Pearson/test', metrics["Pearson"], epoch)
+    writer.add_scalar('native_auroc/test', metrics["native_auroc"], epoch)
+    writer.add_scalar('selected_auroc/test', metrics["selected_auroc"], epoch)
 
     if epoch % 1 == 0:
         torch.save(model.state_dict(), f"{pre}/models/epoch_{epoch}.pt")
@@ -290,7 +377,7 @@ for epoch in range(200):
         # early stop.
         print("early stop")
         break
-    
+
     # torch.cuda.empty_cache()
     os.system(f"cp {timestamp}.log {pre}/")
 
