@@ -9,7 +9,7 @@ from torch_geometric.data import HeteroData
 import torch.nn.functional as F
 from tqdm import tqdm
 import torchmetrics
-
+import math
 def read_pdbbind_data(fileName):
     with open(fileName) as f:
         a = f.readlines()
@@ -206,7 +206,9 @@ def evaulate_with_affinity(data_loader, model, criterion, affinity_criterion, re
 
     batch_loss = 0.0
     batch_loss_5A = 0.0
+    num_nan_loss_5A = 0
     batch_loss_10A = 0.0
+    num_nan_loss_10A = 0
     affinity_batch_loss = 0.0
     for data in tqdm(data_loader):
         protein_ptr = data['protein']['ptr']
@@ -225,8 +227,16 @@ def evaulate_with_affinity(data_loader, model, criterion, affinity_criterion, re
         with torch.no_grad():
             if pred_dis:
                 contact_loss = criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
-                contact_loss_cat_off_rmsd_5 = cut_off_rmsd(y_pred, dis_map, cut_off=5)
-                contact_loss_cat_off_rmsd_10 = cut_off_rmsd(y_pred, dis_map, cut_off=10)
+                if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=5)):
+                    num_nan_loss_5A += len(y_pred)
+                    contact_loss_cat_off_rmsd_5 = torch.zeros(1).to(y_pred.device)[0]
+                else:
+                    contact_loss_cat_off_rmsd_5 = cut_off_rmsd(y_pred, dis_map, cut_off=5)
+                if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=10)):
+                    num_nan_loss_10A += len(y_pred)
+                    contact_loss_cat_off_rmsd_10 = torch.zeros(1).to(y_pred.device)[0]
+                else:
+                    contact_loss_cat_off_rmsd_10 = cut_off_rmsd(y_pred, dis_map, cut_off=10)
             else:
                 contact_loss = criterion(y_pred, y) if len(y) > 0 else torch.tensor([0]).to(y.device)
                 y_pred = y_pred.sigmoid()
@@ -257,8 +267,8 @@ def evaulate_with_affinity(data_loader, model, criterion, affinity_criterion, re
 
     metrics = {"loss":batch_loss/len(y_pred) + affinity_batch_loss/len(affinity_pred)}
     metrics.update({"y loss":(batch_loss/len(y_pred))})
-    metrics.update({"y loss 5A":(batch_loss_5A/len(y_pred))})
-    metrics.update({"y loss 10A":(batch_loss_10A/len(y_pred))})
+    metrics.update({"y loss 5A":(batch_loss_5A/(len(y_pred) - num_nan_loss_5A))})
+    metrics.update({"y loss 10A":(batch_loss_10A/(len(y_pred) - num_nan_loss_10A))})
     metrics.update({"affinity loss":(affinity_batch_loss/len(affinity_pred))})
     if info is not None:
         # print(affinity, affinity_pred)
