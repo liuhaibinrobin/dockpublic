@@ -282,8 +282,14 @@ class NFTankBindDataSet(Dataset):
         return data
 
 
-def get_data_reproduced(data_mode, logging, addNoise=None, pre=None):
-
+def get_data_reproduced(data_mode, logging, pre, addNoise=None):
+    """
+    :param data_mode: (int) Should be 0 for now.
+    :param logging: (logging) logging.
+    :param pre: (str) path of folder in which located folders of different datasets.
+    :param addNoise: (int) value of noise to be added.
+    :return:
+    """
     if not os.path.exists(pre):
         raise ValueError(f"The pre path {pre} not exists.")
 
@@ -292,6 +298,9 @@ def get_data_reproduced(data_mode, logging, addNoise=None, pre=None):
         add_noise_to_com = float(addNoise) if addNoise else None
 
         # compoundMode = 1 is for GIN model.
+        for _filename in ['data.pt', 'compound.pt', 'protein.pt', 'nci.pt']:
+            if not os.path.exists(f"{pre}/{_filename}"):
+                raise ValueError(f"Saved file {_filename} not found in {pre}.")
         new_dataset = NFTankBindDataSet(f"{pre}/dataset", add_noise_to_com=add_noise_to_com)
 
         # load compound features extracted using torchdrug.
@@ -309,9 +318,16 @@ def get_data_reproduced(data_mode, logging, addNoise=None, pre=None):
         test = new_dataset[test_index]
 
         all_pocket_test_fileName = f"{pre}/test_dataset/"
-        all_pocket_test = NFTankBindDataSet(all_pocket_test_fileName)
         all_pocket_valid_fileName = f"{pre}/valid_dataset/"
+        for _filename in ['data.pt', 'compound.pt', 'protein.pt', 'nci.pt']:
+            if not os.path.exists(f"{all_pocket_test_fileName}/{_filename}"):
+                raise ValueError(f"Saved file {_filename} not found in {all_pocket_test_fileName}.")
+            if not os.path.exists(f"{all_pocket_valid_fileName}/{_filename}"):
+                raise ValueError(f"Saved file {_filename} not found in {all_pocket_valid_fileName}.")
+
+        all_pocket_test = NFTankBindDataSet(all_pocket_test_fileName)
         all_pocket_valid = NFTankBindDataSet(all_pocket_valid_fileName)
+
         # all_pocket_test.compound_dict = torch.load(f"{pre}/compound_dict.pt")
         # info is used to evaluate the test set.
         info_test = pd.read_csv(f"{pre}/test_dataset/apr23_testset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)

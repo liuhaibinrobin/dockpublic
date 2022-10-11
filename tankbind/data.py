@@ -1,3 +1,5 @@
+import os.path
+
 import pandas as pd
 import numpy as np
 import torch
@@ -151,9 +153,7 @@ class TankBindDataSet(Dataset):
 
 
 # def get_data(data_mode, logging, addNoise=None):
-def get_data_reproduced(data_mode, logging, addNoise=None, pre=None):
-    if pre is None:
-        pre = "/home/jovyan/TankBind/fragmentation/pdb_data/all_pdbbind"
+def get_data_reproduced(data_mode, logging, pre, addNoise=None):
 
     if data_mode == "0":
         logging.info(f"re-docking, using dataset: apr22_pdbbind_gvp_pocket_radius20 pred distance map.")

@@ -12,7 +12,7 @@ from rdkit.Chem import AllChem
 import glob
 import torch
 # %matplotlib inline
-from data import get_data
+from data import get_data_reproduced  # Modified!
 from torch_geometric.loader import DataLoader
 from metrics import *
 from utils import *
@@ -25,6 +25,7 @@ from torch.utils.data import WeightedRandomSampler
 import random
 import math
 from torch.utils.tensorboard import SummaryWriter
+
 
 writer = SummaryWriter("./logs")
 
@@ -105,12 +106,14 @@ handler = logging.FileHandler(f'{timestamp}.log')
 handler.setFormatter(logging.Formatter('%(message)s', ""))
 logger.addHandler(handler)
 
-logging.info(f'''\
-{' '.join(sys.argv)}
-{timestamp}
-{args.label}
---------------------------------
-''')
+logging.info(
+    f'''
+    {' '.join(sys.argv)}
+    {timestamp}
+    {args.label}
+    --------------------------------
+    ''')
+
 pre = f"{args.resultFolder}/{timestamp}"
 os.system(f"mkdir -p {pre}/models")
 os.system(f"mkdir -p {pre}/results")
@@ -122,10 +125,13 @@ torch.set_num_threads(1)
 # # ----------without this, I could get 'RuntimeError: received 0 items of ancdata'-----------
 torch.multiprocessing.set_sharing_strategy('file_system')
 
-train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info, info_va = get_data(args.data, logging,
-                                                                                                     addNoise=args.addNoise)
-logging.info(
-    f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
+train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info_test, info_va = get_data_reproduced(
+    args.data, logging,
+    addNoise=args.addNoise,
+    pre="/home/jovyan/dataspace/NFT/main/tankbind_data")
+
+logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, "
+             f"valid: {len(valid)}, test: {len(test)}")
 
 num_workers = 10
 sampler = RandomSampler(train, replacement=True, num_samples=args.sample_n)
@@ -136,19 +142,22 @@ train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.bat
                                         follow_batch=['x', 'compound_pair'], sampler=sampler2, pin_memory=False,
                                         num_workers=num_workers)
 valid_batch_size = test_batch_size = 4
-valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair'], shuffle=False,
-                          pin_memory=False, num_workers=num_workers)
-test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair'], shuffle=False,
-                         pin_memory=False, num_workers=num_workers)
-all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair'], shuffle=False,
-                                    pin_memory=False, num_workers=4)
-all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batch=['x', 'compound_pair'], shuffle=False,
-                                     pin_memory=False, num_workers=4)
+
+valid_loader = DataLoader(dataset=valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair'],
+                          shuffle=False, pin_memory=False, num_workers=num_workers)
+test_loader = DataLoader(dataset=test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair'],
+                         shuffle=False, pin_memory=False, num_workers=num_workers)
+
+all_pocket_test_loader = DataLoader(dataset=all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair'],
+                                    shuffle=False,pin_memory=False, num_workers=4)
+all_pocket_valid_loader = DataLoader(all_pocket_valid,  batch_size=2, follow_batch=['x', 'compound_pair'],
+                                     shuffle=False,pin_memory=False, num_workers=4)
+
 # import model is put here due to an error related to torch.utils.data.ConcatDataset after importing torchdrug.
 from model import *
 
 device = 'cuda'
-model = get_model(args.mode, logging, device)
+model = get_nft_model(args.mode, logging, device)
 
 if args.restart:
     model.load_state_dict(torch.load(args.restart))
@@ -185,6 +194,7 @@ global_steps_test = 0
 global_samples_train = 0
 global_samples_val = 0
 global_samples_test = 0
+
 for epoch in range(200):
     model.train()
     y_list = []
@@ -197,6 +207,7 @@ for epoch in range(200):
     batch_loss_10A = 0.0
     num_nan_loss_10A = 0
     affinity_batch_loss = 0.0
+
     if epoch < data_warmup_epochs:
         data_it = tqdm(train_loader)
     else:
@@ -205,15 +216,17 @@ for epoch in range(200):
     for data in data_it:
         data = data.to(device)
         optimizer.zero_grad()
-        y_pred, affinity_pred = model(data)
+        y_pred, affinity_pred, nci_pred = model(data)
         # print(data.y.sum(), y_pred.sum())
         y = data.y
         affinity = data.affinity
         dis_map = data.dis_map
+
         if args.use_equivalent_native_y_mask:
             y_pred = y_pred[data.equivalent_native_y_mask]
             y = y[data.equivalent_native_y_mask]
             dis_map = dis_map[data.equivalent_native_y_mask]
+
         elif args.use_y_mask:
             y_pred = y_pred[data.real_y_mask]
             y = y[data.real_y_mask]
@@ -358,7 +371,7 @@ for epoch in range(200):
 
     saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
     metrics = evaulate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
-                                     device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
+                                     device, pred_dis=pred_dis, info=info_test, saveFileName=saveFileName)
     logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
     writer.add_scalar('Loss/test', metrics["loss"], epoch)
     writer.add_scalar('Loss/test_y_loss', metrics["y loss"], epoch)
