@@ -117,7 +117,7 @@ class NFTankBindDataSet(Dataset):
         group = line['group'] if "group" in line.index else 'train'
         add_noise_to_com = self.add_noise_to_com if group == 'train' else None
 
-        has_nci_info = line['has_nci_info']  # AFN
+        has_nci_info = torch.tensor([{True: 1, False: 0}[line['has_nci_info']]]) # AFN # TODO: Modified
 
         protein_name = line['protein_name']
         if self.proteinMode == 0:
@@ -157,7 +157,7 @@ class NFTankBindDataSet(Dataset):
 
         # data.nci_matrix's shape : P * L.      keepNode(P) selected.
         data.has_nci_info = has_nci_info
-        data.nci_matrix = self.nci_dict[name][keepNode, :] if has_nci_info else torch.zeros()
+        data.nci_matrix = self.nci_dict[name][keepNode, :]
 
         # affinity = affinity_to_native_pocket * min(1, float((data.y.numpy() > 0).sum()/(5*coords.shape[0])))
         affinity = float(line['affinity'])
