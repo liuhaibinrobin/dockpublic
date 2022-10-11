@@ -150,8 +150,11 @@ class TankBindDataSet(Dataset):
         return data
 
 
-def get_data(data_mode, logging, addNoise=None):
-    pre = "/home/jovyan/TankBind/fragmentation/pdb_data/all_pdbbind"
+# def get_data(data_mode, logging, addNoise=None):
+def get_data_reproduced(data_mode, logging, addNoise=None, pre=None):
+    if pre is None:
+        pre = "/home/jovyan/TankBind/fragmentation/pdb_data/all_pdbbind"
+
     if data_mode == "0":
         logging.info(f"re-docking, using dataset: apr22_pdbbind_gvp_pocket_radius20 pred distance map.")
         logging.info(f"compound feature based on torchdrug")
