@@ -157,8 +157,8 @@ for i, line in chosen.iterrows():
 
         for range_i,range_j in [(0,5),(5,6),(6,7),(7,8),(8,9),(9,11)]:
 
-            y_pred_cutoff=y_pred[y_true >=range_i and y_true<range_j]
-            y_true_cutoff=y_true[y_true >=range_i and y_true<range_j]
+            y_pred_cutoff=y_pred[(y_true >=range_i) &( y_true<range_j)]
+            y_true_cutoff=y_true[(y_true >=range_i) & (y_true<range_j)]
             cutoff_num=y_true_cutoff.shape[0]
             cutoff_rmsd=torch.sqrt(torch.sum((y_pred_cutoff-y_true_cutoff)**2)/cutoff_num)
             print(json.dumps({"cutoff_rmsd>=%s_<%s"%(range_i,range_j):float(cutoff_rmsd),
