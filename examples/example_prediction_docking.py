@@ -154,29 +154,16 @@ for i, line in chosen.iterrows():
 
 
     with open("%s/rmsd_ana.txt"%(pre),"w") as fp_rmsd_out:
-        y_pred_cutoff=y_pred[y_true < 10]
-        y_true_cutoff=y_true[y_true < 10]
-        cutoff_num=y_true_cutoff.shape[0]
-        cutoff_rmsd=torch.sqrt(torch.sum((y_pred_cutoff-y_true_cutoff)**2)/cutoff_num)
-        print(json.dumps({"cutoff_rmsd<10":float(cutoff_rmsd),"cutoff_num<10":float(cutoff_num)}),file=fp_rmsd_out)
 
-        y_pred_cutoff = y_pred[y_true >= 10]
-        y_true_cutoff = y_true[y_true >= 10]
-        cutoff_num = y_true_cutoff.shape[0]
-        cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
-        print(json.dumps({"cutoff_rmsd>=10": float(cutoff_rmsd), "cutoff_num>=10": float(cutoff_num)}), file=fp_rmsd_out)
+        for range_i,range_j in [(0,5),(5,6),(6,7),(7,8),(8,9),(9,11)]:
 
-        y_pred_cutoff = y_pred[y_true < 4]
-        y_true_cutoff = y_true[y_true < 4]
-        cutoff_num = y_true_cutoff.shape[0]
-        cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
-        print(json.dumps({"cutoff_rmsd<4": float(cutoff_rmsd), "cutoff_num<4": float(cutoff_num)}), file=fp_rmsd_out)
-
-        y_pred_cutoff = y_pred[y_true >= 4]
-        y_true_cutoff = y_true[y_true >= 4]
-        cutoff_num = y_true_cutoff.shape[0]
-        cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
-        print(json.dumps({"cutoff_rmsd>=4": float(cutoff_rmsd), "cutoff_num>=4": float(cutoff_num)}), file=fp_rmsd_out)
+            y_pred_cutoff=y_pred[y_true >=range_i and y_true<range_j]
+            y_true_cutoff=y_true[y_true >=range_i and y_true<range_j]
+            cutoff_num=y_true_cutoff.shape[0]
+            cutoff_rmsd=torch.sqrt(torch.sum((y_pred_cutoff-y_true_cutoff)**2)/cutoff_num)
+            print(json.dumps({"cutoff_rmsd>=%s_<%s"%(range_i,range_j):float(cutoff_rmsd),
+                              "cutoff_num>=%s_<%s"%(range_i,range_j):float(cutoff_num)}),
+                  file=fp_rmsd_out)
 
     np.savetxt("%s/%s_y_pred.csv"%(pre,ligandName), y_pred.numpy(), delimiter=",")
     np.savetxt("%s/%s_y_true.csv" % (pre,ligandName),y_true.numpy() , delimiter=",")
