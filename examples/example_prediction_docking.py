@@ -155,7 +155,7 @@ for i, line in chosen.iterrows():
 
     with open("%s/rmsd_ana.txt"%(pre),"w") as fp_rmsd_out:
 
-        for range_i,range_j in [(0,4),(4,5),(5,6),(6,7),(7,8),(8,9),(9,11)]:
+        for range_i,range_j in [(0,4),(4,5),(5,6),(6,7),(7,8),(8,9),(9,10),(10,11)]:
 
             y_pred_cutoff=y_pred[(y_true >=range_i) &( y_true<range_j)]
             y_true_cutoff=y_true[(y_true >=range_i) & (y_true<range_j)]
