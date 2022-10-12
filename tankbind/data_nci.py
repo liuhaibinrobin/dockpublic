@@ -242,9 +242,12 @@ class NFTankBindDataSet(Dataset):
                                                                             chosen_pocket_com=pocket_com,
                                                                             compoundMode=self.compoundMode)
 
-        # data.nci_matrix's shape : P * L.      keepNode(P) selected.
         data.has_nci_info = has_nci_info
-        data.nci_matrix = self.nci_dict[name][keepNode, :]
+        data.nci_sequence = self.nci_dict[name][keepNode, :].flatten()
+        ## data.nci_sequence.shape : pocket_length * ligand_length
+
+        data.equivalent_native_nci_mask = torch.ones(data.equivalent_native_y_mask.shape) if data.has_nci_info \
+            else torch.zeros(data.equivalent_native_y_mask.shape)
 
         # affinity = affinity_to_native_pocket * min(1, float((data.y.numpy() > 0).sum()/(5*coords.shape[0])))
         affinity = float(line['affinity'])

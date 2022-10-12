@@ -422,7 +422,6 @@ class NFTNCIClassifier(torch.nn.Module):
     """
     NCI classifier for NFTNet.
     """
-
     def __init__(self, hidden_channels=128, mid_channels=128, output_dimension=1, dropout_rate=0.1):
         super().init()
         self.mlp_1 = nn.Linear(hidden_channels, mid_channels)
@@ -434,8 +433,9 @@ class NFTNCIClassifier(torch.nn.Module):
         # z.shape: batch_size * padded_protein_len * padded_compound_len * hidden_channels
         return self.mlp_2(self.dropout(self.relu(self.mlp_1(z[has_nci_info])))).squeeze(-1) if has_nci_info.sum() \
             else None
-        # return.shape: batch_size * padded_protein_len * padded_compound_len
+        # return.shape: sequence with length = (batch_size * padded_protein_len * padded_compound_len)
 
+        ###
 
 class NFTNet(torch.nn.Module):
     """
@@ -565,9 +565,12 @@ class NFTNet(torch.nn.Module):
         y_pred = b[z_mask]
         y_pred = y_pred.sigmoid() * 10  # normalize to 0 to 10.
 
-        nci_pred = self.nci_classifier(z, data['has_nci_info'])
-        ## nci_pred: None | torch.tensor
-        ## (tensor) nci_pred.shape has_nci_info.nonzero() * padded_protein_len * padded_compound_len * hidden_dim
+        ## NCI classification
+        b = self.nci_classifier(z, data['has_nci_info'])
+        ## b: None | torch.tensor
+        ## b.shape: batch_size * padded_protein_len * padded_compound_len
+        nci_pred = b[z_mask[data['has_nci_info']]] if b is not None else None
+        ## nci_pred: None | torch.tensor (sequence)
 
         if self.readout_mode == 0:
             pair_energy = self.linear_energy(z).squeeze(-1) * z_mask

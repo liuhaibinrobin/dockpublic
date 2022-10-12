@@ -116,7 +116,7 @@ test_metrics_list = []
 
 epoch = 0
 model.eval()
-# metrics = evaulate_with_affinity(valid_loader, model, criterion, affinity_criterion, relative_k, device)
+# metrics = evaulate_with_affinity(valid_loader, model, contact_criterion, affinity_criterion, relative_k, device)
 # logging.info(f"epoch {epoch:<4d}, valid, " + print_metrics(metrics))
 
 saveFileName = f"{pre}/results/epoch_{epoch}.pt"

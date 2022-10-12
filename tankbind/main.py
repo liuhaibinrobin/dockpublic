@@ -26,6 +26,7 @@ import random
 import math
 from torch.utils.tensorboard import SummaryWriter
 
+from utils_nci import NCICriterion
 
 writer = SummaryWriter("./logs")
 
@@ -96,6 +97,8 @@ parser.add_argument("--use_contact_loss", type=int, default=0,
                     help="whether to upgrade contact loss during training, 0 means use, other means not use")
 parser.add_argument("--use_weighted_rmsd_loss", type=bool, default=False,
                     help="whether to change contact weight according to distance")
+parser.add_argument("--unused_code", type=bool, default=False,
+                    help="ok now PyCharm doesn't show `this codeblock is not accessible.")
 args = parser.parse_args()
 
 timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
@@ -134,19 +137,27 @@ logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_a
              f"valid: {len(valid)}, test: {len(test)}")
 
 num_workers = 10
-sampler = RandomSampler(train, replacement=True, num_samples=args.sample_n)
-train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair'], sampler=sampler,
-                          pin_memory=False, num_workers=num_workers)
+
+## Sampler and DataLoaders.
+## if args.data_war_up_epochs == 0, the first sampler/train_loader are not used.
+if args.data_warm_up_epochs > 0:
+    sampler = RandomSampler(train, replacement=True, num_samples=args.sample_n)
+    train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair'], sampler=sampler,
+                              pin_memory=False, num_workers=num_workers)
+else:
+    sampler, train_loader = None, None
+
 sampler2 = RandomSampler(train_after_warm_up, replacement=True, num_samples=args.sample_n)
 train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size,
                                         follow_batch=['x', 'compound_pair'], sampler=sampler2, pin_memory=False,
                                         num_workers=num_workers)
 valid_batch_size = test_batch_size = 4
 
-valid_loader = DataLoader(dataset=valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair'],
-                          shuffle=False, pin_memory=False, num_workers=num_workers)
-test_loader = DataLoader(dataset=test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair'],
-                         shuffle=False, pin_memory=False, num_workers=num_workers)
+if args.unused_code:  ## Trash.
+    valid_loader = DataLoader(dataset=valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair'],
+                              shuffle=False, pin_memory=False, num_workers=num_workers)
+    test_loader = DataLoader(dataset=test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair'],
+                             shuffle=False, pin_memory=False, num_workers=num_workers)
 
 all_pocket_test_loader = DataLoader(dataset=all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair'],
                                     shuffle=False,pin_memory=False, num_workers=4)
@@ -161,21 +172,28 @@ model = get_nft_model(args.mode, logging, device)
 
 if args.restart:
     model.load_state_dict(torch.load(args.restart))
+
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-# model.train()
+
+
+## Criterion Settings
 if args.pred_dis:
     if args.use_weighted_rmsd_loss:
-        criterion = weighted_rmsd_loss
+        contact_criterion = weighted_rmsd_loss
         print('use weighted rmsd loss!!!')
         pred_dis = True
     else:
-        criterion = nn.MSELoss()
+        contact_criterion = nn.MSELoss()
         pred_dis = True
 else:
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(args.posweight))
+    contact_criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(args.posweight))
+    raise ValueError("In current setting, argument `args.pred_dis` should be True")
 
 affinity_criterion = nn.MSELoss()
-# criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(5))
+
+nci_classification_criterion = NCICriterion()
+
+# contact_criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(5))
 
 metrics_list = []
 valid_metrics_list = []
@@ -209,6 +227,8 @@ for epoch in range(200):
     affinity_batch_loss = 0.0
 
     if epoch < data_warmup_epochs:
+        if train_loader is None:
+            raise ValueError(f"train_loader can't be None with args.data_warmup_epochs={args.data_warmup_epochs}.")
         data_it = tqdm(train_loader)
     else:
         data_it = tqdm(train_after_warm_up_loader)
@@ -217,27 +237,35 @@ for epoch in range(200):
         data = data.to(device)
         optimizer.zero_grad()
         y_pred, affinity_pred, nci_pred = model(data)
+        ## y_pred: sequence
+        ## affinity_pred: sequence
+        ## nci_pred: None | sequence
+
         # print(data.y.sum(), y_pred.sum())
         y = data.y
         affinity = data.affinity
         dis_map = data.dis_map
+        nci_sequence = data.nci_sequence
 
         if args.use_equivalent_native_y_mask:
             y_pred = y_pred[data.equivalent_native_y_mask]
             y = y[data.equivalent_native_y_mask]
             dis_map = dis_map[data.equivalent_native_y_mask]
+            nci_sequence = nci_sequence[data.equivalent_native_nci_mask] if nci_pred is not None else None
+            nci_pred = nci_pred[data.equivalent_native_nci_mask] if nci_pred is not None else None
 
-        elif args.use_y_mask:
+        elif args.use_y_mask:  ## Not used
             y_pred = y_pred[data.real_y_mask]
             y = y[data.real_y_mask]
             dis_map = dis_map[data.real_y_mask]
+            raise ValueError("In current setting, args.use_y_mask is not used for nci")
 
         if args.use_affinity_mask:
             affinity_pred = affinity_pred[data.real_affinity_mask]
             affinity = affinity[data.real_affinity_mask]
 
         if args.pred_dis:
-            contact_loss = criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
+            contact_loss = contact_criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
             with torch.no_grad():
                 if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=5)):
                     num_nan_loss_5A += len(y_pred)
@@ -250,8 +278,14 @@ for epoch in range(200):
                 else:
                     contact_loss_cat_off_rmsd_10 = cut_off_rmsd(y_pred, dis_map, cut_off=10)
         else:
-            contact_loss = criterion(y_pred, y) if len(y) > 0 else torch.tensor([0]).to(y.device)
+            contact_loss = contact_criterion(y_pred, y) if len(y) > 0 else torch.tensor([0]).to(y.device)
             y_pred = y_pred.sigmoid()
+
+        nci_classification_loss = nci_classification_criterion(nci_pred, nci_sequence) if nci_pred is not None \
+            else torch.zeros(1).to(y_pred.device)[0]
+
+
+
         if args.restart is None:
             base_relative_k = args.relative_k
             if args.relative_k_mode == 0:
@@ -260,9 +294,11 @@ for epoch in range(200):
             if args.relative_k_mode == 1:
                 # increase linearly
                 relative_k = min(base_relative_k / warm_up_epochs * epoch, base_relative_k)
-
+            else:
+                raise ValueError(f"Invalid argument relative_k_mode: {args.relative_k_mode}.")
         else:
             relative_k = args.relative_k
+
         if args.affinity_loss_mode == 0:
             affinity_loss = relative_k * affinity_criterion(affinity_pred, affinity)
         elif args.affinity_loss_mode == 1:
@@ -270,6 +306,8 @@ for epoch in range(200):
             affinity_loss = relative_k * my_affinity_criterion(affinity_pred,
                                                                affinity,
                                                                native_pocket_mask, decoy_gap=args.decoy_gap)
+        else:
+            raise ValueError(f"Invalid argument affinity_loss_mode: {args.relative_k_mode}.")
 
         # print(contact_loss.item(), affinity_loss.item())
         if args.use_contact_loss == 0:
@@ -332,11 +370,10 @@ for epoch in range(200):
 
     y = None
     y_pred = None
-    # torch.cuda.empty_cache()
     model.eval()
     use_y_mask = args.use_equivalent_native_y_mask or args.use_y_mask
     saveFileName = f"{pre}/results/single_valid_epoch_{epoch}.pt"
-    metrics = evaulate_with_affinity(all_pocket_valid_loader, model, criterion, affinity_criterion, args.relative_k,
+    metrics = evaulate_with_affinity(all_pocket_valid_loader, model, contact_criterion, affinity_criterion, args.relative_k,
                                      device, pred_dis=pred_dis, info=info_va, saveFileName=saveFileName)
     if metrics["auroc"] <= best_auroc and metrics['f1_1'] <= best_f1_1:
         # not improving. (both metrics say there is no improving)
@@ -364,13 +401,13 @@ for epoch in range(200):
     # ====================test============================================================
 
     saveFileName = f"{pre}/results/epoch_{epoch}.pt"
-    metrics = evaulate_with_affinity(test_loader, model, criterion, affinity_criterion, args.relative_k,
+    metrics = evaulate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
                                      device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
     test_metrics_list.append(metrics)
     logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
 
     saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
-    metrics = evaulate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
+    metrics = evaulate_with_affinity(all_pocket_test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
                                      device, pred_dis=pred_dis, info=info_test, saveFileName=saveFileName)
     logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
     writer.add_scalar('Loss/test', metrics["loss"], epoch)
