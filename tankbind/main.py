@@ -23,7 +23,7 @@ import argparse
 from torch.utils.data import RandomSampler
 from torch.utils.data import WeightedRandomSampler
 import random
-
+import math
 from torch.utils.tensorboard import SummaryWriter
 
 writer = SummaryWriter("./logs")
@@ -91,6 +91,8 @@ parser.add_argument("--label", type=str, default="",
                     help="information you want to keep a record.")
 parser.add_argument("--use_contact_loss", type=int, default=0,
                     help="whether to upgrade contact loss during training, 0 means use, other means not use")
+parser.add_argument("--use_weighted_rmsd_loss", type=bool, default=False,
+                    help="whether to change contact weight according to distance")
 args = parser.parse_args()
 
 
@@ -146,8 +148,13 @@ if args.restart:
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 # model.train()
 if args.pred_dis:
-    criterion = nn.MSELoss()
-    pred_dis = True
+    if args.use_weighted_rmsd_loss:
+        criterion = weighted_rmsd_loss
+        print('use weighted rmsd loss!!!')
+        pred_dis = True
+    else:   
+        criterion = nn.MSELoss()
+        pred_dis = True
 else:
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(args.posweight))
 
@@ -179,6 +186,10 @@ for epoch in range(200):
     affinity_list = []
     affinity_pred_list = []
     batch_loss = 0.0
+    batch_loss_5A = 0.0
+    num_nan_loss_5A = 0
+    batch_loss_10A = 0.0
+    num_nan_loss_10A = 0
     affinity_batch_loss = 0.0
     if epoch < data_warmup_epochs:
         data_it = tqdm(train_loader)
@@ -208,6 +219,17 @@ for epoch in range(200):
 
         if args.pred_dis:
             contact_loss = criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
+            with torch.no_grad():
+                if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=5)):
+                    num_nan_loss_5A += len(y_pred)
+                    contact_loss_cat_off_rmsd_5 = torch.zeros(1).to(y_pred.device)[0]
+                else:
+                    contact_loss_cat_off_rmsd_5 = cut_off_rmsd(y_pred, dis_map, cut_off=5)
+                if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=10)):
+                    num_nan_loss_10A += len(y_pred)
+                    contact_loss_cat_off_rmsd_10 = torch.zeros(1).to(y_pred.device)[0]
+                else:
+                    contact_loss_cat_off_rmsd_10 = cut_off_rmsd(y_pred, dis_map, cut_off=10)
         else:
             contact_loss = criterion(y_pred, y) if len(y) > 0 else torch.tensor([0]).to(y.device)
             y_pred = y_pred.sigmoid()
@@ -238,6 +260,8 @@ for epoch in range(200):
         loss.backward()
         optimizer.step()
         batch_loss += len(y_pred)*contact_loss.item()
+        batch_loss_5A += len(y_pred)*contact_loss_cat_off_rmsd_5.item()
+        batch_loss_10A += len(y_pred)*contact_loss_cat_off_rmsd_10.item()
         affinity_batch_loss += len(affinity_pred)*affinity_loss.item()
         # print(f"{loss.item():.3}")
         y_list.append(y)
@@ -249,6 +273,8 @@ for epoch in range(200):
         writer.add_scalar(f'BatchLoss/train', loss.item(), global_steps_train)
         writer.add_scalar(f'SamplesLoss/train', loss.item(), global_samples_train)
         writer.add_scalar(f'contact_loss/train', contact_loss.item(), global_samples_train)
+        writer.add_scalar(f'contact_loss_5A_batch/train', contact_loss_cat_off_rmsd_5.item(), global_samples_train)
+        writer.add_scalar(f'contact_loss_10A_batch/train', contact_loss_cat_off_rmsd_10.item(), global_samples_train)
         writer.add_scalar(f'affinity_loss/train', affinity_loss.item(), global_samples_train)
         global_steps_train+=1
         global_samples_train+=len(data)
@@ -268,6 +294,7 @@ for epoch in range(200):
     affinity = torch.cat(affinity_list)
     affinity_pred = torch.cat(affinity_pred_list)
     metrics = {"loss":batch_loss/len(y_pred) + affinity_batch_loss/len(affinity_pred)}
+    metrics.update({"contact_loss_5A":batch_loss_5A/(len(y_pred) - num_nan_loss_5A), "contact_loss_10A":batch_loss_10A/(len(y_pred) - num_nan_loss_10A)})
     # torch.cuda.empty_cache()
     metrics.update(myMetric(y_pred, y, threshold=contact_threshold))
     metrics.update(affinity_metrics(affinity_pred, affinity))
@@ -277,6 +304,8 @@ for epoch in range(200):
     # release memory
 
     writer.add_scalar('Loss/train', metrics["loss"], epoch)
+    writer.add_scalar('Loss_contact_5A/train', metrics["contact_loss_5A"], epoch)
+    writer.add_scalar('Loss_contact_10A/train', metrics["contact_loss_10A"], epoch)
     writer.add_scalar(f'EpochBatchNum/train', global_steps_train, epoch)
     writer.add_scalar(f'EpochSampleNum/train', global_samples_train, epoch)
 
@@ -307,6 +336,8 @@ for epoch in range(200):
 
     writer.add_scalar('Loss/validation_loss', metrics["loss"], epoch)
     writer.add_scalar('Loss/validation_y_loss', metrics["y loss"], epoch)
+    writer.add_scalar('Loss/validation_y_loss_5A', metrics["y loss 5A"], epoch)
+    writer.add_scalar('Loss/validation_y_loss_10A', metrics["y loss 10A"], epoch)
     writer.add_scalar('Loss/validation_affinity_loss', metrics["affinity loss"], epoch)
     writer.add_scalar('RMSE/validation', metrics["RMSE"], epoch)
     writer.add_scalar('Pearson/validation', metrics["Pearson"], epoch)
@@ -328,6 +359,8 @@ for epoch in range(200):
     logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
     writer.add_scalar('Loss/test', metrics["loss"], epoch)
     writer.add_scalar('Loss/test_y_loss', metrics["y loss"], epoch)
+    writer.add_scalar('Loss/test_y_loss_5A', metrics["y loss 5A"], epoch)
+    writer.add_scalar('Loss/test_y_loss_10A', metrics["y loss 10A"], epoch)
     writer.add_scalar('Loss/test_affinity_loss', metrics["affinity loss"], epoch)
     writer.add_scalar('RMSE/test', metrics["RMSE"], epoch)
     writer.add_scalar('Pearson/test', metrics["Pearson"], epoch)
