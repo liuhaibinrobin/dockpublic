@@ -242,12 +242,7 @@ class NFTankBindDataSet(Dataset):
                                                                             chosen_pocket_com=pocket_com,
                                                                             compoundMode=self.compoundMode)
 
-        data.has_nci_info = has_nci_info
-        data.nci_sequence = self.nci_dict[name][keepNode, :].flatten()
-        ## data.nci_sequence.shape : pocket_length * ligand_length
 
-        data.equivalent_native_nci_mask = torch.ones(data.equivalent_native_y_mask.shape) if data.has_nci_info \
-            else torch.zeros(data.equivalent_native_y_mask.shape)
 
         # affinity = affinity_to_native_pocket * min(1, float((data.y.numpy() > 0).sum()/(5*coords.shape[0])))
         affinity = float(line['affinity'])
@@ -258,6 +253,13 @@ class NFTankBindDataSet(Dataset):
 
         data.real_affinity_mask = torch.tensor([use_compound_com], dtype=torch.bool)
         data.real_y_mask = torch.ones(data.y.shape).bool() if use_compound_com else torch.zeros(data.y.shape).bool()
+        ## data.real_y_mask is True for compound_com-generated pocket only.
+        data.real_nci_mask = torch.ones(data.y.shape).bool() if use_compound_com and has_nci_info else torch.zeros(data.y.shape).bool()
+        
+        data.has_nci_info = has_nci_info
+        data.nci_sequence = self.nci_dict[name][keepNode, :].flatten()
+        ## data.nci_sequence.shape : pocket_length * ligand_length
+        
         # fract_of_native_contact = float(line['fract_of_native_contact']) if "fract_of_native_contact" in line.index \
         # else 1
         # equivalent native pocket
@@ -267,6 +269,8 @@ class NFTankBindDataSet(Dataset):
             data.is_equivalent_native_pocket = torch.tensor([is_equivalent_native_pocket], dtype=torch.bool)
             data.equivalent_native_y_mask = torch.ones(
                 data.y.shape).bool() if is_equivalent_native_pocket else torch.zeros(data.y.shape).bool()
+            data.equivalent_native_nci_mask = torch.ones(
+                data.y.shape).bool() if is_equivalent_native_pocket and has_nci_info else torch.zeros(data.y.shape).bool()
         else:
             # native_num_contact information is not available.
             # use ligand com to determine if this pocket is equivalent to native pocket.
@@ -279,9 +283,13 @@ class NFTankBindDataSet(Dataset):
                 data.is_equivalent_native_pocket = torch.tensor([is_equivalent_native_pocket], dtype=torch.bool)
                 data.equivalent_native_y_mask = torch.ones(
                     data.y.shape).bool() if is_equivalent_native_pocket else torch.zeros(data.y.shape).bool()
+                data.equivalent_native_nci_mask = torch.ones(
+                    data.y.shape).bool() if is_equivalent_native_pocket and has_nci_info else torch.zeros(data.y.shape).bool()
             else:
+                
                 # data.is_equivalent_native_pocket and data.equivalent_native_y_mask will not be available.
                 pass
+       
         return data
 
 
