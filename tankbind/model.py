@@ -422,7 +422,7 @@ class NFTNCIClassifier(torch.nn.Module):
     """
     NCI classifier for NFTNet.
     """
-    def __init__(self, hidden_channels=128, mid_channels=128, output_dimension=1, dropout_rate=0.1):
+    def __init__(self, hidden_channels=128, mid_channels=128, output_dimension=2, dropout_rate=0.1):
         super().init()
         self.mlp_1 = nn.Linear(hidden_channels, mid_channels)
         self.relu = nn.ReLU()
