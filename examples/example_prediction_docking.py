@@ -186,7 +186,7 @@ for i, line in chosen.iterrows():
     result_folder = f'{pre}/{pdb}_result/'
     os.system(f'mkdir -p {result_folder}')
     # toFile = f'{result_folder}/{ligandName}_{pocket_name}_tankbind.sdf'
-    toFile = f'{result_folder}/{ligandName}_tankbind.sdf'
+    toFile = f'{result_folder}/{ligandName}_%s_tankbind.sdf'%(model_file_name)
     # print(toFile)
     new_coords = info.sort_values("loss")['coords'].iloc[0].astype(np.double)
     write_with_new_coords(mol, new_coords, toFile)
