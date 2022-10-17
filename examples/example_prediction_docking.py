@@ -105,6 +105,11 @@ model = get_model(0, logging, device)
 # self-dock model
 model_path="../saved_models/"
 model_file_name="self_dock"  #baseline_epoch_149 weighted_contact_loss_and_change_ratio_of_two_loss_epoch_92 weighted_contact_loss_epoch_132
+model_file_name="baseline_epoch_149"
+model_file_name="weighted_contact_loss_and_change_ratio_of_two_loss_epoch_92"
+model_file_name="weighted_contact_loss_epoch_132"
+
+
 modelFile = "%s/%s.pt"%(model_path,model_file_name)
 
 
