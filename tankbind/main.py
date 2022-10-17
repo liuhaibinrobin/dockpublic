@@ -28,6 +28,15 @@ from torch.utils.tensorboard import SummaryWriter
 
 writer = SummaryWriter("./logs")
 
+def weighted_rmsd_loss(y_pred,y_true):
+    torch.mean(100*(1/(y_true**2))*(y_pred-y_true)**2)
+def cat_off_rmsd(y_pred,y_true,cut_off=5):
+    y_pred_cutoff = y_pred[y_true < cut_off]
+    y_true_cutoff = y_true[y_true < cut_off]
+    cutoff_rmsd = torch.mean((y_pred_cutoff - y_true_cutoff) ** 2)
+    return cutoff_rmsd
+
+
 def Seed_everything(seed=42):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
