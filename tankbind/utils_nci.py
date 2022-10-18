@@ -4,11 +4,11 @@ import torch
 from torch import nn
 from tqdm import tqdm
 
-from tankbind.metrics import myMetric, affinity_metrics
-from tankbind.utils import cut_off_rmsd, select_pocket_by_predicted_affinity, compute_numpy_rmse, \
+from metrics import myMetric, affinity_metrics
+from utils import cut_off_rmsd, select_pocket_by_predicted_affinity, compute_numpy_rmse, \
     extract_list_from_prediction
 import torchmetrics
-
+import pdb
 
 class NCICriterion(nn.Module):
     def __init__(self, class_weight, under_sampling_ratio):
@@ -18,20 +18,26 @@ class NCICriterion(nn.Module):
         self.criterion = nn.CrossEntropyLoss(weight=class_weight)
         self.ratio = under_sampling_ratio
     def forward(self, nci_pred, nci_true):
-        ## nci_pred: length == nci_true
         true_indices = nci_true.nonzero()
         false_indices = (nci_true != True).nonzero()
         selected_false_indices = false_indices[
-            torch.randperm(len(false_indices))[0:len(false_indices) * self.undersampling_ratio]]
-        selected_indices = torch.cat(true_indices, selected_false_indices)
-        return self.criterion(nci_pred[selected_indices], nci_true[selected_indices]), len(selected_indices)
+            torch.randperm(len(false_indices))[0:len(true_indices) * self.ratio]]
+        selected_indices = torch.cat((true_indices, selected_false_indices)).squeeze(-1)
+        # print(nci_pred[selected_indices].shape, nci_true[selected_indices].squeeze(-1).shape, 
+        #      nci_pred[selected_indices].dtype, nci_true[selected_indices].squeeze(-1).dtype)
+        return self.criterion(nci_pred[selected_indices], nci_true[selected_indices].squeeze(-1).long()), len(selected_indices)
 
 
 def eval_nci_classification(nci_pred, nci_true):
     nci_pred = nci_pred.argmax(dim=1)
-    accuracy = ((nci_pred == nci_true).sum() / len(nci_pred)).item()
-    recall = ((nci_pred[nci_true == 1] == nci_true[nci_true == 1]).sum() / (nci_true==1).sum()).item()
-    return accuracy, recall
+    tp = ((nci_pred==1)&(nci_pred==nci_true)).sum()
+    tn = ((nci_pred==0)&(nci_pred==nci_true)).sum()
+    fp = ((nci_pred==1)&(nci_pred!=nci_true)).sum()
+    fn = ((nci_pred==0)&(nci_pred!=nci_true)).sum()
+    accuracy = (tp+tn)/len(nci_pred)
+    precision = tp/(tp+fp)
+    recall = tp/(tp+fn)
+    return accuracy, recall, precision, tp, tn, fp, fn
 
 
 def evaluate_with_affinity_and_nci(data_loader,
@@ -62,12 +68,13 @@ def evaluate_with_affinity_and_nci(data_loader,
     epochLoss_affinity = 0.0
     epochLoss_sampled_nci = 0.0
 
-    for data in tqdm(data_loader):
+    #for data in tqdm(data_loader):
+    for i, data in enumerate(tqdm(data_loader)):
         protein_ptr = data['protein']['ptr']
         p_length_list += [int(protein_ptr[ptr] - protein_ptr[ptr - 1]) for ptr in range(1, len(protein_ptr))]
         compound_ptr = data['compound']['ptr']
         c_length_list += [int(compound_ptr[ptr] - compound_ptr[ptr - 1]) for ptr in range(1, len(compound_ptr))]
-        with torch.no_grad():
+        with torch.no_grad():    
             data = data.to(device)
             y_pred, affinity_pred, nci_pred = model(data)
 
@@ -102,35 +109,34 @@ def evaluate_with_affinity_and_nci(data_loader,
                 contact_loss = relative_dist_criterion * contact_criterion(y_pred, y) if len(y) > 0 else torch.tensor(
                     [0]).to(y.device)
                 y_pred = y_pred.sigmoid()
-
             ## Computation of nci_loss when nci_pred is not None
             if nci_pred is not None:
                 nci_loss, batchNum_sampled_nci = nci_criterion(nci_pred, nci_sequence)
                 nci_loss = relative_dist_criterion * nci_loss
             else:
                 nci_loss = torch.tensor([0]).to(y.device)
-
+                batchNum_sampled_nci = 0
             ## Computation of affinity_loss
             affinity_loss = relative_k * affinity_criterion(affinity_pred, data.affinity)
 
+        
         epochLoss_contact += len(y_pred) * contact_loss.item()
         epochLoss_contact_5A += len(y_pred) * contact_loss_cat_off_rmsd_5.item()
         epochLoss_contact_10A += len(y_pred) * contact_loss_cat_off_rmsd_10.item()
         epochLoss_affinity += len(affinity_pred) * affinity_loss.item()
         if nci_pred is not None:
-            epochLoss_sampled_nci += batchNum_sampled_nci * nci_loss.item()
-
+            if batchNum_sampled_nci != 0:
+                epochLoss_sampled_nci += batchNum_sampled_nci * nci_loss.item()
         y_list.append(y)
         y_pred_list.append(y_pred.detach())
         affinity_list.append(data.affinity)
         affinity_pred_list.append(affinity_pred.detach())
-        nci_list.append(nci_sequence)
         if nci_pred is not None:
+            nci_list.append(nci_sequence)
             nci_pred_list.append(nci_pred)
-            real_y_mask_list.append(data.real_y_mask)
+        real_y_mask_list.append(data.real_y_mask)
 
     ## ==== Fin Iteration ==== TRAIN ==== Fin Iteration ==== TRAIN ==== Fin Iteration ==== TRAIN ==== Fin Iteration ====
-
     y = torch.cat(y_list)
     y_pred = torch.cat(y_pred_list)
     if pred_dis:
@@ -142,7 +148,7 @@ def evaluate_with_affinity_and_nci(data_loader,
     affinity_pred = torch.cat(affinity_pred_list)
     nci_true = torch.cat(nci_list)
     nci_pred = torch.cat(nci_pred_list)
-    nci_accuracy, nci_recall = eval_nci_classification(nci_pred, nci_true)
+    nci_accuracy, nci_recall, nci_precision, tp, tn, fp, fn = eval_nci_classification(nci_pred, nci_true)
 
     if saveFileName:
         torch.save((y, y_pred, affinity, affinity_pred, nci_true, nci_pred), saveFileName)
@@ -157,8 +163,12 @@ def evaluate_with_affinity_and_nci(data_loader,
         "epochLoss_nci": (epochLoss_sampled_nci / len(nci_pred)),
         "epochMetric_nci_accuracy": nci_accuracy,
         "epochMetric_nci_recall": nci_recall,
+        "epochMetric_nci_precision": nci_precision,
+        "epochMetric_nci_TP": tp,
+        "epochMetric_nci_TN": tn,
+        "epochMetric_nci_FP": fp,
+        "epochMetric_nci_FN": fn
     }
-
     if info is not None:
         # print(affinity, affinity_pred)
         info['affinity'] = affinity.cpu().numpy()
@@ -182,7 +192,6 @@ def evaluate_with_affinity_and_nci(data_loader,
         selected_y_pred = torch.cat([y_pred.flatten() for y_pred in y_pred_list])
         selected_auroc = torchmetrics.functional.auroc(selected_y_pred, selected_y)
         metrics['metric_selected_metric'] = selected_auroc
-
         for i in [90, 80, 50]:
             # cover ratio, CR.
             metrics[f'CR_{i}'] = (selected.cover_contact_ratio > i / 100).sum() / len(selected)

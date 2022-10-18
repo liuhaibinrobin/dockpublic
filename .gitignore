@@ -7,3 +7,8 @@ untracked/
 workspaces/*.pt
 workspaces/*.csv
 workspaces/*.txt
+results/
+tankbind/*.log
+tankbind/logs
+comparaison
+tankbind/main2.py

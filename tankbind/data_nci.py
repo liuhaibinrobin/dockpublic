@@ -204,7 +204,7 @@ class NFTankBindDataSet(Dataset):
         group = line['group'] if "group" in line.index else 'train'
         add_noise_to_com = self.add_noise_to_com if group == 'train' else None
 
-        has_nci_info = torch.tensor([{True: 1, False: 0}[line['has_nci_info']]]) # AFN # TODO: Modified
+        has_nci_info = torch.tensor([{True: 1, False: 0}[line['has_nci_info']]]) # AFN
 
         protein_name = line['protein_name']
         if self.proteinMode == 0:
@@ -309,11 +309,11 @@ def get_data_reproduced(data_mode, logging, pre, addNoise=None):
         add_noise_to_com = float(addNoise) if addNoise else None
 
         # compoundMode = 1 is for GIN model.
+        
         for _filename in ['data.pt', 'compound.pt', 'protein.pt', 'nci.pt']:
-            if not os.path.exists(f"{pre}/{_filename}"):
-                raise ValueError(f"Saved file {_filename} not found in {pre}.")
+            if not os.path.exists(f"{pre}/dataset/processed/{_filename}"):
+                raise ValueError(f"Saved file {_filename} not found in {pre}/dataset/processed/.")
         new_dataset = NFTankBindDataSet(f"{pre}/dataset", add_noise_to_com=add_noise_to_com)
-
         # load compound features extracted using torchdrug.
         # new_dataset.compound_dict = torch.load(f"{pre}/compound_dict.pt")
         new_dataset.data = new_dataset.data.query("c_length < 100 and native_num_contact > 5").reset_index(drop=True)
@@ -331,10 +331,10 @@ def get_data_reproduced(data_mode, logging, pre, addNoise=None):
         all_pocket_test_fileName = f"{pre}/test_dataset/"
         all_pocket_valid_fileName = f"{pre}/valid_dataset/"
         for _filename in ['data.pt', 'compound.pt', 'protein.pt', 'nci.pt']:
-            if not os.path.exists(f"{all_pocket_test_fileName}/{_filename}"):
-                raise ValueError(f"Saved file {_filename} not found in {all_pocket_test_fileName}.")
-            if not os.path.exists(f"{all_pocket_valid_fileName}/{_filename}"):
-                raise ValueError(f"Saved file {_filename} not found in {all_pocket_valid_fileName}.")
+            if not os.path.exists(f"{all_pocket_test_fileName}/processed/{_filename}"):
+                raise ValueError(f"Saved file {_filename} not found in {all_pocket_test_fileName}/processed/.")
+            if not os.path.exists(f"{all_pocket_valid_fileName}/processed/{_filename}"):
+                raise ValueError(f"Saved file {_filename} not found in {all_pocket_valid_fileName}/processed/.")
 
         all_pocket_test = NFTankBindDataSet(all_pocket_test_fileName)
         all_pocket_valid = NFTankBindDataSet(all_pocket_valid_fileName)

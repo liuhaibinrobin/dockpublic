@@ -12,7 +12,7 @@ from rdkit.Chem import AllChem
 import glob
 import torch
 # %matplotlib inline
-from data import get_data_reproduced  # Modified!
+from data_nci import get_data_reproduced  # Modified!
 from torch_geometric.loader import DataLoader
 from metrics import *
 from utils import *
@@ -30,14 +30,15 @@ from utils_nci import NCICriterion, eval_nci_classification, evaluate_with_affin
 
 writer = SummaryWriter("./logs")
 
-
 def Seed_everything(seed=42):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 Seed_everything(seed=42)
@@ -81,7 +82,7 @@ parser.add_argument("--posweight", type=int, default=8,
 parser.add_argument("--relative_k", type=float, default=0.01,
                     help="adjust the strength of the affinity loss head relative to the pair interaction loss.")
 
-parser.add_argument("--relative_dist_criterion", type=float, default=0.5,
+parser.add_argument("--relative_dist_criterion", type=float, default=1,
                     help="adjust the strength of the dist losses head relative to the affinity loss.")
 
 parser.add_argument("-r", "--relative_k_mode", type=int, default=0,
@@ -92,7 +93,7 @@ parser.add_argument("--data_warm_up_epochs", type=int, default=0,
                     help="option to switch training data after certain epochs.")
 # parser.add_argument("--resultFolder", type=str, default="../",
 #                     help="information you want to keep a record.")
-parser.add_argument("--resultFolder", type=str, default="./result/",
+parser.add_argument("--resultFolder", type=str, default="../results/",
                     help="information you want to keep a record.")
 parser.add_argument("--label", type=str, default="",
                     help="information you want to keep a record.")
@@ -106,9 +107,11 @@ args = parser.parse_args()
 
 timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
 
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("")
-handler = logging.FileHandler(f'{timestamp}.log')
+handler = logging.FileHandler(f'./{timestamp}.log')
 handler.setFormatter(logging.Formatter('%(message)s', ""))
 logger.addHandler(handler)
 
@@ -119,6 +122,7 @@ logging.info(
     {args.label}
     --------------------------------
     ''')
+
 pre = f"{args.resultFolder}/{timestamp}"
 os.system(f"mkdir -p {pre}/models")
 os.system(f"mkdir -p {pre}/results")
@@ -134,11 +138,11 @@ train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info
     args.data, logging,
     addNoise=args.addNoise,
     pre="/home/jovyan/dataspace/NFT/main/tankbind_data")
-num_workers = 10
+
 
 logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, "
              f"valid: {len(valid)}, test: {len(test)}")
-
+num_workers = 10
 
 ## Sampler and DataLoaders
 
@@ -163,7 +167,7 @@ test_loader = DataLoader(dataset=test, batch_size=test_batch_size, follow_batch=
                          shuffle=False, pin_memory=False, num_workers=num_workers)
 all_pocket_test_loader = DataLoader(dataset=all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair'],
                                     shuffle=False, pin_memory=False, num_workers=4)
-all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batch=['x', 'compound_pair'],
+all_pocket_valid_loader = DataLoader(dataset=all_pocket_valid, batch_size=2, follow_batch=['x', 'compound_pair'],
                                      shuffle=False, pin_memory=False, num_workers=4)
 
 
@@ -195,7 +199,7 @@ else:
     raise ValueError("In current setting, argument `args.pred_dis` should be True")
 
 affinity_criterion = nn.MSELoss()
-nci_criterion = NCICriterion()
+nci_criterion = NCICriterion(class_weight=torch.tensor([1, 1]), under_sampling_ratio=2).to(model.device)
 
 
 ## Metrics Pre-definition
@@ -226,7 +230,16 @@ global_samples_test = 0
 relative_dist_criterion = args.relative_dist_criterion
 
 for epoch in range(200):
+    print(f"!!====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ======!!")
+    print(f"!!====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ======!!\n")
     model.train()
+    print("==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==")
+    print("=== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ===")
+    print("== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ====")
+    
+    
+    
+    
     y_list = []
     y_pred_list = []
     affinity_list = []
@@ -267,6 +280,7 @@ for epoch in range(200):
             if nci_pred is not None:
                 nci_sequence = nci_sequence[data.equivalent_native_nci_mask]
                 nci_pred = nci_pred[data.equivalent_native_nci_mask]
+        
         elif args.use_y_mask:  ## Not used
             y_pred = y_pred[data.real_y_mask]
             y = y[data.real_y_mask]
@@ -309,15 +323,13 @@ for epoch in range(200):
             nci_loss = torch.tensor([0]).to(y.device)
             batchNum_sampled_nci = 0
 
-
-
         ## Computation of weighted affinity_loss
         if args.restart is None:
             base_relative_k = args.relative_k
             if args.relative_k_mode == 0:
                 # increase exponentially. reach base_relative_k at epoch = warm_up_epochs.
                 relative_k = min(base_relative_k * (2 ** epoch) / (2 ** warm_up_epochs), base_relative_k)
-            if args.relative_k_mode == 1:
+            elif args.relative_k_mode == 1:
                 # increase linearly
                 relative_k = min(base_relative_k / warm_up_epochs * epoch, base_relative_k)
             else:
@@ -348,9 +360,9 @@ for epoch in range(200):
         epochLoss_contact_5A += len(y_pred) * contact_loss_cat_off_rmsd_5.item()
         epochLoss_contact_10A += len(y_pred) * contact_loss_cat_off_rmsd_10.item()
         epochLoss_affinity += len(affinity_pred) * affinity_loss.item()
-
         if nci_pred is not None:
-            epochLoss_sampled_nci += batchNum_sampled_nci * nci_loss.item()
+            if batchNum_sampled_nci != 0:
+                epochLoss_sampled_nci += batchNum_sampled_nci * nci_loss.item()
 
         ## Record of batch-level output tensors -> to compute epoch-level tensors
         y_list.append(y)
@@ -369,9 +381,10 @@ for epoch in range(200):
         writer.add_scalar(f'sampleLoss.Affinity/train', affinity_loss.item(), global_samples_train)
 
         if nci_pred is not None:
-            nci_accuracy, nci_recall = eval_nci_classification(nci_pred.detach(), nci_sequence)
+            nci_accuracy, nci_recall, nci_precision, tp, fp, tn, fn = eval_nci_classification(nci_pred.detach(), nci_sequence)
             writer.add_scalar(f'sampleLoss.NCI/train', nci_loss.item(), global_samples_train)
             writer.add_scalar(f'sampleMetric.NCI.Accuracy/train', nci_accuracy, global_samples_train)
+            writer.add_scalar(f'sampleMetric.NCI.Precision/train', nci_precision, global_samples_train)
             writer.add_scalar(f'sampleMetric.NCI.Recall/train', nci_recall, global_samples_train)
 
         global_steps_train += 1
@@ -395,8 +408,8 @@ for epoch in range(200):
     nci_pred = torch.cat(nci_pred_list)
 
     ## Epoch-level evaluation of NCI classification
-    nci_accuracy, nci_recall = eval_nci_classification(nci_pred, nci_true)
-
+    nci_accuracy, nci_recall, nci_precision, tp, fp, tn, fn = eval_nci_classification(nci_pred, nci_true)
+    logging.info(f"epoch {epoch} metrics = epochLoss_sampled_nci {epochLoss_sampled_nci}, len nci pred, {len(nci_pred)}")
     metrics = {
         "epochLoss_total": epochLoss_contact / len(y_pred) + epochLoss_affinity / len(affinity_pred) + (
             epochLoss_sampled_nci / len(nci_pred)),
@@ -407,12 +420,17 @@ for epoch in range(200):
         "epochLoss_nci": epochLoss_sampled_nci / len(nci_pred),
         "epochMetric_nci_accuracy": nci_accuracy,
         "epochMetric_nci_recall": nci_recall,
+        "epochMetric_nci_precision": nci_precision,
+        "epochMetric_nci_TP": tp,
+        "epochMetric_nci_TN": tn,
+        "epochMetric_nci_FP": fp,
+        "epochMetric_nci_FN": fn
     }
 
     ## TODO: Rename ambiguous function names
     metrics.update(myMetric(y_pred, y, threshold=contact_threshold))
     metrics.update(affinity_metrics(affinity_pred, affinity))
-    logging.info(f"epoch {epoch:<4d}, train, " + print_metrics(metrics))
+    logging.info(f"epoch {epoch:<4d}| train, " + print_metrics(metrics))
     metrics_list.append(metrics)
 
     # release memory
@@ -425,25 +443,32 @@ for epoch in range(200):
     writer.add_scalar('epochLoss.NCI/train', metrics["epochLoss_nci"], epoch)
     writer.add_scalar('epochMetric.NCI.Accuracy/train', metrics["epochMetric_nci_accuracy"], epoch)
     writer.add_scalar('epochMetric.NCI.Recall/train', metrics["epochMetric_nci_recall"], epoch)
+    writer.add_scalar('epochMetric.NCI.Precision/train', metrics["epochMetric_nci_precision"], epoch)
     writer.add_scalar('epochNum.TrainedBatches/train', global_steps_train, epoch)
     writer.add_scalar('epochNum.TrainedSamples/train', global_samples_train, epoch)
-
+   
+    
 ## ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION
 ## ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION
-
+    print("== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION")
+    print("= VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ")
+    print(" VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION =")
     y = None
     y_pred = None
     model.eval()
     use_y_mask = args.use_equivalent_native_y_mask or args.use_y_mask
+    
+    
     saveFileName = f"{pre}/results/single_valid_epoch_{epoch}.pt"
-
+    
     metrics = evaluate_with_affinity_and_nci(
         data_loader=all_pocket_valid_loader,
         model=model,
         contact_criterion=contact_criterion,
         affinity_criterion=affinity_criterion,
         nci_criterion=nci_criterion,
-        relative_k=args.relative_k, device=device, pred_dis=pred_dis, info=info_va, saveFileName=saveFileName)
+        relative_k=args.relative_k, device=device, pred_dis=pred_dis, 
+        info=info_va, saveFileName=saveFileName)
 
     if metrics["auroc"] <= best_auroc and metrics['f1_1'] <= best_f1_1:
         # not improving. (both metrics say there is no improving)
@@ -457,7 +482,7 @@ for epoch in range(200):
             best_f1_1 = metrics['f1_1']
         ending_message = " "
     valid_metrics_list.append(metrics)
-    logging.info(f"epoch {epoch:<4d}, single_valid, " + print_metrics(metrics) + ending_message)
+    logging.info(f"epoch {epoch:<4d}| single_valid, " + print_metrics(metrics) + ending_message)
 
     writer.add_scalar('epochLoss.Total/validation', metrics["epochLoss_total"], epoch)
     writer.add_scalar('epochLoss.Contact/validation', metrics["epochLoss_contact"], epoch)
@@ -467,14 +492,18 @@ for epoch in range(200):
     writer.add_scalar('epochLoss.NCI/validation', metrics["epochLoss_nci"], epoch)
     writer.add_scalar('epochMetric.NCI.Accuracy/validation', metrics["epochMetric_nci_accuracy"], epoch)
     writer.add_scalar('epochMetric.NCI.Recall/validation', metrics["epochMetric_nci_recall"], epoch)
+    writer.add_scalar('epochMetric.NCI.Precision/validation', metrics["epochMetric_nci_precision"], epoch)
     writer.add_scalar('metric.RMSE/validation', metrics["metric_rmse"], epoch)
     writer.add_scalar('metric.Pearson/validation', metrics["metric_pearson"], epoch)
     writer.add_scalar('metric.NativeAUROC/validation', metrics["metric_native_auroc"], epoch)
     writer.add_scalar('metric.SelectedAUROC/validation', metrics["metric_selected_metric"], epoch)
-
+    
 ## ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 =
 ## ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 =
-
+    print("==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试")
+    print("=== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ")
+    print("== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 =")
+    
     saveFileName = f"{pre}/results/epoch_{epoch}.pt"
     metrics = evaluate_with_affinity_and_nci(
         data_loader=test_loader,
@@ -485,7 +514,7 @@ for epoch in range(200):
         relative_k=args.relative_k, device=device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
 
     test_metrics_list.append(metrics)
-    logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
+    logging.info(f"epoch {epoch:<4d}| test,  " + print_metrics(metrics))
 
     saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
 
@@ -495,9 +524,10 @@ for epoch in range(200):
         contact_criterion=contact_criterion,
         affinity_criterion=affinity_criterion,
         nci_criterion=nci_criterion,
-        relative_k=args.relative_k, device=device, pred_dis=pred_dis, info=info_test, saveFileName=saveFileName)
+        relative_k=args.relative_k, device=device, pred_dis=pred_dis, 
+        info=info_test, saveFileName=saveFileName)
 
-    logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
+    logging.info(f"epoch {epoch:<4d}| single," + print_metrics(metrics))
 
     writer.add_scalar('epochLoss.Total/test', metrics["epochLoss_total"], epoch)
     writer.add_scalar('epochLoss.Contact/test', metrics["epochLoss_contact"], epoch)
@@ -507,6 +537,7 @@ for epoch in range(200):
     writer.add_scalar('epochLoss.NCI/test', metrics["epochLoss_nci"], epoch)
     writer.add_scalar('epochMetric.NCI.Accuracy/test', metrics["epochMetric_nci_accuracy"], epoch)
     writer.add_scalar('epochMetric.NCI.Recall/test', metrics["epochMetric_nci_recall"], epoch)
+    writer.add_scalar('epochMetric.NCI.Precision/test', metrics["epochMetric_nci_precision"], epoch)
     writer.add_scalar('metric.RMSE/test', metrics["metric_rmse"], epoch)
     writer.add_scalar('metric.Pearson/test', metrics["metric_pearson"], epoch)
     writer.add_scalar('metric.NativeAUROC/test', metrics["metric_native_auroc"], epoch)

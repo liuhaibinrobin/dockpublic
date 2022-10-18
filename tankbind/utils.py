@@ -32,7 +32,6 @@ def read_pdbbind_data(fileName):
 def compute_dis_between_two_vector(a, b):
     return (((a - b) ** 2).sum()) ** 0.5
 
-
 def get_protein_edge_features_and_index(protein_edge_index, protein_edge_s, protein_edge_v, keepNode):
     # protein
     input_edge_list = []

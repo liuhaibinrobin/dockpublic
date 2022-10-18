@@ -423,15 +423,16 @@ class NFTNCIClassifier(torch.nn.Module):
     NCI classifier for NFTNet.
     """
     def __init__(self, hidden_channels=128, mid_channels=128, output_dimension=2, dropout_rate=0.1):
-        super().init()
-        self.mlp_1 = nn.Linear(hidden_channels, mid_channels)
+        super().__init__()
+        self.mlp_1 = Linear(hidden_channels, mid_channels)
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(p=dropout_rate)
-        self.mlp_2 = nn.Linear(mid_channels, output_dimension)
+        self.mlp_2 = Linear(mid_channels, output_dimension)
 
     def forward(self, z, has_nci_info):
+        #torch.save(has_nci_info, "../untracked/has_nci_info.pt")
         # z.shape: batch_size * padded_protein_len * padded_compound_len * hidden_channels
-        return self.mlp_2(self.dropout(self.relu(self.mlp_1(z[has_nci_info])))).squeeze(-1) if has_nci_info.sum() \
+        return self.mlp_2(self.dropout(self.relu(self.mlp_1(z)))).squeeze(-1) if (has_nci_info.sum()) \
             else None
         # return.shape: sequence with length = (batch_size * padded_protein_len * padded_compound_len)
 
@@ -488,7 +489,7 @@ class NFTNet(torch.nn.Module):
         self.bias = torch.nn.Parameter(torch.ones(1))
         self.leaky = torch.nn.LeakyReLU()
         self.dropout = nn.Dropout2d(p=0.25)
-        self.nci_classifier = NFTNCIClassifier(hidden_channels=hidden_channels)
+        self.nci_classifier = NFTNCIClassifier(hidden_channels=128)
 
     def forward(self, data):
         if self.protein_embed_mode == 0:
@@ -564,14 +565,15 @@ class NFTNet(torch.nn.Module):
         ## b.shape: batch_size * padded_protein_len * padded_compound_len
         y_pred = b[z_mask]
         y_pred = y_pred.sigmoid() * 10  # normalize to 0 to 10.
-
+        
+        
         ## NCI classification
         b = self.nci_classifier(z, data['has_nci_info'])
         ## b: None | torch.tensor
         ## b.shape: batch_size * padded_protein_len * padded_compound_len
-        nci_pred = b[z_mask[data['has_nci_info']]] if b is not None else None
+    
+        nci_pred = b[z_mask] if (b is not None) else None    
         ## nci_pred: None | torch.tensor (sequence)
-
         if self.readout_mode == 0:
             pair_energy = self.linear_energy(z).squeeze(-1) * z_mask
             affinity_pred = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
