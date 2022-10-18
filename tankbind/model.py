@@ -333,6 +333,7 @@ class IaBNet_with_affinity(torch.nn.Module):
             compound_x = data['compound'].x.float()
             compound_edge_index = data[("compound", "c2c", "compound")].edge_index
             compound_batch = data['compound'].batch
+            #这种GIN 不接受小分子键信息
             compound_out = self.conv_compound(compound_x, compound_edge_index)
         elif self.compound_embed_mode == 1:
             compound_x = data['compound'].x.float()
@@ -340,12 +341,13 @@ class IaBNet_with_affinity(torch.nn.Module):
             compound_edge_feature = data[("compound", "c2c", "compound")].edge_attr
             edge_weight = data[("compound", "c2c", "compound")].edge_weight
             compound_batch = data['compound'].batch
+            #GIN 包含了小分子键的信息
             compound_out = self.conv_compound(compound_edge_index,edge_weight,compound_edge_feature,compound_x.shape[0],compound_x)['node_feature']
 
         # protein_batch version could further process b matrix. better than for loop.
         # protein_out_batched of shape b, n, c
         protein_out_batched, protein_out_mask = to_dense_batch(protein_out, protein_batch)
-        compound_out_batched, compound_out_mask = to_dense_batch(compound_out, compound_batch)
+        compound_out_batched, compound_out_mask = to_dense_batch(compound_out, compound_batch)  #转换为batch pad形式
 
         node_xyz = data.node_xyz
 
@@ -385,8 +387,9 @@ class IaBNet_with_affinity(torch.nn.Module):
                     z = self.tranistion(z)
         # batch_dim = z.shape[0]
 
+        #z_mask  dim:batch_num*max(protain_num)*max(ligand_num)
         b = self.linear(z).squeeze(-1)
-        y_pred = b[z_mask]
+        y_pred = b[z_mask] #y_pred dim: 一维向量，排列方式：batch_num,protain_num,ligand_num;用 to_dense_batch 和y_batch 进行分割，再每个用 protain_num,ligand_num还原为矩阵
         y_pred = y_pred.sigmoid() * 10   # normalize to 0 to 10.
         if self.readout_mode == 0:
             pair_energy = self.linear_energy(z).squeeze(-1) * z_mask

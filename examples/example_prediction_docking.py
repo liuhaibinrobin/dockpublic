@@ -103,7 +103,16 @@ model = get_model(0, logging, device)
 # re-dock model
 # modelFile = "../saved_models/re_dock.pt"
 # self-dock model
-modelFile = "../saved_models/self_dock.pt"
+model_path="../saved_models/"
+model_file_name="self_dock"  #baseline_epoch_149 weighted_contact_loss_and_change_ratio_of_two_loss_epoch_92 weighted_contact_loss_epoch_132
+model_file_name="baseline_epoch_149"
+model_file_name="weighted_contact_loss_and_change_ratio_of_two_loss_epoch_92"
+model_file_name="weighted_contact_loss_epoch_132"
+
+
+modelFile = "%s/%s.pt"%(model_path,model_file_name)
+
+
 
 model.load_state_dict(torch.load(modelFile, map_location=device))
 _ = model.eval()
@@ -153,33 +162,20 @@ for i, line in chosen.iterrows():
     y_true = dataset[idx].dis_map.reshape(n_protein, n_compound).to(device)
 
 
-    with open("%s/rmsd_ana.txt"%(pre),"w") as fp_rmsd_out:
-        y_pred_cutoff=y_pred[y_true < 10]
-        y_true_cutoff=y_true[y_true < 10]
-        cutoff_num=y_true_cutoff.shape[0]
-        cutoff_rmsd=torch.sqrt(torch.sum((y_pred_cutoff-y_true_cutoff)**2)/cutoff_num)
-        print(json.dumps({"cutoff_rmsd<10":float(cutoff_rmsd),"cutoff_num<10":float(cutoff_num)}),file=fp_rmsd_out)
+    with open("%s/%s_rmsd_ana.txt"%(pre,model_file_name),"w") as fp_rmsd_out:
 
-        y_pred_cutoff = y_pred[y_true >= 10]
-        y_true_cutoff = y_true[y_true >= 10]
-        cutoff_num = y_true_cutoff.shape[0]
-        cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
-        print(json.dumps({"cutoff_rmsd>=10": float(cutoff_rmsd), "cutoff_num>=10": float(cutoff_num)}), file=fp_rmsd_out)
+        for range_i,range_j in [(0,4),(4,5),(5,6),(6,7),(7,8),(8,9),(9,10),(10,11)]:
 
-        y_pred_cutoff = y_pred[y_true < 4]
-        y_true_cutoff = y_true[y_true < 4]
-        cutoff_num = y_true_cutoff.shape[0]
-        cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
-        print(json.dumps({"cutoff_rmsd<4": float(cutoff_rmsd), "cutoff_num<4": float(cutoff_num)}), file=fp_rmsd_out)
+            y_pred_cutoff=y_pred[(y_true >=range_i) &( y_true<range_j)]
+            y_true_cutoff=y_true[(y_true >=range_i) & (y_true<range_j)]
+            cutoff_num=y_true_cutoff.shape[0]
+            cutoff_rmsd=torch.sqrt(torch.sum((y_pred_cutoff-y_true_cutoff)**2)/cutoff_num)
+            print(json.dumps({"cutoff_rmsd>=%s<%s"%(range_i,range_j):float(cutoff_rmsd),
+                              "cutoff_num>=%s<%s"%(range_i,range_j):float(cutoff_num)}),
+                  file=fp_rmsd_out)
 
-        y_pred_cutoff = y_pred[y_true >= 4]
-        y_true_cutoff = y_true[y_true >= 4]
-        cutoff_num = y_true_cutoff.shape[0]
-        cutoff_rmsd = torch.sqrt(torch.sum((y_pred_cutoff - y_true_cutoff) ** 2) / cutoff_num)
-        print(json.dumps({"cutoff_rmsd>=4": float(cutoff_rmsd), "cutoff_num>=4": float(cutoff_num)}), file=fp_rmsd_out)
-
-    np.savetxt("%s/%s_y_pred.csv"%(pre,ligandName), y_pred.numpy(), delimiter=",")
-    np.savetxt("%s/%s_y_true.csv" % (pre,ligandName),y_true.numpy() , delimiter=",")
+    np.savetxt("%s/%s_%s_y_pred.csv"%(pre,model_file_name,ligandName), y_pred.numpy(), delimiter=",")
+    np.savetxt("%s/%s_%s_y_true.csv" % (pre,model_file_name,ligandName),y_true.numpy() , delimiter=",")
 
 
     compound_pair_dis_constraint = torch.cdist(coords, coords)
@@ -195,7 +191,7 @@ for i, line in chosen.iterrows():
     result_folder = f'{pre}/{pdb}_result/'
     os.system(f'mkdir -p {result_folder}')
     # toFile = f'{result_folder}/{ligandName}_{pocket_name}_tankbind.sdf'
-    toFile = f'{result_folder}/{ligandName}_tankbind.sdf'
+    toFile = f'{result_folder}/{ligandName}_%s_tankbind.sdf'%(model_file_name)
     # print(toFile)
     new_coords = info.sort_values("loss")['coords'].iloc[0].astype(np.double)
     write_with_new_coords(mol, new_coords, toFile)
