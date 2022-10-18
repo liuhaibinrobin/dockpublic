@@ -34,7 +34,11 @@ def Seed_everything(seed=42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+    # torch.use_deterministic_algorithms(True)
 
 Seed_everything(seed=42)
 
@@ -91,6 +95,7 @@ parser.add_argument("--label", type=str, default="",
                     help="information you want to keep a record.")
 parser.add_argument("--use_contact_loss", type=int, default=0,
                     help="whether to upgrade contact loss during training, 0 means use, other means not use")
+
 parser.add_argument("--use_weighted_rmsd_loss", type=bool, default=False,
                     help="whether to change contact weight according to distance")
 args = parser.parse_args()
@@ -304,6 +309,7 @@ for epoch in range(200):
     # release memory
 
     writer.add_scalar('Loss/train', metrics["loss"], epoch)
+    writer.add_scalar('Loss_contact/train', batch_loss/len(y_pred), epoch)
     writer.add_scalar('Loss_contact_5A/train', metrics["contact_loss_5A"], epoch)
     writer.add_scalar('Loss_contact_10A/train', metrics["contact_loss_10A"], epoch)
     writer.add_scalar(f'EpochBatchNum/train', global_steps_train, epoch)
@@ -346,7 +352,7 @@ for epoch in range(200):
     #====================test============================================================
 
 
-    saveFileName = f"{pre}/results/epoch_{epoch}.pt"
+    saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
     metrics = evaulate_with_affinity(test_loader, model, criterion, affinity_criterion, args.relative_k,
                                         device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
     test_metrics_list.append(metrics)
