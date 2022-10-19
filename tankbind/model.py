@@ -276,7 +276,7 @@ class Transition(torch.nn.Module):
 
 
 class IaBNet_with_affinity(torch.nn.Module):
-    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, compound_embed_mode=1, n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2):
+    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, compound_embed_mode=1, n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2, finetune=False):
         super().__init__()
         self.layernorm = torch.nn.LayerNorm(embedding_channels)
         self.protein_bin_max = protein_bin_max
@@ -285,7 +285,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         self.compound_embed_mode = compound_embed_mode
         self.n_trigonometry_module_stack = n_trigonometry_module_stack
         self.readout_mode = readout_mode
-
+        self.finetune = finetune
         if protein_embed_mode == 0:
             self.conv_protein = GNN(hidden_channels, embedding_channels)
             self.conv_compound = GNN(hidden_channels, embedding_channels)
@@ -402,6 +402,8 @@ class IaBNet_with_affinity(torch.nn.Module):
         if self.readout_mode == 2:
             pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
             affinity_pred = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
+        if self.finetune:
+            return y_pred, affinity_pred, z_mask, z
         return y_pred, affinity_pred
 
 
@@ -410,4 +412,7 @@ def get_model(mode, logging, device):
     if mode == 0:
         logging.info("5 stack, readout2, pred dis map add self attention and GVP embed, compound model GIN")
         model = IaBNet_with_affinity().to(device)
+    elif mode == 1:
+        print("5 stack, readout2, pred dis map add self attention and GVP embed, compound model GIN, use fragmentation and return z")
+        model = IaBNet_with_affinity(finetune=True).to(device)
     return model

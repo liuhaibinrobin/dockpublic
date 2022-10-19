@@ -187,7 +187,7 @@ def extract_list_from_prediction(info, y, y_pred, selected=None, smiles_to_mol_d
     return d
 
 def weighted_rmsd_loss(y_pred,y_true):
-    return torch.mean(100*(1/(y_true**2))*(y_pred-y_true)**2)
+    return torch.mean(100*(1/(y_true**2))*(y_pred-y_true)**2) ##TODO 修改contact loss与affinity loss权重，与之前scale匹配
 
 def cut_off_rmsd(y_pred,y_true,cut_off=5):
     y_pred_cutoff = y_pred[y_true < cut_off]
