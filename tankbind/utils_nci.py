@@ -112,7 +112,7 @@ def evaluate_with_affinity_and_nci(data_loader,
             ## Computation of nci_loss when nci_pred is not None
             if nci_pred is not None:
                 nci_loss, batchNum_sampled_nci = nci_criterion(nci_pred, nci_sequence)
-                nci_loss = relative_dist_criterion * nci_loss
+                nci_loss = relative_dist_criterion * nci_loss * 100
             else:
                 nci_loss = torch.tensor([0]).to(y.device)
                 batchNum_sampled_nci = 0
@@ -154,20 +154,20 @@ def evaluate_with_affinity_and_nci(data_loader,
         torch.save((y, y_pred, affinity, affinity_pred, nci_true, nci_pred), saveFileName)
 
     metrics = {
-        "epochLoss_total": epochLoss_contact / len(y_pred) + epochLoss_affinity / len(affinity_pred)+ (
+        "loss_total": epochLoss_contact / len(y_pred) + epochLoss_affinity / len(affinity_pred)+ (
             epochLoss_sampled_nci / len(nci_pred)),
-        "epochLoss_contact": (epochLoss_contact / len(y_pred)),
-        "epochLoss_contact_5A": (epochLoss_contact_5A / (len(y_pred) - epochNum_nan_contact_5A)),
-        "epochLoss_contact_10A": (epochLoss_contact_10A / (len(y_pred) - epochLoss_nan_contact_10A)),
-        "epochLoss_affinity": (epochLoss_affinity / len(affinity_pred)),
-        "epochLoss_nci": (epochLoss_sampled_nci / len(nci_pred)),
-        "epochMetric_nci_accuracy": nci_accuracy,
-        "epochMetric_nci_recall": nci_recall,
-        "epochMetric_nci_precision": nci_precision,
-        "epochMetric_nci_TP": tp,
-        "epochMetric_nci_TN": tn,
-        "epochMetric_nci_FP": fp,
-        "epochMetric_nci_FN": fn
+        "loss_contact": (epochLoss_contact / len(y_pred)),
+        "loss_contact_5A": (epochLoss_contact_5A / (len(y_pred) - epochNum_nan_contact_5A)),
+        "loss_contact_10A": (epochLoss_contact_10A / (len(y_pred) - epochLoss_nan_contact_10A)),
+        "loss_affinity": (epochLoss_affinity / len(affinity_pred)),
+        "loss_nci": (epochLoss_sampled_nci / len(nci_pred)),
+        "nci_accuracy": nci_accuracy,
+        "nci_recall": nci_recall,
+        "nci_precision": nci_precision,
+        "nci_TP": tp,
+        "nci_TN": tn,
+        "nci_FP": fp,
+        "nci_FN": fn
     }
     if info is not None:
         # print(affinity, affinity_pred)
@@ -183,6 +183,12 @@ def evaluate_with_affinity_and_nci(data_loader,
         native_y_pred = y_pred[real_y_mask]
         native_auroc = torchmetrics.functional.auroc(native_y_pred, native_y)
         metrics['metric_native_auroc'] = native_auroc
+        
+        nci_pred_score = nci_pred.softmax(1)[:, 1]
+
+        ## type(nci_true) == torch.float.
+        nci_auroc = torchmetrics.functional.auroc(nci_pred_score, nci_true.long())
+        metrics['metric_nci_auroc'] = nci_auroc
 
         info['p_length'] = p_length_list
         info['c_length'] = c_length_list

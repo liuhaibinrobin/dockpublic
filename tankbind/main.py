@@ -28,7 +28,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from utils_nci import NCICriterion, eval_nci_classification, evaluate_with_affinity_and_nci
 
-writer = SummaryWriter("./logs")
+
 
 def Seed_everything(seed=42):
     random.seed(seed)
@@ -103,15 +103,22 @@ parser.add_argument("--use_weighted_rmsd_loss", type=bool, default=False,
                     help="whether to change contact weight according to distance")
 parser.add_argument("--unused_code", type=bool, default=False,
                     help="ok now PyCharm doesn't show `this codeblock is not accessible.")
+parser.add_argument("--relative_nci_warm_up", type=bool, default=False,
+                    help="nci loss factor will increase by epoch")
+parser.add_argument("--nci_weight", type=int, default=1,
+                    help="Weight of NCI loss")
+parser.add_argument("--under_sampling_ratio", type=int, default=8, help="Sampling Ratio of Negative Samples")
 args = parser.parse_args()
 
 timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
 
+arg_hash =  str(abs(hash(str(args))))[0:10]
 
+writer = SummaryWriter(f"./logs/{timestamp}_{arg_hash}")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("")
-handler = logging.FileHandler(f'./{timestamp}.log')
+handler = logging.FileHandler(f'./{timestamp}_{arg_hash}.log')
 handler.setFormatter(logging.Formatter('%(message)s', ""))
 logger.addHandler(handler)
 
@@ -119,16 +126,32 @@ logging.info(
     f'''
     {' '.join(sys.argv)}
     {timestamp}
+    {arg_hash}
     {args.label}
     --------------------------------
     ''')
 
-pre = f"{args.resultFolder}/{timestamp}"
+logging.info(
+    f'''
+    New Parameters:
+        General:
+            relative_dist_criterion: {args.relative_dist_criterion}
+        NCI-related:
+            nci_weight: {args.nci_weight}
+            relative_nci_warm_up: {args.relative_nci_warm_up}
+            under_sampling_ratio: {args.under_sampling_ratio}
+    '''
+)
+
+pre = f"{args.resultFolder}/{timestamp}_{arg_hash}"
 os.system(f"mkdir -p {pre}/models")
 os.system(f"mkdir -p {pre}/results")
 os.system(f"mkdir -p {pre}/src")
 os.system(f"cp *.py {pre}/src/")
 os.system(f"cp -r gvp {pre}/src/")
+
+os.system('cd /tmp && ls ')
+os.system('')
 
 torch.set_num_threads(1)
 # # ----------without this, I could get 'RuntimeError: received 0 items of ancdata'-----------
@@ -199,7 +222,7 @@ else:
     raise ValueError("In current setting, argument `args.pred_dis` should be True")
 
 affinity_criterion = nn.MSELoss()
-nci_criterion = NCICriterion(class_weight=torch.tensor([1, 1]), under_sampling_ratio=2).to(model.device)
+nci_criterion = NCICriterion(class_weight=torch.tensor([1, 1]), under_sampling_ratio=args.under_sampling_ratio).to(model.device)
 
 
 ## Metrics Pre-definition
@@ -221,24 +244,22 @@ global_steps_test = 0
 global_samples_train = 0
 global_samples_val = 0
 global_samples_test = 0
-
+nci_weight = args.nci_weight
 
 ## ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ====
 ## ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ====
 ## ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ====
 
-relative_dist_criterion = args.relative_dist_criterion
+relative_dist_criterion = args.relative_dist_criterion  # Factor of distance loss
 
 for epoch in range(200):
+    
     print(f"!!====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ======!!")
-    print(f"!!====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ======!!\n")
+    print(f"!!====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ====== EPOCH {epoch:<4d} ======!!")
     model.train()
     print("==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==")
     print("=== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ===")
     print("== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ==== 训练 ==== TRAIN ====")
-    
-    
-    
     
     y_list = []
     y_pred_list = []
@@ -315,13 +336,6 @@ for epoch in range(200):
                 else torch.tensor([0]).to(y.device)
             y_pred = y_pred.sigmoid()
 
-        ## Computation of nci_loss when nci_pred is not None
-        if nci_pred is not None:
-            nci_loss, batchNum_sampled_nci = nci_criterion(nci_pred, nci_sequence)
-            nci_loss = relative_dist_criterion * nci_loss
-        else:
-            nci_loss = torch.tensor([0]).to(y.device)
-            batchNum_sampled_nci = 0
 
         ## Computation of weighted affinity_loss
         if args.restart is None:
@@ -346,7 +360,19 @@ for epoch in range(200):
                                                                native_pocket_mask, decoy_gap=args.decoy_gap)
         else:
             raise ValueError(f"Invalid argument affinity_loss_mode: {args.relative_k_mode}.")
-
+        
+        ## Computation of nci_loss when nci_pred is not None
+        relative_nci_warm_up = args.relative_nci_warm_up
+        if nci_pred is not None:
+            nci_loss, batchNum_sampled_nci = nci_criterion(nci_pred, nci_sequence)
+            if relative_nci_warm_up:
+                nci_loss = relative_dist_criterion * nci_loss * nci_weight * relative_k * 100
+            else:
+                nci_loss = relative_dist_criterion * nci_loss * nci_weight
+        else:
+            nci_loss = torch.tensor([0]).to(y.device)
+            batchNum_sampled_nci = 0
+            
         ## Computation of total loss and backward
         if args.use_contact_loss == 0:
             loss = contact_loss + affinity_loss + nci_loss
@@ -408,45 +434,43 @@ for epoch in range(200):
     nci_pred = torch.cat(nci_pred_list)
 
     ## Epoch-level evaluation of NCI classification
-    nci_accuracy, nci_recall, nci_precision, tp, fp, tn, fn = eval_nci_classification(nci_pred, nci_true)
-    logging.info(f"epoch {epoch} metrics = epochLoss_sampled_nci {epochLoss_sampled_nci}, len nci pred, {len(nci_pred)}")
+    nci_accuracy, nci_recall, nci_precision, tp, tn, fp, fn = eval_nci_classification(nci_pred.detach(), nci_true)
+    logging.info(f"epoch {epoch}: ")
     metrics = {
-        "epochLoss_total": epochLoss_contact / len(y_pred) + epochLoss_affinity / len(affinity_pred) + (
+        "loss_total": epochLoss_contact / len(y_pred) + epochLoss_affinity / len(affinity_pred) + (
             epochLoss_sampled_nci / len(nci_pred)),
-        "epochLoss_affinity": epochLoss_affinity / len(affinity_pred),
-        "epochLoss_contact": epochLoss_contact / len(y_pred),
-        "epochLoss_contact_5A": epochLoss_contact_5A / (len(y_pred) - epochNum_nan_contact_5A),
-        "epochLoss_contact_10A": epochLoss_contact_10A / (len(y_pred) - epochNum_nan_contact_10A),
-        "epochLoss_nci": epochLoss_sampled_nci / len(nci_pred),
-        "epochMetric_nci_accuracy": nci_accuracy,
-        "epochMetric_nci_recall": nci_recall,
-        "epochMetric_nci_precision": nci_precision,
-        "epochMetric_nci_TP": tp,
-        "epochMetric_nci_TN": tn,
-        "epochMetric_nci_FP": fp,
-        "epochMetric_nci_FN": fn
+        "loss_affinity": epochLoss_affinity / len(affinity_pred),
+        "loss_contact": epochLoss_contact / len(y_pred),
+        "loss_contact_5A": epochLoss_contact_5A / (len(y_pred) - epochNum_nan_contact_5A),
+        "loss_contact_10A": epochLoss_contact_10A / (len(y_pred) - epochNum_nan_contact_10A),
+        "loss_nci": epochLoss_sampled_nci / len(nci_pred),
+        "nci_accuracy": nci_accuracy,
+        "nci_recall": nci_recall,
+        "nci_precision": nci_precision,
+        "nci_TP": tp,
+        "nci_TN": tn,
+        "nci_FP": fp,
+        "nci_FN": fn
     }
 
-    ## TODO: Rename ambiguous function names
+    ## Rename ambiguous function names
     metrics.update(myMetric(y_pred, y, threshold=contact_threshold))
     metrics.update(affinity_metrics(affinity_pred, affinity))
-    logging.info(f"epoch {epoch:<4d}| train, " + print_metrics(metrics))
+    logging.info(f"epoch {epoch:<4d}| train_______, " + print_metrics(metrics))
     metrics_list.append(metrics)
 
-    # release memory
-    ## TODO: ? release memory
-    writer.add_scalar('epochLoss.Total/train', metrics["epochLoss_total"], epoch)
-    writer.add_scalar('epochLoss.Contact/train', metrics["epochLoss_contact"], epoch)
-    writer.add_scalar('epochLoss.Contact_5A/train', metrics["epochLoss_contact_5A"], epoch)
-    writer.add_scalar('epochLoss.Contact_10A/train', metrics["epochLoss_contact_10A"], epoch)
-    writer.add_scalar('epochLoss.Affinity/train', metrics["epochLoss_affinity"], epoch)
-    writer.add_scalar('epochLoss.NCI/train', metrics["epochLoss_nci"], epoch)
-    writer.add_scalar('epochMetric.NCI.Accuracy/train', metrics["epochMetric_nci_accuracy"], epoch)
-    writer.add_scalar('epochMetric.NCI.Recall/train', metrics["epochMetric_nci_recall"], epoch)
-    writer.add_scalar('epochMetric.NCI.Precision/train', metrics["epochMetric_nci_precision"], epoch)
+    writer.add_scalar('epochLoss.Total/train', metrics["loss_total"], epoch)
+    writer.add_scalar('epochLoss.Contact/train', metrics["loss_contact"], epoch)
+    writer.add_scalar('epochLoss.Contact_5A/train', metrics["loss_contact_5A"], epoch)
+    writer.add_scalar('epochLoss.Contact_10A/train', metrics["loss_contact_10A"], epoch)
+    writer.add_scalar('epochLoss.Affinity/train', metrics["loss_affinity"], epoch)
+    writer.add_scalar('epochLoss.NCI/train', metrics["loss_nci"], epoch)
+    writer.add_scalar('epochMetric.NCI.Accuracy/train', metrics["nci_accuracy"], epoch)
+    writer.add_scalar('epochMetric.NCI.Recall/train', metrics["nci_recall"], epoch)
+    writer.add_scalar('epochMetric.NCI.Precision/train', metrics["nci_precision"], epoch)
     writer.add_scalar('epochNum.TrainedBatches/train', global_steps_train, epoch)
     writer.add_scalar('epochNum.TrainedSamples/train', global_samples_train, epoch)
-   
+    
     
 ## ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION
 ## ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION ==== 验证 ==== VALIDATION
@@ -484,19 +508,21 @@ for epoch in range(200):
     valid_metrics_list.append(metrics)
     logging.info(f"epoch {epoch:<4d}| single_valid, " + print_metrics(metrics) + ending_message)
 
-    writer.add_scalar('epochLoss.Total/validation', metrics["epochLoss_total"], epoch)
-    writer.add_scalar('epochLoss.Contact/validation', metrics["epochLoss_contact"], epoch)
-    writer.add_scalar('epochLoss.Contact_5A/validation', metrics["epochLoss_contact_5A"], epoch)
-    writer.add_scalar('epochLoss.Contact_10A/validation', metrics["epochLoss_contact_10A"], epoch)
-    writer.add_scalar('epochLoss.Affinity/validation', metrics["epochLoss_affinity"], epoch)
-    writer.add_scalar('epochLoss.NCI/validation', metrics["epochLoss_nci"], epoch)
-    writer.add_scalar('epochMetric.NCI.Accuracy/validation', metrics["epochMetric_nci_accuracy"], epoch)
-    writer.add_scalar('epochMetric.NCI.Recall/validation', metrics["epochMetric_nci_recall"], epoch)
-    writer.add_scalar('epochMetric.NCI.Precision/validation', metrics["epochMetric_nci_precision"], epoch)
-    writer.add_scalar('metric.RMSE/validation', metrics["metric_rmse"], epoch)
-    writer.add_scalar('metric.Pearson/validation', metrics["metric_pearson"], epoch)
-    writer.add_scalar('metric.NativeAUROC/validation', metrics["metric_native_auroc"], epoch)
-    writer.add_scalar('metric.SelectedAUROC/validation', metrics["metric_selected_metric"], epoch)
+    writer.add_scalar('epochLoss.Total/validation', metrics["loss_total"], epoch)
+    writer.add_scalar('epochLoss.Contact/validation', metrics["loss_contact"], epoch)
+    writer.add_scalar('epochLoss.Contact_5A/validation', metrics["loss_contact_5A"], epoch)
+    writer.add_scalar('epochLoss.Contact_10A/validation', metrics["loss_contact_10A"], epoch)
+    writer.add_scalar('epochLoss.Affinity/validation', metrics["loss_affinity"], epoch)
+    writer.add_scalar('epochLoss.NCI/validation', metrics["loss_nci"], epoch)
+    writer.add_scalar('epochMetric.NCI.Accuracy/validation', metrics["nci_accuracy"], epoch)
+    writer.add_scalar('epochMetric.NCI.Recall/validation', metrics["nci_recall"], epoch)
+    writer.add_scalar('epochMetric.NCI.Precision/validation', metrics["nci_precision"], epoch)
+    writer.add_scalar('epochMetric.NCI.AUROC/validation', metrics["metric_nci_auroc"], epoch)
+    writer.add_scalar('epochMetric.RMSE/validation', metrics["metric_rmse"], epoch)
+    writer.add_scalar('epochMetric.Pearson/validation', metrics["metric_pearson"], epoch)
+    writer.add_scalar('epochMetric.NativeAUROC/validation', metrics["metric_native_auroc"], epoch)
+    writer.add_scalar('epochMetric.SelectedAUROC/validation', metrics["metric_selected_metric"], epoch)
+    
     
 ## ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 =
 ## ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 ==== TEST ==== 测试 =
@@ -514,7 +540,7 @@ for epoch in range(200):
         relative_k=args.relative_k, device=device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
 
     test_metrics_list.append(metrics)
-    logging.info(f"epoch {epoch:<4d}| test,  " + print_metrics(metrics))
+    logging.info(f"epoch {epoch:<4d}| test________,  " + print_metrics(metrics))
 
     saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
 
@@ -527,21 +553,23 @@ for epoch in range(200):
         relative_k=args.relative_k, device=device, pred_dis=pred_dis, 
         info=info_test, saveFileName=saveFileName)
 
-    logging.info(f"epoch {epoch:<4d}| single," + print_metrics(metrics))
+    logging.info(f"epoch {epoch:<4d}| single______," + print_metrics(metrics))
 
-    writer.add_scalar('epochLoss.Total/test', metrics["epochLoss_total"], epoch)
-    writer.add_scalar('epochLoss.Contact/test', metrics["epochLoss_contact"], epoch)
-    writer.add_scalar('epochLoss.Contact_5A/test', metrics["epochLoss_contact_5A"], epoch)
-    writer.add_scalar('epochLoss.Contact_10A/test', metrics["epochLoss_contact_10A"], epoch)
-    writer.add_scalar('epochLoss.Affinity/test', metrics["epochLoss_affinity"], epoch)
-    writer.add_scalar('epochLoss.NCI/test', metrics["epochLoss_nci"], epoch)
-    writer.add_scalar('epochMetric.NCI.Accuracy/test', metrics["epochMetric_nci_accuracy"], epoch)
-    writer.add_scalar('epochMetric.NCI.Recall/test', metrics["epochMetric_nci_recall"], epoch)
-    writer.add_scalar('epochMetric.NCI.Precision/test', metrics["epochMetric_nci_precision"], epoch)
-    writer.add_scalar('metric.RMSE/test', metrics["metric_rmse"], epoch)
-    writer.add_scalar('metric.Pearson/test', metrics["metric_pearson"], epoch)
-    writer.add_scalar('metric.NativeAUROC/test', metrics["metric_native_auroc"], epoch)
-    writer.add_scalar('metric.SelectedAUROC/test', metrics["metric_selected_metric"], epoch)
+    writer.add_scalar('epochLoss.Total/test', metrics["loss_total"], epoch)
+    writer.add_scalar('epochLoss.Contact/test', metrics["loss_contact"], epoch)
+    writer.add_scalar('epochLoss.Contact_5A/test', metrics["loss_contact_5A"], epoch)
+    writer.add_scalar('epochLoss.Contact_10A/test', metrics["loss_contact_10A"], epoch)
+    writer.add_scalar('epochLoss.Affinity/test', metrics["loss_affinity"], epoch)
+    writer.add_scalar('epochLoss.NCI/test', metrics["loss_nci"], epoch)
+    writer.add_scalar('epochMetric.NCI.Accuracy/test', metrics["nci_accuracy"], epoch)
+    writer.add_scalar('epochMetric.NCI.Recall/test', metrics["nci_recall"], epoch)
+    writer.add_scalar('epochMetric.NCI.Precision/test', metrics["nci_precision"], epoch)
+    writer.add_scalar('epochMetric.NCI.AUROC/test', metrics["metric_nci_auroc"], epoch)
+    writer.add_scalar('epochMetric.RMSE/test', metrics["metric_rmse"], epoch)
+    writer.add_scalar('epochMetric.Pearson/test', metrics["metric_pearson"], epoch)
+    writer.add_scalar('epochMetric.NativeAUROC/test', metrics["metric_native_auroc"], epoch)
+    writer.add_scalar('epochMetric.SelectedAUROC/test', metrics["metric_selected_metric"], epoch)
+    
 
     if epoch % 1 == 0:
         torch.save(model.state_dict(), f"{pre}/models/epoch_{epoch}.pt")
@@ -552,6 +580,6 @@ for epoch in range(200):
         break
 
     # torch.cuda.empty_cache()
-    os.system(f"cp {timestamp}.log {pre}/")
+    os.system(f"cp {timestamp}_{arg_hash}.log {pre}/")
 
 torch.save((metrics_list, valid_metrics_list, test_metrics_list), f"{pre}/metrics.pt")

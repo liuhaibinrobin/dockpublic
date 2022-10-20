@@ -12,3 +12,4 @@ tankbind/*.log
 tankbind/logs
 comparaison
 tankbind/main2.py
+sh/*.sh
