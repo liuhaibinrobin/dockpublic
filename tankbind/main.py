@@ -77,6 +77,7 @@ parser.add_argument("--warm_up_epochs", type=int, default=15,
                     help="used in combination with relative_k_mode.")
 parser.add_argument("--data_warm_up_epochs", type=int, default=0,
                     help="option to switch training data after certain epochs.")
+parser.add_argument("--max_epochs", type=int, default=200)
 
 # parser.add_argument("--resultFolder", type=str, default="../",
 #                     help="information you want to keep a record.")
@@ -159,7 +160,7 @@ data_warmup_epochs = args.data_warm_up_epochs
 warm_up_epochs = args.warm_up_epochs
 logging.info(f"warming up epochs: {warm_up_epochs}, data warming up epochs: {data_warmup_epochs}")
 
-for epoch in range(200):
+for epoch in range(args.max_epochs):
     model.train()
     y_list = []
     y_pred_list = []
