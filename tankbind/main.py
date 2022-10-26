@@ -42,6 +42,7 @@ parser.add_argument("--batch_size", type=int, default=8,
                     help="batch size.")
 parser.add_argument("--sample_n", type=int, default=20000,
                     help="number of samples in one epoch.")
+parser.add_argument("--replacement", action='store_true')
 parser.add_argument("--restart", type=str, default=None,
                     help="continue the training from the model we saved.")
 parser.add_argument("--addNoise", type=str, default=None,
@@ -89,7 +90,7 @@ parser.add_argument("--label", type=str, default="",
 args = parser.parse_args()
 
 
-timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
+timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("")
@@ -122,9 +123,9 @@ train, train_after_warm_up, valid, test, all_pocket_test, info = get_data(args.d
 logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
 
 num_workers = 10
-sampler = RandomSampler(train, replacement=True, num_samples=args.sample_n)
+sampler = RandomSampler(train, replacement=args.replacement, num_samples=args.sample_n)
 train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair'], sampler=sampler, pin_memory=False, num_workers=num_workers)
-sampler2 = RandomSampler(train_after_warm_up, replacement=True, num_samples=args.sample_n)
+sampler2 = RandomSampler(train_after_warm_up, replacement=args.replacement, num_samples=args.sample_n)
 train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair'], sampler=sampler2, pin_memory=False, num_workers=num_workers)
 valid_batch_size = test_batch_size = 4
 valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair'], shuffle=False, pin_memory=False, num_workers=num_workers)
