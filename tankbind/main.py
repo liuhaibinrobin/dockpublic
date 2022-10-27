@@ -89,7 +89,7 @@ parser.add_argument("--label", type=str, default="",
 args = parser.parse_args()
 
 
-timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
+timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("")
