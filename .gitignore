@@ -5,7 +5,6 @@ __pycache__
 *.sdf
 examples/data
 examples/embedding
-examples
 .ipynb_checkpoints
 fragmentation/Inputs
 fragmentation/Outputs
