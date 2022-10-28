@@ -7,7 +7,6 @@ __pycache__
 events.out.*
 examples/data
 examples/embedding
-examples
 .ipynb_checkpoints
 fragmentation/Inputs
 fragmentation/Outputs

@@ -105,7 +105,7 @@ parser.add_argument("--use_weighted_rmsd_loss", type=bool, default=False,
 args = parser.parse_args()
 
 
-timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
+timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("")
