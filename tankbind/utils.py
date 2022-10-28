@@ -186,8 +186,20 @@ def extract_list_from_prediction(info, y, y_pred, selected=None, smiles_to_mol_d
     d = (y_list, y_pred_list)
     return d
 
-def weighted_rmsd_loss(y_pred,y_true):
-    return torch.mean(100*(1/(y_true**2))*(y_pred-y_true)**2) ##TODO 修改contact loss与affinity loss权重，与之前scale匹配
+def weighted_rmsd_loss(y_pred, y_true, mode=0):
+    if mode == 0:
+        return torch.mean(100 * (1 / (y_true ** 2)) * (y_pred - y_true) ** 2) ##TODO 修改contact loss与affinity loss权重，与之前scale匹配
+    elif mode == 1:
+        import math
+        return torch.mean(math.exp(10) / torch.exp(y_true) * (y_pred - y_true) ** 2) 
+    elif mode == 2:
+        import math
+        return torch.mean(math.pow(2, 10) / torch.pow(2, y_true) * (y_pred - y_true) ** 2) 
+    elif mode == 3 or 4 or 5:
+        return torch.mean(10 ** mode * (1 / (y_true ** mode)) * (y_pred - y_true) ** 2) 
+    else:
+        raise ValueError(f'invalid mode number:{mode}')
+
 
 def cut_off_rmsd(y_pred,y_true,cut_off=5):
     y_pred_cutoff = y_pred[y_true < cut_off]

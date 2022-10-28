@@ -40,7 +40,6 @@ def Seed_everything(seed=42):
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    # os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
     # torch.use_deterministic_algorithms(True)
 
 Seed_everything(seed=42)
@@ -97,7 +96,9 @@ parser.add_argument("--resultFolder", type=str, default="./result/",
 parser.add_argument("--label", type=str, default="",
                     help="information you want to keep a record.")
 parser.add_argument("--use_contact_loss", type=int, default=0,
-                    help="whether to upgrade contact loss during training, 0 means use, other means not use")
+                    help="whether to upgrade contact loss during training, 0 means both, other means only contact loss")
+parser.add_argument("--contact_loss_mode", type=int, default=0, choices=[0, 1, 2, 3, 4, 5],
+                    help="choose contact loss mode, 0 means dis^2, 1 means e^dis, 2 means 2^dis, 3,4,5 means dis^3,4,5")
 
 parser.add_argument("--use_weighted_rmsd_loss", type=bool, default=False,
                     help="whether to change contact weight according to distance")
@@ -226,7 +227,10 @@ for epoch in range(200):
             affinity = affinity[data.real_affinity_mask]
 
         if args.pred_dis:
-            contact_loss = criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
+            if args.use_weighted_rmsd_loss:
+                contact_loss = criterion(y_pred, dis_map, args.contact_loss_mode) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
+            else:
+                contact_loss = criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
             with torch.no_grad():
                 if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=5)):
                     num_nan_loss_5A += len(y_pred)
@@ -264,7 +268,8 @@ for epoch in range(200):
         if args.use_contact_loss == 0:
             loss = contact_loss + affinity_loss
         else:
-            loss = affinity_loss
+            loss = contact_loss.float()
+            loss = loss.requires_grad_(True)
         loss.backward()
         optimizer.step()
         batch_loss += len(y_pred)*contact_loss.item()
@@ -278,12 +283,12 @@ for epoch in range(200):
         affinity_pred_list.append(affinity_pred.detach())
         # torch.cuda.empty_cache()
 
-        writer.add_scalar(f'BatchLoss/train', loss.item(), global_steps_train)
-        writer.add_scalar(f'SamplesLoss/train', loss.item(), global_samples_train)
-        writer.add_scalar(f'contact_loss/train', contact_loss.item(), global_samples_train)
-        writer.add_scalar(f'contact_loss_5A_batch/train', contact_loss_cat_off_rmsd_5.item(), global_samples_train)
-        writer.add_scalar(f'contact_loss_10A_batch/train', contact_loss_cat_off_rmsd_10.item(), global_samples_train)
-        writer.add_scalar(f'affinity_loss/train', affinity_loss.item(), global_samples_train)
+        writer.add_scalar(f'batchLoss.Total/train', loss.item(), global_steps_train)
+        writer.add_scalar(f'sampleLoss.Total/train', loss.item(), global_samples_train)
+        writer.add_scalar(f'sampleLoss.Contact/train', contact_loss.item(), global_samples_train)
+        writer.add_scalar(f'sampleLoss.Contact_5A/train', contact_loss_cat_off_rmsd_5.item(), global_samples_train)
+        writer.add_scalar(f'sampleLoss.Contact_10A/train', contact_loss_cat_off_rmsd_10.item(), global_samples_train)
+        writer.add_scalar(f'sampleLoss.Affinity/train', affinity_loss.item(), global_samples_train)
         global_steps_train+=1
         global_samples_train+=len(data)
 
@@ -311,12 +316,14 @@ for epoch in range(200):
     # print(metrics_list)
     # release memory
 
-    writer.add_scalar('Loss/train', metrics["loss"], epoch)
-    writer.add_scalar('Loss_contact/train', batch_loss/len(y_pred), epoch)
-    writer.add_scalar('Loss_contact_5A/train', metrics["contact_loss_5A"], epoch)
-    writer.add_scalar('Loss_contact_10A/train', metrics["contact_loss_10A"], epoch)
-    writer.add_scalar(f'EpochBatchNum/train', global_steps_train, epoch)
-    writer.add_scalar(f'EpochSampleNum/train', global_samples_train, epoch)
+    writer.add_scalar('epochLoss.Total/train', metrics["loss"], epoch)
+    writer.add_scalar('epochLoss.Contact/train', batch_loss/len(y_pred), epoch)
+    writer.add_scalar('epochLoss.Contact_5A/train', metrics["contact_loss_5A"], epoch)
+    writer.add_scalar('epochLoss.Contact_10A/train', metrics["contact_loss_10A"], epoch)
+    writer.add_scalar('epochLoss.Affinity/train', affinity_batch_loss/len(affinity_pred), epoch)
+    writer.add_scalar('epochNum.TrainedBatches/train', global_steps_train, epoch)
+    writer.add_scalar('epochNum.TrainedSamples/train', global_samples_train, epoch)
+
 
     #===================validation========================================
 
@@ -343,15 +350,15 @@ for epoch in range(200):
     valid_metrics_list.append(metrics)
     logging.info(f"epoch {epoch:<4d}, single_valid, " + print_metrics(metrics) + ending_message)
 
-    writer.add_scalar('Loss/validation_loss', metrics["loss"], epoch)
-    writer.add_scalar('Loss/validation_y_loss', metrics["y loss"], epoch)
-    writer.add_scalar('Loss/validation_y_loss_5A', metrics["y loss 5A"], epoch)
-    writer.add_scalar('Loss/validation_y_loss_10A', metrics["y loss 10A"], epoch)
-    writer.add_scalar('Loss/validation_affinity_loss', metrics["affinity loss"], epoch)
-    writer.add_scalar('RMSE/validation', metrics["RMSE"], epoch)
-    writer.add_scalar('Pearson/validation', metrics["Pearson"], epoch)
-    writer.add_scalar('native_auroc/validation', metrics["native_auroc"], epoch)
-    writer.add_scalar('selected_auroc/validation', metrics["selected_auroc"], epoch)
+    writer.add_scalar('epochLoss.Total/validation', metrics["loss"], epoch)
+    writer.add_scalar('epochLoss.Contact/validation', metrics["y loss"], epoch)
+    writer.add_scalar('epochLoss.Contact_5A/validation', metrics["y loss 5A"], epoch)
+    writer.add_scalar('epochLoss.Contact_10A/validation', metrics["y loss 10A"], epoch)
+    writer.add_scalar('epochLoss.Affinity/validation', metrics["affinity loss"], epoch)
+    writer.add_scalar('epochMetric.RMSE/validation', metrics["RMSE"], epoch)
+    writer.add_scalar('epochMetric.Pearson/validation', metrics["Pearson"], epoch)
+    writer.add_scalar('epochMetric.NativeAUROC/validation', metrics["native_auroc"], epoch)
+    writer.add_scalar('epochMetric.SelectedAUROC/validation', metrics["selected_auroc"], epoch)
     #====================test============================================================
 
 
@@ -366,15 +373,15 @@ for epoch in range(200):
     metrics = evaulate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
                                         device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
     logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
-    writer.add_scalar('Loss/test', metrics["loss"], epoch)
-    writer.add_scalar('Loss/test_y_loss', metrics["y loss"], epoch)
-    writer.add_scalar('Loss/test_y_loss_5A', metrics["y loss 5A"], epoch)
-    writer.add_scalar('Loss/test_y_loss_10A', metrics["y loss 10A"], epoch)
-    writer.add_scalar('Loss/test_affinity_loss', metrics["affinity loss"], epoch)
-    writer.add_scalar('RMSE/test', metrics["RMSE"], epoch)
-    writer.add_scalar('Pearson/test', metrics["Pearson"], epoch)
-    writer.add_scalar('native_auroc/test', metrics["native_auroc"], epoch)
-    writer.add_scalar('selected_auroc/test', metrics["selected_auroc"], epoch)
+    writer.add_scalar('epochLoss.Total/test', metrics["loss"], epoch)
+    writer.add_scalar('epochLoss.Contact/test', metrics["y loss"], epoch)
+    writer.add_scalar('epochLoss.Contact_5A/test', metrics["y loss 5A"], epoch)
+    writer.add_scalar('epochLoss.Contact_10A/test', metrics["y loss 10A"], epoch)
+    writer.add_scalar('epochLoss.Affinity/test', metrics["affinity loss"], epoch)
+    writer.add_scalar('epochMetric.RMSE/test', metrics["RMSE"], epoch)
+    writer.add_scalar('epochMetric.Pearson/test', metrics["Pearson"], epoch)
+    writer.add_scalar('epochMetric.NativeAUROC/test', metrics["native_auroc"], epoch)
+    writer.add_scalar('epochMetric.SelectedAUROC/test', metrics["selected_auroc"], epoch)
 
     if epoch % 1 == 0:
         torch.save(model.state_dict(), f"{pre}/models/epoch_{epoch}.pt")
