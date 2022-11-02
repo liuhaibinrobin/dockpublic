@@ -26,7 +26,8 @@ import random
 import math
 from torch.utils.tensorboard import SummaryWriter
 
-writer = SummaryWriter("./logs")
+
+
 
 
 
@@ -107,6 +108,10 @@ args = parser.parse_args()
 
 timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 
+arg_hash = str(abs(hash(str(args))))[0:10]
+
+writer = SummaryWriter(f"./logs/{timestamp}_{args.label}")
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("")
 handler = logging.FileHandler(f'{timestamp}.log')
@@ -168,7 +173,7 @@ else:
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(args.posweight))
 
 affinity_criterion = nn.MSELoss()
-# criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(5))
+# contact_criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(5))
 
 metrics_list = []
 valid_metrics_list = []
@@ -194,12 +199,12 @@ for epoch in range(200):
     y_pred_list = []
     affinity_list = []
     affinity_pred_list = []
-    batch_loss = 0.0
-    batch_loss_5A = 0.0
-    num_nan_loss_5A = 0
-    batch_loss_10A = 0.0
-    num_nan_loss_10A = 0
-    affinity_batch_loss = 0.0
+    epoch_loss_contact = 0.0
+    epoch_loss_contact_5A = 0.0
+    epoch_num_nan_contact_5A = 0
+    epoch_loss_contact_10A = 0.0
+    epoch_num_nan_contact_10A = 0
+    epoch_loss_affinity = 0.0
     if epoch < data_warmup_epochs:
         data_it = tqdm(train_loader)
     else:
@@ -233,12 +238,12 @@ for epoch in range(200):
                 contact_loss = criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
             with torch.no_grad():
                 if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=5)):
-                    num_nan_loss_5A += len(y_pred)
+                    epoch_num_nan_contact_5A += len(y_pred)
                     contact_loss_cat_off_rmsd_5 = torch.zeros(1).to(y_pred.device)[0]
                 else:
                     contact_loss_cat_off_rmsd_5 = cut_off_rmsd(y_pred, dis_map, cut_off=5)
                 if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=10)):
-                    num_nan_loss_10A += len(y_pred)
+                    epoch_num_nan_contact_10A += len(y_pred)
                     contact_loss_cat_off_rmsd_10 = torch.zeros(1).to(y_pred.device)[0]
                 else:
                     contact_loss_cat_off_rmsd_10 = cut_off_rmsd(y_pred, dis_map, cut_off=10)
@@ -260,7 +265,7 @@ for epoch in range(200):
             affinity_loss = relative_k * affinity_criterion(affinity_pred, affinity)
         elif args.affinity_loss_mode == 1:
             native_pocket_mask = data.is_equivalent_native_pocket
-            affinity_loss =  relative_k * my_affinity_criterion(affinity_pred,
+            affinity_loss = relative_k * my_affinity_criterion(affinity_pred,
                                                                 affinity, 
                                                                 native_pocket_mask, decoy_gap=args.decoy_gap)
 
@@ -272,10 +277,10 @@ for epoch in range(200):
             loss = loss.requires_grad_(True)
         loss.backward()
         optimizer.step()
-        batch_loss += len(y_pred)*contact_loss.item()
-        batch_loss_5A += len(y_pred)*contact_loss_cat_off_rmsd_5.item()
-        batch_loss_10A += len(y_pred)*contact_loss_cat_off_rmsd_10.item()
-        affinity_batch_loss += len(affinity_pred)*affinity_loss.item()
+        epoch_loss_contact += len(y_pred) * contact_loss.item()
+        epoch_loss_contact_5A += len(y_pred) * contact_loss_cat_off_rmsd_5.item()
+        epoch_loss_contact_10A += len(y_pred) * contact_loss_cat_off_rmsd_10.item()
+        epoch_loss_affinity += len(affinity_pred) * affinity_loss.item()
         # print(f"{loss.item():.3}")
         y_list.append(y)
         y_pred_list.append(y_pred.detach())
@@ -306,8 +311,12 @@ for epoch in range(200):
 
     affinity = torch.cat(affinity_list)
     affinity_pred = torch.cat(affinity_pred_list)
-    metrics = {"loss":batch_loss/len(y_pred) + affinity_batch_loss/len(affinity_pred)}
-    metrics.update({"contact_loss_5A":batch_loss_5A/(len(y_pred) - num_nan_loss_5A), "contact_loss_10A":batch_loss_10A/(len(y_pred) - num_nan_loss_10A)})
+    metrics = {
+        "loss": epoch_loss_contact / len(y_pred) + epoch_loss_affinity / len(affinity_pred),
+        "loss_contact_5A": epoch_loss_contact_5A / (len(y_pred) - epoch_num_nan_contact_5A),
+        "loss_contact_10A": epoch_loss_contact_10A / (len(y_pred) - epoch_num_nan_contact_10A),
+    }
+
     # torch.cuda.empty_cache()
     metrics.update(myMetric(y_pred, y, threshold=contact_threshold))
     metrics.update(affinity_metrics(affinity_pred, affinity))
@@ -317,10 +326,10 @@ for epoch in range(200):
     # release memory
 
     writer.add_scalar('epochLoss.Total/train', metrics["loss"], epoch)
-    writer.add_scalar('epochLoss.Contact/train', batch_loss/len(y_pred), epoch)
-    writer.add_scalar('epochLoss.Contact_5A/train', metrics["contact_loss_5A"], epoch)
-    writer.add_scalar('epochLoss.Contact_10A/train', metrics["contact_loss_10A"], epoch)
-    writer.add_scalar('epochLoss.Affinity/train', affinity_batch_loss/len(affinity_pred), epoch)
+    writer.add_scalar('epochLoss.Contact/train', epoch_loss_contact / len(y_pred), epoch)
+    writer.add_scalar('epochLoss.Contact_5A/train', metrics["loss_contact_5A"], epoch)
+    writer.add_scalar('epochLoss.Contact_10A/train', metrics["loss_contact_10A"], epoch)
+    writer.add_scalar('epochLoss.Affinity/train', epoch_loss_affinity / len(affinity_pred), epoch)
     writer.add_scalar('epochNum.TrainedBatches/train', global_steps_train, epoch)
     writer.add_scalar('epochNum.TrainedSamples/train', global_samples_train, epoch)
 
@@ -335,7 +344,7 @@ for epoch in range(200):
     model.eval()
     use_y_mask = args.use_equivalent_native_y_mask or args.use_y_mask
     saveFileName = f"{pre}/results/single_valid_epoch_{epoch}.pt"
-    metrics = evaulate_with_affinity(all_pocket_valid_loader, model, criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va, saveFileName=saveFileName)
+    metrics = evaluate_with_affinity(all_pocket_valid_loader, model, criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va, saveFileName=saveFileName)
     if metrics["auroc"] <= best_auroc and metrics['f1_1'] <= best_f1_1:
         # not improving. (both metrics say there is no improving)
         epoch_not_improving += 1
@@ -351,10 +360,10 @@ for epoch in range(200):
     logging.info(f"epoch {epoch:<4d}, single_valid, " + print_metrics(metrics) + ending_message)
 
     writer.add_scalar('epochLoss.Total/validation', metrics["loss"], epoch)
-    writer.add_scalar('epochLoss.Contact/validation', metrics["y loss"], epoch)
-    writer.add_scalar('epochLoss.Contact_5A/validation', metrics["y loss 5A"], epoch)
-    writer.add_scalar('epochLoss.Contact_10A/validation', metrics["y loss 10A"], epoch)
-    writer.add_scalar('epochLoss.Affinity/validation', metrics["affinity loss"], epoch)
+    writer.add_scalar('epochLoss.Contact/validation', metrics["loss_contact"], epoch)
+    writer.add_scalar('epochLoss.Contact_5A/validation', metrics["loss_contact_5A"], epoch)
+    writer.add_scalar('epochLoss.Contact_10A/validation', metrics["loss_contact_10A"], epoch)
+    writer.add_scalar('epochLoss.Affinity/validation', metrics["loss_affinity"], epoch)
     writer.add_scalar('epochMetric.RMSE/validation', metrics["RMSE"], epoch)
     writer.add_scalar('epochMetric.Pearson/validation', metrics["Pearson"], epoch)
     writer.add_scalar('epochMetric.NativeAUROC/validation', metrics["native_auroc"], epoch)
@@ -363,21 +372,21 @@ for epoch in range(200):
 
 
     saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
-    metrics = evaulate_with_affinity(test_loader, model, criterion, affinity_criterion, args.relative_k,
-                                        device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
+    metrics = evaluate_with_affinity(test_loader, model, criterion, affinity_criterion, args.relative_k,
+                                     device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
     test_metrics_list.append(metrics)
     logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
 
 
     saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
-    metrics = evaulate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
-                                        device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
+    metrics = evaluate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
+                                     device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
     logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
     writer.add_scalar('epochLoss.Total/test', metrics["loss"], epoch)
-    writer.add_scalar('epochLoss.Contact/test', metrics["y loss"], epoch)
-    writer.add_scalar('epochLoss.Contact_5A/test', metrics["y loss 5A"], epoch)
-    writer.add_scalar('epochLoss.Contact_10A/test', metrics["y loss 10A"], epoch)
-    writer.add_scalar('epochLoss.Affinity/test', metrics["affinity loss"], epoch)
+    writer.add_scalar('epochLoss.Contact/test', metrics["loss_contact"], epoch)
+    writer.add_scalar('epochLoss.Contact_5A/test', metrics["loss_contact_5A"], epoch)
+    writer.add_scalar('epochLoss.Contact_10A/test', metrics["loss_contact_10A"], epoch)
+    writer.add_scalar('epochLoss.Affinity/test', metrics["loss_affinity"], epoch)
     writer.add_scalar('epochMetric.RMSE/test', metrics["RMSE"], epoch)
     writer.add_scalar('epochMetric.Pearson/test', metrics["Pearson"], epoch)
     writer.add_scalar('epochMetric.NativeAUROC/test', metrics["native_auroc"], epoch)

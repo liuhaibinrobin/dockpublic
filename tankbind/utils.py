@@ -207,7 +207,18 @@ def cut_off_rmsd(y_pred,y_true,cut_off=5):
     cutoff_rmsd = torch.mean((y_pred_cutoff - y_true_cutoff) ** 2)
     return cutoff_rmsd
 
-def evaulate_with_affinity(data_loader, model, criterion, affinity_criterion, relative_k, device, pred_dis=False, info=None, saveFileName=None, use_y_mask=False, skip_y_metrics_evaluation=False):
+
+def evaluate_with_affinity(data_loader,
+                           model,
+                           contact_criterion,
+                           affinity_criterion,
+                           relative_k,
+                           device,
+                           pred_dis=False,
+                           info=None,
+                           saveFileName=None,
+                           use_y_mask=False,
+                           skip_y_metrics_evaluation=False):
     y_list = []
     y_pred_list = []
     affinity_list = []
@@ -216,12 +227,12 @@ def evaulate_with_affinity(data_loader, model, criterion, affinity_criterion, re
     p_length_list = []
     c_length_list = []
 
-    batch_loss = 0.0
-    batch_loss_5A = 0.0
-    num_nan_loss_5A = 0
-    batch_loss_10A = 0.0
-    num_nan_loss_10A = 0
-    affinity_batch_loss = 0.0
+    epoch_loss_contact = 0.0
+    epoch_loss_contact_5A = 0.0
+    epoch_num_nan_contact_5A = 0
+    epoch_loss_contact_10A = 0.0
+    epoch_num_nan_contact_10A = 0
+    epoch_loss_affinity = 0.0
     for data in tqdm(data_loader):
         protein_ptr = data['protein']['ptr']
         p_length_list += [int(protein_ptr[ptr] - protein_ptr[ptr-1]) for ptr in range(1, len(protein_ptr))]
@@ -238,26 +249,26 @@ def evaulate_with_affinity(data_loader, model, criterion, affinity_criterion, re
             dis_map = dis_map[data.real_y_mask]
         with torch.no_grad():
             if pred_dis:
-                contact_loss = criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
+                contact_loss = contact_criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
                 if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=5)):
-                    num_nan_loss_5A += len(y_pred)
+                    epoch_num_nan_contact_5A += len(y_pred)
                     contact_loss_cat_off_rmsd_5 = torch.zeros(1).to(y_pred.device)[0]
                 else:
                     contact_loss_cat_off_rmsd_5 = cut_off_rmsd(y_pred, dis_map, cut_off=5)
                 if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=10)):
-                    num_nan_loss_10A += len(y_pred)
+                    epoch_num_nan_contact_10A += len(y_pred)
                     contact_loss_cat_off_rmsd_10 = torch.zeros(1).to(y_pred.device)[0]
                 else:
                     contact_loss_cat_off_rmsd_10 = cut_off_rmsd(y_pred, dis_map, cut_off=10)
             else:
-                contact_loss = criterion(y_pred, y) if len(y) > 0 else torch.tensor([0]).to(y.device)
+                contact_loss = contact_criterion(y_pred, y) if len(y) > 0 else torch.tensor([0]).to(y.device)
                 y_pred = y_pred.sigmoid()
             affinity_loss = relative_k * affinity_criterion(affinity_pred, data.affinity)
-            loss = contact_loss + affinity_loss
-        batch_loss += len(y_pred)*contact_loss.item()
-        batch_loss_5A += len(y_pred)*contact_loss_cat_off_rmsd_5.item()
-        batch_loss_10A += len(y_pred)*contact_loss_cat_off_rmsd_10.item()
-        affinity_batch_loss += len(affinity_pred)*affinity_loss.item()
+            # loss = contact_loss + affinity_loss ## unused-drop
+        epoch_loss_contact += len(y_pred) * contact_loss.item()
+        epoch_loss_contact_5A += len(y_pred)*contact_loss_cat_off_rmsd_5.item()
+        epoch_loss_contact_10A += len(y_pred)*contact_loss_cat_off_rmsd_10.item()
+        epoch_loss_affinity += len(affinity_pred)*affinity_loss.item()
         y_list.append(y)
         y_pred_list.append(y_pred.detach())
         affinity_list.append(data.affinity)
@@ -276,12 +287,14 @@ def evaulate_with_affinity(data_loader, model, criterion, affinity_criterion, re
     affinity_pred = torch.cat(affinity_pred_list)
     if saveFileName:
         torch.save((y, y_pred, affinity, affinity_pred), saveFileName)
+    metrics = {
+        "loss": epoch_loss_contact / len(y_pred) + epoch_loss_affinity / len(affinity_pred),
+        "loss_contact": epoch_loss_contact / len(y_pred),
+        "loss_contact_5A": epoch_loss_contact_5A/(len(y_pred) - epoch_num_nan_contact_5A),
+        "loss_contact_10A": epoch_loss_contact_10A/(len(y_pred) - epoch_num_nan_contact_10A),
+        "loss_affinity": epoch_loss_affinity/len(affinity_pred),
+    }
 
-    metrics = {"loss":batch_loss/len(y_pred) + affinity_batch_loss/len(affinity_pred)}
-    metrics.update({"y loss":(batch_loss/len(y_pred))})
-    metrics.update({"y loss 5A":(batch_loss_5A/(len(y_pred) - num_nan_loss_5A))})
-    metrics.update({"y loss 10A":(batch_loss_10A/(len(y_pred) - num_nan_loss_10A))})
-    metrics.update({"affinity loss":(affinity_batch_loss/len(affinity_pred))})
     if info is not None:
         # print(affinity, affinity_pred)
         info['affinity'] = affinity.cpu().numpy()
@@ -315,7 +328,7 @@ def evaulate_with_affinity(data_loader, model, criterion, affinity_criterion, re
     metrics.update(affinity_metrics(affinity_pred, affinity))
     return metrics
 
-def evaulate_affinity_only(data_loader, model, criterion, affinity_criterion, relative_k, device, info=None, saveFileName=None, use_y_mask=False):
+def evaluate_affinity_only(data_loader, model, criterion, affinity_criterion, relative_k, device, info=None, saveFileName=None, use_y_mask=False):
     y_list = []
     y_pred_list = []
     affinity_list = []
