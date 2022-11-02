@@ -255,16 +255,15 @@ class TankBindDataSet_qsar(Dataset):
         return data
 
 def get_data(data_mode, logging, addNoise=None):
-    pre = "/home/jovyan/TankBind/fragmentation/pdb_data/all_pdbbind"
+    #pre = "../dataset-head100/"
+    pre = "../dataset-all/"
     if data_mode == "0":
         logging.info(f"re-docking, using dataset: apr22_pdbbind_gvp_pocket_radius20 pred distance map.")
         logging.info(f"compound feature based on torchdrug")
         add_noise_to_com = float(addNoise) if addNoise else None
 
         # compoundMode = 1 is for GIN model.
-        new_dataset = TankBindDataSet(f"{pre}/dataset", add_noise_to_com=add_noise_to_com)
-        # load compound features extracted using torchdrug.
-        # new_dataset.compound_dict = torch.load(f"{pre}/compound_dict.pt")
+        new_dataset = TankBindDataSet(f"{pre}/train_dataset", add_noise_to_com=add_noise_to_com)
         new_dataset.data = new_dataset.data.query("c_length < 100 and native_num_contact > 5").reset_index(drop=True)
         d = new_dataset.data
         only_native_train_index = d.query("use_compound_com and group =='train'").index.values
@@ -281,7 +280,6 @@ def get_data(data_mode, logging, addNoise=None):
         all_pocket_test = TankBindDataSet(all_pocket_test_fileName)
         all_pocket_valid_fileName = f"{pre}/valid_dataset/"
         all_pocket_valid = TankBindDataSet(all_pocket_valid_fileName)
-        # all_pocket_test.compound_dict = torch.load(f"{pre}/compound_dict.pt")
         # info is used to evaluate the test set. 
         info = pd.read_csv(f"{pre}/test_dataset/apr23_testset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)
         info_va = pd.read_csv(f"{pre}/valid_dataset/apr23_validset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)
