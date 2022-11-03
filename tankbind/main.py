@@ -163,14 +163,14 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 # model.train()
 if args.pred_dis:
     if args.use_weighted_rmsd_loss:
-        criterion = weighted_rmsd_loss
+        contact_criterion = weighted_rmsd_loss
         print('use weighted rmsd loss!!!')
         pred_dis = True
     else:   
-        criterion = nn.MSELoss()
+        contact_criterion = nn.MSELoss()
         pred_dis = True
 else:
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(args.posweight))
+    contact_criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(args.posweight))
 
 affinity_criterion = nn.MSELoss()
 # contact_criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(5))
@@ -233,9 +233,9 @@ for epoch in range(200):
 
         if args.pred_dis:
             if args.use_weighted_rmsd_loss:
-                contact_loss = criterion(y_pred, dis_map, args.contact_loss_mode) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
+                contact_loss = contact_criterion(y_pred, dis_map, args.contact_loss_mode) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
             else:
-                contact_loss = criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
+                contact_loss = contact_criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
             with torch.no_grad():
                 if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=5)):
                     epoch_num_nan_contact_5A += len(y_pred)
@@ -248,7 +248,7 @@ for epoch in range(200):
                 else:
                     contact_loss_cat_off_rmsd_10 = cut_off_rmsd(y_pred, dis_map, cut_off=10)
         else:
-            contact_loss = criterion(y_pred, y) if len(y) > 0 else torch.tensor([0]).to(y.device)
+            contact_loss = contact_criterion(y_pred, y) if len(y) > 0 else torch.tensor([0]).to(y.device)
             y_pred = y_pred.sigmoid()
         if args.restart is None:
             base_relative_k = args.relative_k
@@ -344,7 +344,7 @@ for epoch in range(200):
     model.eval()
     use_y_mask = args.use_equivalent_native_y_mask or args.use_y_mask
     saveFileName = f"{pre}/results/single_valid_epoch_{epoch}.pt"
-    metrics = evaluate_with_affinity(all_pocket_valid_loader, model, criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va, saveFileName=saveFileName)
+    metrics = evaluate_with_affinity(all_pocket_valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va, saveFileName=saveFileName)
     if metrics["auroc"] <= best_auroc and metrics['f1_1'] <= best_f1_1:
         # not improving. (both metrics say there is no improving)
         epoch_not_improving += 1
@@ -372,14 +372,14 @@ for epoch in range(200):
 
 
     saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
-    metrics = evaluate_with_affinity(test_loader, model, criterion, affinity_criterion, args.relative_k,
+    metrics = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
                                      device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
     test_metrics_list.append(metrics)
     logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
 
 
     saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
-    metrics = evaluate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
+    metrics = evaluate_with_affinity(all_pocket_test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
                                      device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
     logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
     writer.add_scalar('epochLoss.Total/test', metrics["loss"], epoch)
