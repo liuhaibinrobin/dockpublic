@@ -261,7 +261,7 @@ def get_data(data_mode, logging, addNoise=None):
         logging.info(f"re-docking, using dataset: apr22_pdbbind_gvp_pocket_radius20 pred distance map.")
         logging.info(f"compound feature based on torchdrug")
         add_noise_to_com = float(addNoise) if addNoise else None
-
+        
         # compoundMode = 1 is for GIN model.
         new_dataset = TankBindDataSet(f"{pre}/train_dataset", add_noise_to_com=add_noise_to_com)
         new_dataset.data = new_dataset.data.query("c_length < 100 and native_num_contact > 5").reset_index(drop=True)
