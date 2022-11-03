@@ -256,7 +256,7 @@ class TankBindDataSet_qsar(Dataset):
 
 def get_data(data_mode, logging, addNoise=None):
     #pre = "../dataset-head100/"
-    pre = "../dataset-all/"
+    pre = "../dataset-all/baseline/"
     if data_mode == "0":
         logging.info(f"re-docking, using dataset: apr22_pdbbind_gvp_pocket_radius20 pred distance map.")
         logging.info(f"compound feature based on torchdrug")
