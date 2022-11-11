@@ -103,6 +103,8 @@ parser.add_argument("--contact_loss_mode", type=int, default=0, choices=[0, 1, 2
 
 parser.add_argument("--use_weighted_rmsd_loss", type=bool, default=False,
                     help="whether to change contact weight according to distance")
+parser.add_argument("--num_epochs", type=int, default=200,
+                    help="define the model will be trained for how many epochs")
 args = parser.parse_args()
 
 
@@ -193,7 +195,7 @@ global_steps_test = 0
 global_samples_train = 0
 global_samples_val = 0
 global_samples_test = 0
-for epoch in range(200):
+for epoch in range(args.num_epochs):
     model.train()
     y_list = []
     y_pred_list = []
