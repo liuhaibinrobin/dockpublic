@@ -7,6 +7,7 @@ from rdkit.Chem import Draw
 from rdkit.Chem import AllChem
 from tqdm import tqdm
 import glob
+import random
 import torch
 import torch.nn.functional as F
 from io import StringIO

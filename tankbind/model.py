@@ -5,6 +5,13 @@ from torch_geometric.utils import to_dense_batch
 from torch import nn
 from torch.nn import Linear
 import sys
+from torch_cluster import radius, radius_graph
+from e3nn.nn import BatchNorm
+from e3nn import o3
+from torch_scatter import scatter, scatter_mean
+from torch.nn import functional as F
+from torch_geometric.utils import degree
+from torsion_geometry import *
 import torch.nn as nn
 from gvp import GVP, GVPConvLayer, LayerNorm, tuple_index
 from torch.distributions import Categorical
@@ -273,6 +280,54 @@ class Transition(torch.nn.Module):
         z = self.linear2((self.linear1(z)).relu())
         return z
 
+class TensorProductConvLayer(torch.nn.Module):
+    def __init__(self, in_irreps, sh_irreps, out_irreps, n_edge_features, residual=True, batch_norm=True, dropout=0.0,
+                 hidden_features=None):
+        super(TensorProductConvLayer, self).__init__()
+        self.in_irreps = in_irreps
+        self.out_irreps = out_irreps
+        self.sh_irreps = sh_irreps
+        self.residual = residual
+        if hidden_features is None:
+            hidden_features = n_edge_features
+
+        self.tp = tp = o3.FullyConnectedTensorProduct(in_irreps, sh_irreps, out_irreps, shared_weights=False)
+
+        self.fc = nn.Sequential(
+            nn.Linear(n_edge_features, hidden_features),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_features, tp.weight_numel)
+        )
+        self.batch_norm = BatchNorm(out_irreps) if batch_norm else None
+
+    def forward(self, node_attr, edge_index, edge_attr, edge_sh, out_nodes=None, reduce='mean'):
+
+        edge_src, edge_dst = edge_index
+        tp = self.tp(node_attr[edge_dst], edge_sh, self.fc(edge_attr))
+
+        out_nodes = out_nodes or node_attr.shape[0]
+        out = scatter(tp, edge_src, dim=0, dim_size=out_nodes, reduce=reduce)
+
+        if self.residual:
+            padded = F.pad(node_attr, (0, out.shape[-1] - node_attr.shape[-1]))
+            out = out + padded
+
+        if self.batch_norm:
+            out = self.batch_norm(out)
+        return out
+
+class GaussianSmearing(torch.nn.Module):
+    # used to embed the edge distances
+    def __init__(self, start=0.0, stop=5.0, num_gaussians=50):
+        super().__init__()
+        offset = torch.linspace(start, stop, num_gaussians)
+        self.coeff = -0.5 / (offset[1] - offset[0]).item() ** 2
+        self.register_buffer('offset', offset)
+
+    def forward(self, dist):
+        dist = dist.view(-1, 1) - self.offset.view(1, -1)
+        return torch.exp(self.coeff * torch.pow(dist, 2))
 
 
 class IaBNet_with_affinity(torch.nn.Module):
@@ -286,6 +341,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         self.n_trigonometry_module_stack = n_trigonometry_module_stack
         self.readout_mode = readout_mode
         self.finetune = finetune
+        self.lig_max_radius = 5
         if protein_embed_mode == 0:
             self.conv_protein = GNN(hidden_channels, embedding_channels)
             self.conv_compound = GNN(hidden_channels, embedding_channels)
@@ -300,6 +356,84 @@ class IaBNet_with_affinity(torch.nn.Module):
             self.conv_compound = GNN(hidden_channels, embedding_channels)
         elif compound_embed_mode == 1:
             self.conv_compound = GIN(input_dim = 56, hidden_dims = [128,56,embedding_channels], edge_input_dim = 19, concat_hidden = False)
+            #步骤三
+            ns, nv = 24, 6 #small score model 参数
+            dropout = 0.1
+            distance_embed_dim = 32
+            self.sh_irreps = o3.Irreps.spherical_harmonics(lmax=2)
+            self.center_edge_embedding = nn.Sequential(
+                nn.Linear(distance_embed_dim, ns), #去除sigma_embed_dim维度的影响
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(ns, ns)
+            )
+            self.final_conv = TensorProductConvLayer(
+                in_irreps='128x0e',
+                # in_irreps=f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o',
+                sh_irreps=self.sh_irreps,
+                out_irreps=f'2x1o + 2x1e',
+                n_edge_features=2 * ns,
+                residual=False,
+                dropout=dropout,
+                batch_norm=True
+            )
+            self.final_tp_tor = o3.FullTensorProduct(self.sh_irreps, "2e")
+            self.tor_bond_conv = TensorProductConvLayer(
+                    in_irreps='128x0e',
+                    sh_irreps=self.final_tp_tor.irreps_out,
+                    out_irreps=f'{ns}x0o + {ns}x0e',
+                    n_edge_features=3 * ns,
+                    residual=False,
+                    dropout=dropout,
+                    batch_norm=True
+                )
+            self.tor_final_layer = nn.Sequential(
+                    nn.Linear(2 * ns, ns, bias=False),
+                    nn.Tanh(),
+                    nn.Dropout(dropout),
+                    nn.Linear(ns, 1, bias=False)
+                )
+            self.tr_final_layer = nn.Sequential(nn.Linear(1, ns),nn.Dropout(dropout), nn.ReLU(), nn.Linear(ns, 1)) #去除sigma_embed_dim维度的影响
+            self.rot_final_layer = nn.Sequential(nn.Linear(1, ns),nn.Dropout(dropout), nn.ReLU(), nn.Linear(ns, 1)) #去除sigma_embed_dim维度的影响
+            self.lig_distance_expansion = GaussianSmearing(0.0, 5, distance_embed_dim)
+            self.center_distance_expansion = GaussianSmearing(0.0, 30, distance_embed_dim)
+            self.final_edge_embedding = nn.Sequential(
+                    nn.Linear(distance_embed_dim, ns),
+                    nn.ReLU(),
+                    nn.Dropout(dropout),
+                    nn.Linear(ns, ns)
+                )
+            #步骤四
+            def unbatch(src, batch):
+                sizes = degree(batch, dtype=torch.long).tolist()
+                return src.split(sizes)
+
+            def modify_conformer(data, tr_update, rot_update, torsion_updates, batch_size):
+                lig_center = torch.mean(data['compound'].pos, dim=0, keepdim=True)
+                rot_mat = axis_angle_to_matrix(rot_update.squeeze())
+                data_pos_batched = unbatch(data['compound'].pos, data['compound'].batch)
+                _rigid_new_pos_t = []
+                for i in range(batch_size):
+                    _rigid_new_pos = (data_pos_batched[i] - lig_center) @ rot_mat.permute(0,2,1)[i] + tr_update[i,:] + lig_center
+                    _rigid_new_pos_t.append(_rigid_new_pos)
+                rigid_new_pos = torch.concat(_rigid_new_pos_t)
+                #修改为batch级别
+                mask_rotate_list = copy.deepcopy(data['compound'].mask_rotate)
+                mask_rotate_batch = mask_rotate_list[0]
+                for i in range(len(mask_rotate_list) - 1):
+                    mask_rotate_batch = np.block([[mask_rotate_batch, np.zeros((mask_rotate_batch.shape[0], mask_rotate_list[i+1].shape[1])).astype(bool)], [np.zeros((mask_rotate_list[i+1].shape[0], mask_rotate_batch.shape[1])).astype(bool), mask_rotate_list[i+1]]])
+                
+                if torsion_updates is not None:
+                    flexible_new_pos = modify_conformer_torsion_angles(rigid_new_pos.detach(),
+                                                                    data['compound', 'compound'].edge_index.T[data['compound'].edge_mask],
+                                                                    mask_rotate_batch,
+                                                                    torsion_updates).to(rigid_new_pos.device)
+                    R, t = rigid_transform_Kabsch_3D_torch(flexible_new_pos.T, rigid_new_pos.T)
+                    aligned_flexible_pos = flexible_new_pos @ R.T + t.T
+                    data['compound'].pos = aligned_flexible_pos
+                else:
+                    data['compound'].pos = rigid_new_pos
+                return data
 
         if mode == 0:
             self.protein_pair_embedding = Linear(16, c)
@@ -343,6 +477,35 @@ class IaBNet_with_affinity(torch.nn.Module):
             compound_batch = data['compound'].batch
             #GIN 包含了小分子键的信息
             compound_out = self.conv_compound(compound_edge_index,edge_weight,compound_edge_feature,compound_x.shape[0],compound_x)['node_feature']
+            center_edge_index, center_edge_attr, center_edge_sh = self.build_center_conv_graph(data)
+            center_edge_attr = self.center_edge_embedding(center_edge_attr)
+            # lig_node_attr 和 compound_out 都是node embedding 有问题，compound_out不包含protein信息，lig_node_attr包含protein信息 TODO
+            ns, nv = 24, 6 #small score model 参数
+            center_edge_attr = torch.cat([center_edge_attr, compound_out[center_edge_index[0], :ns]], -1)  #注意node_embedding初始维度为128维，只取了前24维？TODO
+            # in_irreps=f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o'
+            # compound_out = compound_out[:,:o3.Irreps(in_irreps).dim]  #保证node_embedding的维度是84维，但是原来是128维，需要调整的是in_irreps 
+            global_pred = self.final_conv(compound_out, center_edge_index, center_edge_attr, center_edge_sh, out_nodes=data.num_graphs)
+            tr_pred = global_pred[:, :3] + global_pred[:, 6:9]
+            rot_pred = global_pred[:, 3:6] + global_pred[:, 9:]
+            tr_norm = torch.linalg.vector_norm(tr_pred, dim=1).unsqueeze(1)
+            tr_pred = tr_pred / tr_norm * self.tr_final_layer(tr_norm)
+            rot_norm = torch.linalg.vector_norm(rot_pred, dim=1).unsqueeze(1)
+            rot_pred = rot_pred / rot_norm * self.rot_final_layer(rot_norm)
+            # torsional components
+            tor_bonds, tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_bond_conv_graph(data)
+            tor_bond_vec = data['compound'].pos[tor_bonds[1]] - data['compound'].pos[tor_bonds[0]]
+            tor_bond_attr = compound_out[tor_bonds[0]] + compound_out[tor_bonds[1]]
+
+            tor_bonds_sh = o3.spherical_harmonics("2e", tor_bond_vec, normalize=True, normalization='component')
+            tor_edge_sh = self.final_tp_tor(tor_edge_sh, tor_bonds_sh[tor_edge_index[0]])
+
+            tor_edge_attr = torch.cat([tor_edge_attr, compound_out[tor_edge_index[1], :self.ns],  #注意node_embedding初始维度为128维，只取了前24维？TODO
+                                    tor_bond_attr[tor_edge_index[0], :self.ns]], -1)
+            tor_pred = self.tor_bond_conv(compound_out, tor_edge_index, tor_edge_attr, tor_edge_sh,
+                                    out_nodes=data['compound'].edge_mask.sum(), reduce='mean')
+            tor_pred = self.tor_final_layer(tor_pred).squeeze(1)
+
+
 
         # protein_batch version could further process b matrix. better than for loop.
         # protein_out_batched of shape b, n, c
@@ -406,6 +569,36 @@ class IaBNet_with_affinity(torch.nn.Module):
             return y_pred, affinity_pred, z_mask, z
         return y_pred, affinity_pred
 
+    def build_center_conv_graph(self, data):
+        # builds the filter and edges for the convolution generating translational and rotational scores
+        edge_index = torch.cat([data['compound'].batch.unsqueeze(0), torch.arange(len(data['compound'].batch)).to(data['compound'].x.device).unsqueeze(0)], dim=0)
+
+        center_pos, count = torch.zeros((data.num_graphs, 3)).to(data['compound'].x.device), torch.zeros((data.num_graphs, 3)).to(data['compound'].x.device)
+        center_pos.index_add_(0, index=data['compound'].batch, source=data['compound'].pos)
+        center_pos = center_pos / torch.bincount(data['compound'].batch).unsqueeze(1)
+
+        edge_vec = data['compound'].pos[edge_index[1]] - center_pos[edge_index[0]]
+        edge_attr = self.center_distance_expansion(edge_vec.norm(dim=-1))
+        #因为与时间无关，所以不需要sigma embedding
+        # edge_sigma_emb = data['compound'].node_sigma_emb[edge_index[1].long()]
+        # edge_attr = torch.cat([edge_attr, edge_sigma_emb], 1)
+        edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
+        return edge_index, edge_attr, edge_sh
+
+    def build_bond_conv_graph(self, data):
+        # builds the graph for the convolution between the center of the rotatable bonds and the neighbouring nodes
+        bonds = data['compound', 'compound'].edge_index[:, data['compound'].edge_mask].long()
+        bond_pos = (data['compound'].pos[bonds[0]] + data['compound'].pos[bonds[1]]) / 2
+        bond_batch = data['compound'].batch[bonds[0]]
+        edge_index = radius(data['compound'].pos, bond_pos, self.lig_max_radius, batch_x=data['compound'].batch, batch_y=bond_batch)
+
+        edge_vec = data['compound'].pos[edge_index[1]] - bond_pos[edge_index[0]]
+        edge_attr = self.lig_distance_expansion(edge_vec.norm(dim=-1))
+
+        edge_attr = self.final_edge_embedding(edge_attr)
+        edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
+
+        return bonds, edge_index, edge_attr, edge_sh
 
 
 def get_model(mode, logging, device):

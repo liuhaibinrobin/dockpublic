@@ -10,6 +10,8 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import torchmetrics
 import math
+from torch_geometric.utils import to_networkx
+import networkx as nx
 def read_pdbbind_data(fileName):
     with open(fileName) as f:
         a = f.readlines()
@@ -88,6 +90,7 @@ def construct_data_from_graph_gvp(protein_node_xyz, protein_seq, protein_node_s,
 
     # construct graph data.
     data = HeteroData()
+    data_compound = HeteroData() #只考虑小分子的边，要么edge_mask维度会有问题
 
     # only if your ligand is real this y_contact is meaningful.
     dis_map = scipy.spatial.distance.cdist(input_node_xyz.cpu().numpy(), coords)
@@ -114,12 +117,58 @@ def construct_data_from_graph_gvp(protein_node_xyz, protein_seq, protein_node_s,
         c2c = torch.tensor(input_atom_edge_attr_list, dtype=torch.long)
         data['compound', 'c2c', 'compound'].edge_attr = F.one_hot(c2c-1, num_classes=1)  # [num_edges, num_edge_features]
     elif compoundMode == 1:
+        ##new
         data['compound'].x = compound_node_features
         data['compound', 'c2c', 'compound'].edge_index = input_atom_edge_list[:,:2].long().t().contiguous()
         data['compound', 'c2c', 'compound'].edge_weight = torch.ones(input_atom_edge_list.shape[0])
         data['compound', 'c2c', 'compound'].edge_attr = input_atom_edge_attr_list
+        data['compound'].pos = torch.tensor(coords, dtype=torch.float)
+        get_lig_graph(data_compound, data)
+        edge_mask, mask_rotate = get_transformation_mask(data_compound)
+        data['compound'].edge_mask = torch.tensor(edge_mask)
+        data['compound'].mask_rotate = mask_rotate
+
     return data, input_node_xyz, keepNode
 
+
+def get_lig_graph(data_compound, data):
+    data_compound['compound'].x = data['compound'].x
+    data_compound['compound'].pos = data['compound'].pos
+    data_compound['compound', 'c2c', 'compound'].edge_index = data['compound', 'c2c', 'compound'].edge_index
+    data_compound['compound', 'c2c', 'compound'].edge_attr = data['compound', 'c2c', 'compound'].edge_attr
+    return
+
+def get_transformation_mask(pyg_data):
+    G = to_networkx(pyg_data.to_homogeneous(), to_undirected=False)
+    to_rotate = []
+    edges = pyg_data['compound', 'c2c', 'compound'].edge_index.T.numpy()
+    for i in range(0, edges.shape[0], 2):
+        assert edges[i, 0] == edges[i+1, 1]
+
+        G2 = G.to_undirected()
+        G2.remove_edge(*edges[i])
+        if not nx.is_connected(G2):
+            l = list(sorted(nx.connected_components(G2), key=len)[0])
+            if len(l) > 1:
+                if edges[i, 0] in l:
+                    to_rotate.append([])
+                    to_rotate.append(l)
+                else:
+                    to_rotate.append(l)
+                    to_rotate.append([])
+                continue
+        to_rotate.append([])
+        to_rotate.append([])
+
+    mask_edges = np.asarray([0 if len(l) == 0 else 1 for l in to_rotate], dtype=bool)
+    mask_rotate = np.zeros((np.sum(mask_edges), len(G.nodes())), dtype=bool)
+    idx = 0
+    for i in range(len(G.edges())):
+        if mask_edges[i]:
+            mask_rotate[idx][np.asarray(to_rotate[i], dtype=int)] = True
+            idx += 1
+
+    return mask_edges, mask_rotate
 
 def my_affinity_criterion(y_pred, y, mask, decoy_gap=1.0):
     affinity_loss = torch.zeros(y_pred.shape).to(y_pred.device)
