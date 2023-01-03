@@ -291,7 +291,7 @@ class TensorProductConvLayer(torch.nn.Module):
         if hidden_features is None:
             hidden_features = n_edge_features
 
-        self.tp = tp = o3.FullyConnectedTensorProduct(in_irreps, sh_irreps, out_irreps, shared_weights=False)
+        self.tp = tp =  o3.FullyConnectedTensorProduct(in_irreps, sh_irreps, out_irreps, shared_weights=False)
 
         self.fc = nn.Sequential(
             nn.Linear(n_edge_features, hidden_features),
@@ -367,6 +367,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                 nn.Dropout(dropout),
                 nn.Linear(ns, ns)
             )
+
             self.final_conv = TensorProductConvLayer(
                 in_irreps='128x0e',
                 # in_irreps=f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o',
@@ -403,37 +404,6 @@ class IaBNet_with_affinity(torch.nn.Module):
                     nn.Dropout(dropout),
                     nn.Linear(ns, ns)
                 )
-            #步骤四
-            def unbatch(src, batch):
-                sizes = degree(batch, dtype=torch.long).tolist()
-                return src.split(sizes)
-
-            def modify_conformer(data, tr_update, rot_update, torsion_updates, batch_size):
-                lig_center = torch.mean(data['compound'].pos, dim=0, keepdim=True)
-                rot_mat = axis_angle_to_matrix(rot_update.squeeze())
-                data_pos_batched = unbatch(data['compound'].pos, data['compound'].batch)
-                _rigid_new_pos_t = []
-                for i in range(batch_size):
-                    _rigid_new_pos = (data_pos_batched[i] - lig_center) @ rot_mat.permute(0,2,1)[i] + tr_update[i,:] + lig_center
-                    _rigid_new_pos_t.append(_rigid_new_pos)
-                rigid_new_pos = torch.concat(_rigid_new_pos_t)
-                #修改为batch级别
-                mask_rotate_list = copy.deepcopy(data['compound'].mask_rotate)
-                mask_rotate_batch = mask_rotate_list[0]
-                for i in range(len(mask_rotate_list) - 1):
-                    mask_rotate_batch = np.block([[mask_rotate_batch, np.zeros((mask_rotate_batch.shape[0], mask_rotate_list[i+1].shape[1])).astype(bool)], [np.zeros((mask_rotate_list[i+1].shape[0], mask_rotate_batch.shape[1])).astype(bool), mask_rotate_list[i+1]]])
-                
-                if torsion_updates is not None:
-                    flexible_new_pos = modify_conformer_torsion_angles(rigid_new_pos.detach(),
-                                                                    data['compound', 'compound'].edge_index.T[data['compound'].edge_mask],
-                                                                    mask_rotate_batch,
-                                                                    torsion_updates).to(rigid_new_pos.device)
-                    R, t = rigid_transform_Kabsch_3D_torch(flexible_new_pos.T, rigid_new_pos.T)
-                    aligned_flexible_pos = flexible_new_pos @ R.T + t.T
-                    data['compound'].pos = aligned_flexible_pos
-                else:
-                    data['compound'].pos = rigid_new_pos
-                return data
 
         if mode == 0:
             self.protein_pair_embedding = Linear(16, c)
@@ -504,6 +474,11 @@ class IaBNet_with_affinity(torch.nn.Module):
             tor_pred = self.tor_bond_conv(compound_out, tor_edge_index, tor_edge_attr, tor_edge_sh,
                                     out_nodes=data['compound'].edge_mask.sum(), reduce='mean')
             tor_pred = self.tor_final_layer(tor_pred).squeeze(1)
+            batch_size = int(max(data['compound'].batch)) + 1
+            data_new_pos = copy.deepcopy(data)
+            data_new_pos = self.modify_conformer(data_new_pos, tr_pred, rot_pred, tor_pred.detach().numpy(), batch_size)
+            return tr_pred, rot_pred, tor_pred, data_new_pos
+
 
 
 
@@ -565,6 +540,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         if self.readout_mode == 2:
             pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
             affinity_pred = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
+
         if self.finetune:
             return y_pred, affinity_pred, z_mask, z
         return y_pred, affinity_pred
@@ -599,7 +575,37 @@ class IaBNet_with_affinity(torch.nn.Module):
         edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
 
         return bonds, edge_index, edge_attr, edge_sh
+    #步骤四
+    def unbatch(self, src, batch):
+        sizes = degree(batch, dtype=torch.long).tolist()
+        return src.split(sizes)
 
+    def modify_conformer(self, data, tr_update, rot_update, torsion_updates, batch_size):
+        lig_center = torch.mean(data['compound'].pos, dim=0, keepdim=True)
+        rot_mat = axis_angle_to_matrix(rot_update.squeeze())
+        data_pos_batched = self.unbatch(data['compound'].pos, data['compound'].batch)
+        _rigid_new_pos_t = []
+        for i in range(batch_size):
+            _rigid_new_pos = (data_pos_batched[i] - lig_center) @ rot_mat.permute(0,2,1)[i] + tr_update[i,:] + lig_center
+            _rigid_new_pos_t.append(_rigid_new_pos)
+        rigid_new_pos = torch.concat(_rigid_new_pos_t)
+        #修改为batch级别
+        mask_rotate_list = copy.deepcopy(data['compound'].mask_rotate)
+        mask_rotate_batch = mask_rotate_list[0]
+        for i in range(len(mask_rotate_list) - 1):
+            mask_rotate_batch = np.block([[mask_rotate_batch, np.zeros((mask_rotate_batch.shape[0], mask_rotate_list[i+1].shape[1])).astype(bool)], [np.zeros((mask_rotate_list[i+1].shape[0], mask_rotate_batch.shape[1])).astype(bool), mask_rotate_list[i+1]]])
+        
+        if torsion_updates is not None:
+            flexible_new_pos = modify_conformer_torsion_angles(rigid_new_pos.detach(),
+                                                            data['compound', 'compound'].edge_index.T[data['compound'].edge_mask],
+                                                            mask_rotate_batch,
+                                                            torsion_updates).to(rigid_new_pos.device)
+            R, t = rigid_transform_Kabsch_3D_torch(flexible_new_pos.T, rigid_new_pos.T)
+            aligned_flexible_pos = flexible_new_pos @ R.T + t.T
+            data['compound'].pos = aligned_flexible_pos
+        else:
+            data['compound'].pos = rigid_new_pos
+        return data
 
 def get_model(mode, logging, device):
     if mode == 0:
