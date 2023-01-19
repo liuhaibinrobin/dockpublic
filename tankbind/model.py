@@ -1,4 +1,5 @@
 import torch
+module = torch.nn.Module
 import torch_geometric.transforms as T
 from torch_geometric.nn import SAGEConv, to_hetero
 from torch_geometric.utils import to_dense_batch
@@ -8,6 +9,8 @@ import sys
 from torch_cluster import radius, radius_graph
 from e3nn.nn import BatchNorm
 from e3nn import o3
+from e3nn.math import soft_one_hot_linspace
+from spyrmsd import rmsd, molecule
 from torch_scatter import scatter, scatter_mean
 from torch.nn import functional as F
 from torch_geometric.utils import degree
@@ -19,6 +22,10 @@ from torch_scatter import scatter_mean
 from GATv2 import GAT
 from GINv2 import GIN
 
+import time
+import logging
+
+logger=logger = logging.getLogger()
 class GNN(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels):
         super().__init__()
@@ -281,6 +288,7 @@ class Transition(torch.nn.Module):
         return z
 
 class TensorProductConvLayer(torch.nn.Module):
+    #use diffdock TensorProductConvLayer to predict tr,rot,tor angles
     def __init__(self, in_irreps, sh_irreps, out_irreps, n_edge_features, residual=True, batch_norm=True, dropout=0.0,
                  hidden_features=None):
         super(TensorProductConvLayer, self).__init__()
@@ -317,6 +325,75 @@ class TensorProductConvLayer(torch.nn.Module):
             out = self.batch_norm(out)
         return out
 
+class MultiHeadAttention_dis_bias(nn.Module):
+    def __init__(self, embedding_channels, attention_dropout_rate, z_channel):
+        super(MultiHeadAttention_dis_bias, self).__init__()
+
+        self.att_dropout = nn.Dropout(attention_dropout_rate)
+        self.linear = nn.Linear(embedding_channels, z_channel) #z:[b, pocket_len, ligand_len, 128] -> [b, pocket_len, ligand_len, z_channel]
+        self.output_layer = nn.Linear(embedding_channels * z_channel, embedding_channels)
+        self.bucket_num = 20
+        self.dis_attn_linear=nn.Linear(self.bucket_num, z_channel)
+        self.linear_energy = nn.Linear(z_channel, 1)
+        self.gate_linear = Linear(z_channel, 1)
+        self.leaky = torch.nn.LeakyReLU()
+        self.bias = torch.nn.Parameter(torch.ones(1))
+        
+        self.linear_energy_prmsd = nn.Linear(z_channel, 1)
+        self.gate_linear_prmsd = Linear(z_channel, 1)
+        self.leaky_prmsd = torch.nn.LeakyReLU()
+        self.bias_prmsd = torch.nn.Parameter(torch.ones(1))
+
+        # self.confidence_predictor = nn.Sequential(
+        #         nn.Linear(embedding_channels,ns),
+        #         nn.BatchNorm1d(ns) if not confidence_no_batchnorm else nn.Identity(),
+        #         nn.ReLU(),
+        #         nn.Dropout(confidence_dropout),
+        #         nn.Linear(ns, ns),
+        #         nn.BatchNorm1d(ns) if not confidence_no_batchnorm else nn.Identity(),
+        #         nn.ReLU(),
+        #         nn.Dropout(confidence_dropout),
+        #         nn.Linear(ns, num_confidence_outputs)
+        #     )
+        
+
+        
+    def forward(self, z, z_mask, pocket_rep, candicate_dis_matrix_batched ,edge_type_matrix=None, attn_bias=None, subsq_mask = None, valid=False,check=False):
+        #z shape: [b, pocket_len, ligand_len, embedding_channels]
+        #pocket_rep shape : [b, pocket_len, embedding_channels]
+        #candicate_dis_matrix_batched shape: [b, ligand_len, pocket_len]
+        #edge_type_matrix shape: [b, pocket_len, ligand_len,edge_type_pair_channels]
+        
+        
+        z = self.linear(z).transpose(3,1)  #z shape :[b, z_channel, ligand_len, pocket_len]
+        ligand_len, pocket_len = z.shape[2], z.shape[3]
+        embedding_channels = pocket_rep.shape[-1]
+        batch_size = z.shape[0]
+        head_size = z_channel = z.shape[1] 
+
+        #z=z*self.scale
+        if attn_bias is not None:
+            z = z + attn_bias
+       
+        z = torch.softmax(z, dim=-1)
+        if not valid:
+            z = self.att_dropout(z)
+        # dis_attn_bias=get_dist_features(self,candicate_dis_matrix_batched, edge_type_matrix)
+        edge_length_embedding = soft_one_hot_linspace(candicate_dis_matrix_batched,start=0.0,end=15,number=self.bucket_num,basis='smooth_finite',cutoff=True)
+        z += self.dis_attn_linear(edge_length_embedding).view(batch_size, z_channel, ligand_len, pocket_len)
+        z_mask_repeat = z_mask.repeat(z_channel, 1, 1).view([batch_size, -1, ligand_len, pocket_len])
+        z = z.masked_fill(z_mask_repeat, 1e-9)
+        pair_energy = (self.gate_linear(z.transpose(3,1)).sigmoid() * self.linear_energy(z.transpose(3,1))).squeeze(-1) * z_mask
+        affinity_pred = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
+        pair_energy_prmsd = (self.gate_linear_prmsd(z.transpose(3,1)).sigmoid() * self.linear_energy_prmsd(z.transpose(3,1))).squeeze(-1) * z_mask
+        prmsd_pred = self.leaky_prmsd(self.bias_prmsd + ((pair_energy_prmsd).sum(axis=(-1, -2))))
+        z_ = z.view([batch_size,-1,z.shape[-1]])
+        ligand_rep = torch.bmm(z_, pocket_rep).view([batch_size, head_size, -1, embedding_channels])  #[b, z_channel, ligand_len, embedding_channels]                              
+        ligand_rep = ligand_rep.transpose(1, 2).contiguous()  # [b, ligand_len, z_channel, embedding_channels]
+        ligand_rep = ligand_rep.view(batch_size, -1, head_size * embedding_channels) # [b, ligand_len, z_channel * embedding_channels]
+        ligand_rep = self.output_layer(ligand_rep)
+        return ligand_rep, affinity_pred, prmsd_pred
+
 class GaussianSmearing(torch.nn.Module):
     # used to embed the edge distances
     def __init__(self, start=0.0, stop=5.0, num_gaussians=50):
@@ -331,7 +408,7 @@ class GaussianSmearing(torch.nn.Module):
 
 
 class IaBNet_with_affinity(torch.nn.Module):
-    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, compound_embed_mode=1, n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2, finetune=False):
+    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, compound_embed_mode=1, n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2, finetune=False, recycling_num=2, logging=None):
         super().__init__()
         self.layernorm = torch.nn.LayerNorm(embedding_channels)
         self.protein_bin_max = protein_bin_max
@@ -341,7 +418,9 @@ class IaBNet_with_affinity(torch.nn.Module):
         self.n_trigonometry_module_stack = n_trigonometry_module_stack
         self.readout_mode = readout_mode
         self.finetune = finetune
+        self.recycling_num = recycling_num
         self.lig_max_radius = 5
+        self.logging = logging
         if protein_embed_mode == 0:
             self.conv_protein = GNN(hidden_channels, embedding_channels)
             self.conv_compound = GNN(hidden_channels, embedding_channels)
@@ -356,8 +435,10 @@ class IaBNet_with_affinity(torch.nn.Module):
             self.conv_compound = GNN(hidden_channels, embedding_channels)
         elif compound_embed_mode == 1:
             self.conv_compound = GIN(input_dim = 56, hidden_dims = [128,56,embedding_channels], edge_input_dim = 19, concat_hidden = False)
-            #步骤三
-            ns, nv = 24, 6 #small score model 参数
+            self.MultiHeadAttention_dis_bias = MultiHeadAttention_dis_bias(embedding_channels = 128, attention_dropout_rate = 0.1, z_channel = 5)
+            #步骤三声明
+            torch.nn.Module = module
+            self.ns = ns = 24 #small score model 参数
             dropout = 0.1
             distance_embed_dim = 32
             self.sh_irreps = o3.Irreps.spherical_harmonics(lmax=2)
@@ -373,7 +454,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                 # in_irreps=f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o',
                 sh_irreps=self.sh_irreps,
                 out_irreps=f'2x1o + 2x1e',
-                n_edge_features=2 * ns,
+                n_edge_features=ns + 128,
                 residual=False,
                 dropout=dropout,
                 batch_norm=True
@@ -383,7 +464,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                     in_irreps='128x0e',
                     sh_irreps=self.final_tp_tor.irreps_out,
                     out_irreps=f'{ns}x0o + {ns}x0e',
-                    n_edge_features=3 * ns,
+                    n_edge_features=128*2 + ns,
                     residual=False,
                     dropout=dropout,
                     batch_norm=True
@@ -447,39 +528,6 @@ class IaBNet_with_affinity(torch.nn.Module):
             compound_batch = data['compound'].batch
             #GIN 包含了小分子键的信息
             compound_out = self.conv_compound(compound_edge_index,edge_weight,compound_edge_feature,compound_x.shape[0],compound_x)['node_feature']
-            center_edge_index, center_edge_attr, center_edge_sh = self.build_center_conv_graph(data)
-            center_edge_attr = self.center_edge_embedding(center_edge_attr)
-            # lig_node_attr 和 compound_out 都是node embedding 有问题，compound_out不包含protein信息，lig_node_attr包含protein信息 TODO
-            ns, nv = 24, 6 #small score model 参数
-            center_edge_attr = torch.cat([center_edge_attr, compound_out[center_edge_index[0], :ns]], -1)  #注意node_embedding初始维度为128维，只取了前24维？TODO
-            # in_irreps=f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o'
-            # compound_out = compound_out[:,:o3.Irreps(in_irreps).dim]  #保证node_embedding的维度是84维，但是原来是128维，需要调整的是in_irreps 
-            global_pred = self.final_conv(compound_out, center_edge_index, center_edge_attr, center_edge_sh, out_nodes=data.num_graphs)
-            tr_pred = global_pred[:, :3] + global_pred[:, 6:9]
-            rot_pred = global_pred[:, 3:6] + global_pred[:, 9:]
-            tr_norm = torch.linalg.vector_norm(tr_pred, dim=1).unsqueeze(1)
-            tr_pred = tr_pred / tr_norm * self.tr_final_layer(tr_norm)
-            rot_norm = torch.linalg.vector_norm(rot_pred, dim=1).unsqueeze(1)
-            rot_pred = rot_pred / rot_norm * self.rot_final_layer(rot_norm)
-            # torsional components
-            tor_bonds, tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_bond_conv_graph(data)
-            tor_bond_vec = data['compound'].pos[tor_bonds[1]] - data['compound'].pos[tor_bonds[0]]
-            tor_bond_attr = compound_out[tor_bonds[0]] + compound_out[tor_bonds[1]]
-
-            tor_bonds_sh = o3.spherical_harmonics("2e", tor_bond_vec, normalize=True, normalization='component')
-            tor_edge_sh = self.final_tp_tor(tor_edge_sh, tor_bonds_sh[tor_edge_index[0]])
-
-            tor_edge_attr = torch.cat([tor_edge_attr, compound_out[tor_edge_index[1], :self.ns],  #注意node_embedding初始维度为128维，只取了前24维？TODO
-                                    tor_bond_attr[tor_edge_index[0], :self.ns]], -1)
-            tor_pred = self.tor_bond_conv(compound_out, tor_edge_index, tor_edge_attr, tor_edge_sh,
-                                    out_nodes=data['compound'].edge_mask.sum(), reduce='mean')
-            tor_pred = self.tor_final_layer(tor_pred).squeeze(1)
-            batch_size = int(max(data['compound'].batch)) + 1
-            data_new_pos = copy.deepcopy(data)
-            data_new_pos = self.modify_conformer(data_new_pos, tr_pred, rot_pred, tor_pred.detach().numpy(), batch_size)
-            return tr_pred, rot_pred, tor_pred, data_new_pos
-
-
 
 
         # protein_batch version could further process b matrix. better than for loop.
@@ -523,37 +571,75 @@ class IaBNet_with_affinity(torch.nn.Module):
                     z = z + self.dropout(self.protein_to_compound_list[i_module](z, protein_pair, compound_pair, z_mask.unsqueeze(-1)))
                     z = z + self.dropout(self.triangle_self_attention_list[i_module](z, z_mask))
                     z = self.tranistion(z)
-        # batch_dim = z.shape[0]
+        # return z,z_mask, protein_out_batched,compound_out_batched, compound_out, compound_batch
+        pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
+        affinity_pred_A = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
+        #self.logging.info(f"after point A, z shape: {z.shape}, compound_out_batched shape: {compound_out_batched.shape}, protein_out_batched shape: {protein_out_batched.shape}, affinity_pred_A shape: {affinity_pred_A.shape}")
+        # 步骤三：torsional 
+        data_new = copy.deepcopy(data)
+        affinity_pred_B_list = []
+        prmsd_pred_list = []
+        rmsd_list = []
+        for _ in range(self.recycling_num):
+            protein_num_batch = degree(data_new['protein'].batch, dtype=torch.long).tolist()
+            compound_num_batch = degree(data_new['compound'].batch, dtype=torch.long).tolist()
+            batch_size, ligand_len, pocket_len = z.shape[0], z.shape[2], z.shape[1]
+            candicate_dis_matrix_batched = data_new.candicate_dis_matrix.new_full([batch_size, ligand_len, pocket_len], 0.)
+            for i in range(batch_size):
+                candicate_dis_matrix_batched[i, :compound_num_batch[i], :protein_num_batch[i]] = self.unbatch(data_new.candicate_dis_matrix, data_new.candicate_dis_matrix_batch)[i].view(compound_num_batch[i], protein_num_batch[i]) #让candicate_dis_matrix的维度与z一致
+            #self.logging.info("3 z.shape:%s,protein_out_batched.shape:%s,  candicate_dis_matrix_batched.shape:%s "%(z.shape,protein_out_batched.shape,  candicate_dis_matrix_batched.shape))
+            compound_out_batched_new, affinity_pred_B, prmsd_pred = self.MultiHeadAttention_dis_bias(z, z_mask, protein_out_batched, candicate_dis_matrix_batched) #获得包含protein和compound交互信息的compound single representation
+            
+            rmsd_list.append(self.get_symmetry_rmsd(data_new).to(prmsd_pred.device))
 
-        #z_mask  dim:batch_num*max(protain_num)*max(ligand_num)
-        b = self.linear(z).squeeze(-1)
-        y_pred = b[z_mask] #y_pred dim: 一维向量，排列方式：batch_num,protain_num,ligand_num;用 to_dense_batch 和y_batch 进行分割，再每个用 protain_num,ligand_num还原为矩阵
-        y_pred = y_pred.sigmoid() * 10   # normalize to 0 to 10.
-        if self.readout_mode == 0:
-            pair_energy = self.linear_energy(z).squeeze(-1) * z_mask
-            affinity_pred = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
-        if self.readout_mode == 1:
-            # valid_interaction_z = (z * z_mask.unsqueeze(-1)).mean(axis=(1, 2))
-            valid_interaction_z = (z * z_mask.unsqueeze(-1)).sum(axis=(1, 2)) / z_mask.sum(axis=(1, 2)).unsqueeze(-1)
-            affinity_pred = self.linear_energy(valid_interaction_z).squeeze(-1)
-            # print("z shape", z.shape, "z_mask shape", z_mask.shape,   "valid_interaction_z shape", valid_interaction_z.shape, "affinity_pred shape", affinity_pred.shape)
-        if self.readout_mode == 2:
-            pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
-            affinity_pred = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
+            affinity_pred_B = affinity_pred_B.sigmoid() * 15
+            prmsd_pred = prmsd_pred.sigmoid() * 20
+            affinity_pred_B_list.append(affinity_pred_B)
+            prmsd_pred_list.append(prmsd_pred)
+            #self.logging.info(f"in recycling {_}, affinity_pred_B shape: {affinity_pred_B.shape}, prmsd_pred shape: {prmsd_pred.shape}, compound_out_batched_new shape: {compound_out_batched_new.shape}")
+            #先算true_rmsd_上一轮的，再跟上面的算 prmsd_loss
+            compound_out_new = self.rebatch(compound_out_batched_new, compound_batch)
+            center_edge_index, center_edge_attr, center_edge_sh = self.build_center_conv_graph(data_new)
+            center_edge_attr = self.center_edge_embedding(center_edge_attr)
+            # lig_node_attr 和 compound_out_new 都是node embedding 有问题，compound_out_new也包含protein信息（z）
+            center_edge_attr = torch.cat([center_edge_attr, compound_out_new[center_edge_index[0], :]], -1)  #注意node_embedding初始维度为128维，只取了前24维？
+            # in_irreps=f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o'
+            # compound_out_new = compound_out_new[:,:o3.Irreps(in_irreps).dim]  #保证node_embedding的维度是84维，但是原来是128维，需要调整的是in_irreps 
+            global_pred = self.final_conv(compound_out_new, center_edge_index, center_edge_attr, center_edge_sh, out_nodes=data_new.num_graphs)
+            tr_pred = global_pred[:, :3] + global_pred[:, 6:9]
+            rot_pred = global_pred[:, 3:6] + global_pred[:, 9:]
+            tr_norm = torch.linalg.vector_norm(tr_pred, dim=1).unsqueeze(1)
+            tr_pred = tr_pred / tr_norm * self.tr_final_layer(tr_norm)
+            rot_norm = torch.linalg.vector_norm(rot_pred, dim=1).unsqueeze(1)
+            rot_pred = rot_pred / rot_norm * self.rot_final_layer(rot_norm)
+            # torsional components
+            tor_bonds, tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_bond_conv_graph(data_new)
+            tor_bond_vec = data_new.candicate_conf_pos[tor_bonds[1]] - data_new.candicate_conf_pos[tor_bonds[0]]
+            tor_bond_attr = compound_out_new[tor_bonds[0]] + compound_out_new[tor_bonds[1]]
+            tor_bonds_sh = o3.spherical_harmonics("2e", tor_bond_vec, normalize=True, normalization='component')
+            tor_edge_sh = self.final_tp_tor(tor_edge_sh, tor_bonds_sh[tor_edge_index[0]])
+            tor_edge_attr = torch.cat([tor_edge_attr, compound_out_new[tor_edge_index[1], :],  #注意node_embedding初始维度为128维，只取了前24维？TODO
+                                    tor_bond_attr[tor_edge_index[0], :]], -1)
+            tor_pred = self.tor_bond_conv(compound_out_new, tor_edge_index, tor_edge_attr, tor_edge_sh,
+                                    out_nodes=data_new['compound'].edge_mask.sum(), reduce='mean')
+            tor_pred = self.tor_final_layer(tor_pred).squeeze(1)
+            # batch_size = int(max(data_new['compound'].batch)) + 1
+            # 步骤四
+            data_new = self.modify_conformer(data_new, tr_pred, rot_pred, tor_pred.detach().cpu().numpy(), batch_size)
+        rmsd_list.append(self.get_symmetry_rmsd(data_new).to(prmsd_pred.device)) #加上最后一次更新的
 
-        if self.finetune:
-            return y_pred, affinity_pred, z_mask, z
-        return y_pred, affinity_pred
+        #self.logging.info(f"after point B, affinity_pred_A shape: {affinity_pred_A.shape}, affinity_pred_B_list len: {len(affinity_pred_B_list)}, prmsd_pred_list len: {len(prmsd_pred_list)}, rmsd_list len: {len(rmsd_list)}")
+        return data_new, affinity_pred_A, affinity_pred_B_list, prmsd_pred_list, rmsd_list
 
     def build_center_conv_graph(self, data):
         # builds the filter and edges for the convolution generating translational and rotational scores
         edge_index = torch.cat([data['compound'].batch.unsqueeze(0), torch.arange(len(data['compound'].batch)).to(data['compound'].x.device).unsqueeze(0)], dim=0)
 
         center_pos, count = torch.zeros((data.num_graphs, 3)).to(data['compound'].x.device), torch.zeros((data.num_graphs, 3)).to(data['compound'].x.device)
-        center_pos.index_add_(0, index=data['compound'].batch, source=data['compound'].pos)
+        center_pos.index_add_(0, index=data['compound'].batch, source=data.candicate_conf_pos)
         center_pos = center_pos / torch.bincount(data['compound'].batch).unsqueeze(1)
 
-        edge_vec = data['compound'].pos[edge_index[1]] - center_pos[edge_index[0]]
+        edge_vec = data.candicate_conf_pos[edge_index[1]] - center_pos[edge_index[0]]
         edge_attr = self.center_distance_expansion(edge_vec.norm(dim=-1))
         #因为与时间无关，所以不需要sigma embedding
         # edge_sigma_emb = data['compound'].node_sigma_emb[edge_index[1].long()]
@@ -564,28 +650,35 @@ class IaBNet_with_affinity(torch.nn.Module):
     def build_bond_conv_graph(self, data):
         # builds the graph for the convolution between the center of the rotatable bonds and the neighbouring nodes
         bonds = data['compound', 'compound'].edge_index[:, data['compound'].edge_mask].long()
-        bond_pos = (data['compound'].pos[bonds[0]] + data['compound'].pos[bonds[1]]) / 2
+        bond_pos = (data.candicate_conf_pos[bonds[0]] + data.candicate_conf_pos[bonds[1]]) / 2
         bond_batch = data['compound'].batch[bonds[0]]
-        edge_index = radius(data['compound'].pos, bond_pos, self.lig_max_radius, batch_x=data['compound'].batch, batch_y=bond_batch)
+        edge_index = radius(data.candicate_conf_pos, bond_pos, self.lig_max_radius, batch_x=data['compound'].batch, batch_y=bond_batch)
 
-        edge_vec = data['compound'].pos[edge_index[1]] - bond_pos[edge_index[0]]
+        edge_vec = data.candicate_conf_pos[edge_index[1]] - bond_pos[edge_index[0]]
         edge_attr = self.lig_distance_expansion(edge_vec.norm(dim=-1))
 
         edge_attr = self.final_edge_embedding(edge_attr)
         edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
 
         return bonds, edge_index, edge_attr, edge_sh
-    #步骤四
+    #步骤四声明
+    def rebatch(self, src_batch, batch):
+        # 将分粒后padding的data根据batch聚为一体
+        _size = degree(batch, dtype=torch.long).tolist() #获得split
+        return torch.concat([src_batch[i].split(_size[i])[0] for i in range(len(_size))])
+
     def unbatch(self, src, batch):
+        #将聚为一体的data根据batch split
         sizes = degree(batch, dtype=torch.long).tolist()
         return src.split(sizes)
 
     def modify_conformer(self, data, tr_update, rot_update, torsion_updates, batch_size):
-        lig_center = torch.mean(data['compound'].pos, dim=0, keepdim=True)
+        #根据tr,rot,tor update data的candicate_conf_pos，然后return
         rot_mat = axis_angle_to_matrix(rot_update.squeeze())
-        data_pos_batched = self.unbatch(data['compound'].pos, data['compound'].batch)
+        data_pos_batched = self.unbatch(data.candicate_conf_pos, data['compound'].batch)
         _rigid_new_pos_t = []
         for i in range(batch_size):
+            lig_center = torch.mean(data_pos_batched[i], dim=0, keepdim=True)
             _rigid_new_pos = (data_pos_batched[i] - lig_center) @ rot_mat.permute(0,2,1)[i] + tr_update[i,:] + lig_center
             _rigid_new_pos_t.append(_rigid_new_pos)
         rigid_new_pos = torch.concat(_rigid_new_pos_t)
@@ -602,16 +695,52 @@ class IaBNet_with_affinity(torch.nn.Module):
                                                             torsion_updates).to(rigid_new_pos.device)
             R, t = rigid_transform_Kabsch_3D_torch(flexible_new_pos.T, rigid_new_pos.T)
             aligned_flexible_pos = flexible_new_pos @ R.T + t.T
-            data['compound'].pos = aligned_flexible_pos
+            data.candicate_conf_pos = aligned_flexible_pos
+            data_pos_batched_new = self.unbatch(aligned_flexible_pos, data['compound'].batch)
         else:
-            data['compound'].pos = rigid_new_pos
+            data.candicate_conf_pos = rigid_new_pos
+            data_pos_batched_new = self.unbatch(rigid_new_pos, data['compound'].batch)
+        #更新candicate_dis_matrix
+        protein_pos_batched = self.unbatch(data.node_xyz, data['protein'].batch)
+        data.candicate_dis_matrix = torch.concat([torch.cdist(data_pos_batched_new[i], protein_pos_batched[i]).flatten() for i in range(batch_size)])
         return data
+
+    def get_symmetry_rmsd(self, data):
+        #calculate symmetry rmsd with true pocket
+        data_candicate_pos_batched = self.unbatch(data.candicate_conf_pos, data['compound'].batch)
+        data_compound_pos_batched = self.unbatch(data['compound'].pos, data['compound'].batch)
+        RMSD = []
+        for i in range(len(data.atomicnums)):
+            #TODO:目前用一般的rmsd替代，由于对称rmsd有时计算会卡住 
+            tmp_rmsd_value=np.sqrt(np.average(np.sum((data_compound_pos_batched[i].detach().cpu().numpy()-data_candicate_pos_batched[i].detach().cpu().numpy())**2,axis=-1)))
+            
+            tmp_time=time.time()
+            if data.is_equivalent_native_pocket[i]:
+                #rmsd_symm_value=rmsd.symmrmsd(
+                #    data_compound_pos_batched[i].detach().cpu().numpy(),
+                #    data_candicate_pos_batched[i].detach().cpu().numpy(),
+                #    data.atomicnums[i],
+                #    data.atomicnums[i],
+                #    data.adjacency_matrix[i],
+                #    data.adjacency_matrix[i],
+                #)
+                #print(tmp_rmsd_value,tmp_rmsd_value)
+                RMSD.append(tmp_rmsd_value)
+                #RMSD.append(rmsd_symm_value)
+            #spend_time=time.time()-tmp_time
+            #logger.info("atom num : %s"%(len(data.atomicnums[i])))
+            #if spend_time>1:
+            #    logger.info(spend_time)
+            #if spend_time>9:
+            #    import pdb
+            #    pdb.set_trace()
+        return torch.tensor(RMSD, dtype=torch.float).requires_grad_()
 
 def get_model(mode, logging, device):
     if mode == 0:
         logging.info("5 stack, readout2, pred dis map add self attention and GVP embed, compound model GIN")
-        model = IaBNet_with_affinity().to(device)
+        model = IaBNet_with_affinity(logging=logging).to(device)
     elif mode == 1:
         print("5 stack, readout2, pred dis map add self attention and GVP embed, compound model GIN, use fragmentation and return z")
-        model = IaBNet_with_affinity(finetune=True).to(device)
+        model = IaBNet_with_affinity(logging=logging, finetune=True).to(device)
     return model

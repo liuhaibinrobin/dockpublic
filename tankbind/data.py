@@ -5,6 +5,7 @@ from torch_geometric.data import Dataset, InMemoryDataset, download_url
 from utils import construct_data_from_graph_gvp
 from feature_utils import extract_torchdrug_feature_from_mol, get_canonical_smiles
 import rdkit.Chem as Chem    # conda install rdkit -c rdkit if import failure.
+from scipy.spatial import distance
 class TankBind_prediction(Dataset):
     def __init__(self, root, data=None, protein_dict=None, compound_dict=None, proteinMode=0, compoundMode=1,
                 pocket_radius=20, shake_nodes=None,
@@ -220,7 +221,16 @@ class TankBindDataSet_torsion(Dataset):
         data.group = group
 
         ##new
+        #follow_batch要加上candicate_dis_matrix
         data.complex_t = {'tr': 0 * torch.ones(1), 'rot': 0 * torch.ones(1), 'tor': 0 * torch.ones(1)}
+        pocket_center = data.node_xyz.numpy().mean(axis=0)
+        candicate_conf_pos = line['candicate_conf_pos'][0] + (pocket_center - line['candicate_conf_pos'][0].mean(axis=0)) #移到口袋中心
+        data.candicate_conf_pos = torch.tensor(candicate_conf_pos, dtype=torch.float)
+        candicate_dis_matrix = distance.cdist(candicate_conf_pos, data.node_xyz.numpy())
+        data.candicate_dis_matrix = torch.tensor(candicate_dis_matrix, dtype=torch.float).flatten()
+        #为计算rmsd作准备
+        data.atomicnums = line['atomicnums']
+        data.adjacency_matrix = line['adjacency_matrix']
         
         data.real_affinity_mask = torch.tensor([use_compound_com], dtype=torch.bool)
         data.real_y_mask = torch.ones(data.y.shape).bool() if use_compound_com else torch.zeros(data.y.shape).bool()
@@ -353,14 +363,14 @@ class TankBindDataSet_qsar(Dataset):
 
 def get_data(data_mode, logging, addNoise=None):
     #pre = "../dataset-head100/"
-    pre = "../dataset-all/baseline/"
+    pre = "../dataset-all/torsional/"
     if data_mode == "0":
         logging.info(f"re-docking, using dataset: apr22_pdbbind_gvp_pocket_radius20 pred distance map.")
         logging.info(f"compound feature based on torchdrug")
         add_noise_to_com = float(addNoise) if addNoise else None
         
         # compoundMode = 1 is for GIN model.
-        new_dataset = TankBindDataSet(f"{pre}/train_dataset", add_noise_to_com=add_noise_to_com)
+        new_dataset = TankBindDataSet_torsion(f"{pre}/train_dataset", add_noise_to_com=add_noise_to_com)
         new_dataset.data = new_dataset.data.query("c_length < 100 and native_num_contact > 5").reset_index(drop=True)
         d = new_dataset.data
         only_native_train_index = d.query("use_compound_com and group =='train'").index.values
@@ -374,9 +384,9 @@ def get_data(data_mode, logging, addNoise=None):
         test = new_dataset[test_index]
 
         all_pocket_test_fileName = f"{pre}/test_dataset/"
-        all_pocket_test = TankBindDataSet(all_pocket_test_fileName)
+        all_pocket_test = TankBindDataSet_torsion(all_pocket_test_fileName)
         all_pocket_valid_fileName = f"{pre}/valid_dataset/"
-        all_pocket_valid = TankBindDataSet(all_pocket_valid_fileName)
+        all_pocket_valid = TankBindDataSet_torsion(all_pocket_valid_fileName)
         # info is used to evaluate the test set. 
         info = pd.read_csv(f"{pre}/test_dataset/apr23_testset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)
         info_va = pd.read_csv(f"{pre}/valid_dataset/apr23_validset_pdbbind_gvp_pocket_radius20_info.csv", index_col=0)
