@@ -232,12 +232,12 @@ for epoch in range(100):
     for data in data_it:
         data = data.to(device)
         optimizer.zero_grad()
-        data_new,affinity_pred_A, affinity_pred_B_list, prmsd_list,rmsd_list = model(data)
+        data_new, affinity_pred_A, affinity_pred_B_list, prmsd_list, rmsd_list = model(data)
         data_new_pos_batched = data_new.candicate_conf_pos.split(degree(data_new['compound'].batch, dtype=torch.long).tolist())
         # print(data.y.sum(), y_pred.sum())
-        for i in range(args.batch_size):
-            if data_new.is_equivalent_native_pocket[i]:
-                train_result_list.append([data_new.pdb[i], data_new_pos_batched[i].detach().cpu().numpy(), affinity_pred_A[i].detach().cpu().numpy(), affinity_pred_B_list[1][i].detach().cpu().numpy(), rmsd_list[2][i].detach().cpu().numpy(), prmsd_list[1][i].detach().cpu().numpy()])
+        # print(data_new.is_equivalent_native_pocket, rmsd_list[2].shape) 训练时出现晶体构象不是is_equivalent_native_pocket情况，暂时无法打印rmsd_list
+        for i in range(len(data_new.pdb)): #后面全口袋时删除 TODO
+            train_result_list.append([data_new.pdb[i], data_new_pos_batched[i].detach().cpu().numpy(), affinity_pred_A[i].detach().cpu().numpy(), affinity_pred_B_list[1][i].detach().cpu().numpy() , prmsd_list[1][i].detach().cpu().numpy()])
         y = data.y
         affinity = data.affinity
         dis_map = data.dis_map
@@ -308,7 +308,7 @@ for epoch in range(100):
         else:
             loss = contact_loss.float()
             loss = loss.requires_grad_(True)
-        logging.info(f"prmsd_loss: {prmsd_loss.detach().cpu()}, rmsd_loss: {rmsd_loss.detach().cpu()}, affinity_loss_A: {affinity_loss_A.detach().cpu()}, affinity_loss_B: {affinity_loss_B.detach().cpu()}")
+        # logging.info(f"prmsd_loss: {prmsd_loss.detach().cpu()}, rmsd_loss: {rmsd_loss.detach().cpu()}, affinity_loss_A: {affinity_loss_A.detach().cpu()}, affinity_loss_B: {affinity_loss_B.detach().cpu()}")
         loss.backward()
         optimizer.step()
         epoch_loss_contact += len(y_pred) * contact_loss.item()
@@ -340,7 +340,7 @@ for epoch in range(100):
         global_steps_train+=1
         global_samples_train+=len(data)
 
-    train_result = pd.DataFrame(train_result_list, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
+    train_result = pd.DataFrame(train_result_list, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'prmsd_pred'])
     save_path = f"{pre}/results/train_result_{epoch}.csv"
     train_result.to_csv(save_path)
     y = torch.cat(y_list)
