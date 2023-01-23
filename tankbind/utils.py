@@ -299,7 +299,8 @@ def evaluate_with_affinity(data_loader,
         c_length_list += [int(compound_ptr[ptr] - compound_ptr[ptr-1]) for ptr in range(1, len(compound_ptr))]
 
         data = data.to(device)
-        data_new,affinity_pred_A, affinity_pred_B_list, prmsd_list,rmsd_list = model(data)
+        data_new_list,affinity_pred_A, affinity_pred_B_list, prmsd_list,rmsd_list = model(data)
+        data_new=data_new_list[-1]
         y = data.y
         dis_map = data.dis_map
         y_pred = data_new.candicate_dis_matrix
