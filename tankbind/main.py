@@ -239,7 +239,7 @@ for epoch in range(100):
             data_new_pos_batched=data_new.candicate_conf_pos.split(degree(data_new['compound'].batch, dtype=torch.long).tolist())
             for i in range(len(data_new_pos_batched)):
                 data_new_pos_batched_list[i].append(data_new_pos_batched[i].detach().cpu().numpy())
-            data_new_pos_batched_list.append(data_new_pos_batched)
+
 
         # print(data.y.sum(), y_pred.sum())
         # print(data_new.is_equivalent_native_pocket, rmsd_list[2].shape) 训练时出现晶体构象不是is_equivalent_native_pocket情况，暂时无法打印rmsd_list
