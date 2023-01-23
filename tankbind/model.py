@@ -581,7 +581,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         prmsd_pred_list = []
         rmsd_list = []
 
-        data_new_list=[copy.deepcopy(data).detch(),]
+        data_new_list=[copy.deepcopy(data).detach(),]
 
         for _ in range(self.recycling_num):
             protein_num_batch = degree(data_new['protein'].batch, dtype=torch.long).tolist()
