@@ -245,7 +245,7 @@ for epoch in range(100):
             #data_new_pos_batched:  bs*pos..
             data_new_pos_batched=data_new.candicate_conf_pos.split(degree(data_new['compound'].batch, dtype=torch.long).tolist())
             for i in range(len(data_new_pos_batched)):
-                data_new_pos_batched_list[i].append(data_new_pos_batched[i].detach().cpu().numpy())
+                data_new_pos_batched_list[i].append(data_new_pos_batched[i].detach().cpu().numpy().tolist())
 
 
         # print(data.y.sum(), y_pred.sum())
