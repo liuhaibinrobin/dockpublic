@@ -234,7 +234,12 @@ for epoch in range(100):
         optimizer.zero_grad()
         data_new_list, affinity_pred_A, affinity_pred_B_list, prmsd_list, rmsd_list = model(data)
         sample_num=len(data.pdb)
-        data_new_pos_batched_list=[[]]*sample_num #sample_num*(recycling_num+1)*pos..
+
+        # sample_num*(recycling_num+1)*pos..
+        #data_new_pos_batched_list=[[]]*sample_num  #这么写会有严重的bug  所有[]其实都指向了一个[]
+        data_new_pos_batched_list=[]
+        for i in range(sample_num):
+            data_new_pos_batched_list.append([])
 
         for data_new in data_new_list:#每个data_new是一个迭代轮次的batch中的全部样本
             #data_new_pos_batched:  bs*pos..
