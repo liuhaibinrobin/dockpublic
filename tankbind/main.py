@@ -233,17 +233,18 @@ for epoch in range(100):
         data = data.to(device)
         optimizer.zero_grad()
         data_new_list, affinity_pred_A, affinity_pred_B_list, prmsd_list, rmsd_list = model(data)
-        data_new_pos_batched_list=[] #(recycling_num+1)*bs*pos..
+        data_new_pos_batched_list=[[]]*len(data) #bs*(recycling_num+1)*pos..
         for data_new in data_new_list:#每个data_new是一个迭代轮次的batch中的全部样本
             #data_new_pos_batched:  bs*pos..
-            data_new_pos_batched = data_new.candicate_conf_pos.split(degree(data_new['compound'].batch, dtype=torch.long).tolist()).detach().cpu().numpy()
+            data_new_pos_batched=data_new.candicate_conf_pos.split(degree(data_new['compound'].batch, dtype=torch.long).tolist())
+            for i in range(len(data_new_pos_batched)):
+                data_new_pos_batched_list[i].append(data_new_pos_batched[i].detach().cpu().numpy())
             data_new_pos_batched_list.append(data_new_pos_batched)
-        data_new_pos_batched_list=np.array(data_new_pos_batched_list)
-        data_new_pos_batched_list.transpose(1,0,2,3)
+
         # print(data.y.sum(), y_pred.sum())
         # print(data_new.is_equivalent_native_pocket, rmsd_list[2].shape) 训练时出现晶体构象不是is_equivalent_native_pocket情况，暂时无法打印rmsd_list
         for i in range(len(data_new_pos_batched_list)): #记录每个样本的后面recycling构象更新情况，第0个构象是原始构象 全口袋时删除  TODO
-            train_result_list.append([data_new_list[0].pdb[i], data_new_pos_batched_list[i], affinity_pred_A[i].detach().cpu().numpy(), affinity_pred_B_list[1][i].detach().cpu().numpy() , prmsd_list[1][i].detach().cpu().numpy()])
+            train_result_list.append([data.pdb[i], data_new_pos_batched_list[i], affinity_pred_A[i].detach().cpu().numpy(), affinity_pred_B_list[1][i].detach().cpu().numpy() , prmsd_list[1][i].detach().cpu().numpy()])
 
         y = data.y
         affinity = data.affinity

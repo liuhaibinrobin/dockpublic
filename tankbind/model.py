@@ -581,7 +581,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         prmsd_pred_list = []
         rmsd_list = []
 
-        data_new_list=[copy.deepcopy(data),]
+        data_new_list=[copy.deepcopy(data).detch(),]
 
         for _ in range(self.recycling_num):
             protein_num_batch = degree(data_new['protein'].batch, dtype=torch.long).tolist()
@@ -630,7 +630,7 @@ class IaBNet_with_affinity(torch.nn.Module):
             # 步骤四
             data_new = self.modify_conformer(data_new, tr_pred, rot_pred, tor_pred.detach().cpu().numpy(), batch_size)
 
-            data_new_list.append(copy.deepcopy(data_new))
+            data_new_list.append(copy.deepcopy(data_new.detach()))
 
         rmsd_list.append(self.get_symmetry_rmsd(data_new).to(prmsd_pred.device)) #加上最后一次更新的
 
