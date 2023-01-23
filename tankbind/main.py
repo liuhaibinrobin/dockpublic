@@ -233,7 +233,9 @@ for epoch in range(100):
         data = data.to(device)
         optimizer.zero_grad()
         data_new_list, affinity_pred_A, affinity_pred_B_list, prmsd_list, rmsd_list = model(data)
-        data_new_pos_batched_list=[[]]*len(data) #bs*(recycling_num+1)*pos..
+        sample_num=len(data.pdb)
+        data_new_pos_batched_list=[[]]*sample_num #sample_num*(recycling_num+1)*pos..
+
         for data_new in data_new_list:#每个data_new是一个迭代轮次的batch中的全部样本
             #data_new_pos_batched:  bs*pos..
             data_new_pos_batched=data_new.candicate_conf_pos.split(degree(data_new['compound'].batch, dtype=torch.long).tolist())
