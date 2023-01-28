@@ -281,14 +281,14 @@ for epoch in range(100):
 
         if args.pred_dis:
             rmsd_loss = torch.stack(rmsd_list[1:]).mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(y_pred.device)
-            rmsd_recycling_0_loss=torch.stack(rmsd_list[0]).mean() if len(rmsd_list)>0 else torch.tensor([0]).to(y_pred.device)
-            rmsd_recycling_2_loss = torch.stack(rmsd_list[2]).mean() if len(rmsd_list) > 2 else torch.tensor([0]).to(
+            rmsd_recycling_0_loss=rmsd_list[0].mean() if len(rmsd_list)>0 else torch.tensor([0]).to(y_pred.device)
+            rmsd_recycling_2_loss = rmsd_list[2].mean() if len(rmsd_list) > 2 else torch.tensor([0]).to(
                 y_pred.device)
-            rmsd_recycling_9_loss = torch.stack(rmsd_list[9]).mean() if len(rmsd_list) > 9 else torch.tensor([0]).to(
+            rmsd_recycling_9_loss = rmsd_list[9].mean() if len(rmsd_list) > 9 else torch.tensor([0]).to(
                 y_pred.device)
-            rmsd_recycling_19_loss = torch.stack(rmsd_list[19]).mean() if len(rmsd_list) > 19 else torch.tensor([0]).to(
+            rmsd_recycling_19_loss = rmsd_list[19].mean() if len(rmsd_list) > 19 else torch.tensor([0]).to(
                 y_pred.device)
-            rmsd_recycling_39_loss = torch.stack(rmsd_list[39]).mean() if len(rmsd_list) > 39 else torch.tensor([0]).to(
+            rmsd_recycling_39_loss = rmsd_list[39].mean() if len(rmsd_list) > 39 else torch.tensor([0]).to(
                 y_pred.device)
 
             if args.use_weighted_rmsd_loss:
