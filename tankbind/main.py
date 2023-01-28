@@ -223,6 +223,13 @@ for epoch in range(100):
     epoch_loss_affinity_B = 0.0
     epoch_loss_rmsd = 0.0
     epoch_loss_prmsd = 0.0
+
+    epoch_rmsd_recycling_0_loss=0
+    epoch_rmsd_recycling_2_loss=0
+    epoch_rmsd_recycling_9_loss=0
+    epoch_rmsd_recycling_19_loss=0
+    epoch_rmsd_recycling_39_loss=0
+
     #先修改数据为只有真口袋的，验证我们的方法，后续改回全部口袋 TODO
     # if epoch < data_warmup_epochs:
     #     data_it = tqdm(train_loader)
@@ -273,13 +280,22 @@ for epoch in range(100):
             affinity = affinity[data.real_affinity_mask]
 
         if args.pred_dis:
+            rmsd_loss = torch.stack(rmsd_list[1:]).mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(y_pred.device)
+            rmsd_recycling_0_loss=torch.stack(rmsd_list[0]).mean() if len(rmsd_list)>0 else torch.tensor([0]).to(y_pred.device)
+            rmsd_recycling_2_loss = torch.stack(rmsd_list[2]).mean() if len(rmsd_list) > 2 else torch.tensor([0]).to(
+                y_pred.device)
+            rmsd_recycling_9_loss = torch.stack(rmsd_list[9]).mean() if len(rmsd_list) > 9 else torch.tensor([0]).to(
+                y_pred.device)
+            rmsd_recycling_19_loss = torch.stack(rmsd_list[19]).mean() if len(rmsd_list) > 19 else torch.tensor([0]).to(
+                y_pred.device)
+            rmsd_recycling_39_loss = torch.stack(rmsd_list[39]).mean() if len(rmsd_list) > 39 else torch.tensor([0]).to(
+                y_pred.device)
+
             if args.use_weighted_rmsd_loss:
                 prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i], args.contact_loss_mode) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
-                rmsd_loss = torch.stack(rmsd_list[1:]).mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(y_pred.device)
                 contact_loss = contact_criterion(y_pred, dis_map, args.contact_loss_mode) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
             else:
                 prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i]) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
-                rmsd_loss = torch.stack(rmsd_list[1:]).mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(y_pred.device)
                 contact_loss = contact_criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
 
             with torch.no_grad():
@@ -333,6 +349,13 @@ for epoch in range(100):
         epoch_loss_affinity_B += len(affinity_pred_B_list[0]) * affinity_loss_B.item()
         epoch_loss_rmsd += len(rmsd_list[0]) * rmsd_loss.item()
         epoch_loss_prmsd += len(prmsd_list[0]) * prmsd_loss.item()
+
+        epoch_rmsd_recycling_0_loss +=len(rmsd_list[0]) * rmsd_recycling_0_loss.item()
+        epoch_rmsd_recycling_2_loss +=len(rmsd_list[0]) * rmsd_recycling_2_loss.item()
+        epoch_rmsd_recycling_9_loss  +=len(rmsd_list[0]) * rmsd_recycling_9_loss.item()
+        epoch_rmsd_recycling_19_loss +=len(rmsd_list[0]) * rmsd_recycling_19_loss.item()
+        epoch_rmsd_recycling_39_loss +=len(rmsd_list[0]) * rmsd_recycling_39_loss.item()
+
         # print(f"{loss.item():.3}")
         y_list.append(y)
         y_pred_list.append(y_pred.detach())
@@ -399,10 +422,17 @@ for epoch in range(100):
     writer.add_scalar('epochLoss.Contact_10A/train', metrics["loss_contact_10A"], epoch)
     writer.add_scalar('epochLoss.Affinity_A/train', epoch_loss_affinity_A / len(affinity_pred_A), epoch)
     writer.add_scalar('epochLoss.Affinity_B/train', epoch_loss_affinity_B / len(affinity_pred_B), epoch)
-    writer.add_scalar('sampleLoss.RMSD/train', epoch_loss_rmsd / len(RMSD_pred), epoch)
-    writer.add_scalar('sampleLoss.Pred_RMSD/train', epoch_loss_prmsd / len(PRMSD_pred), epoch)
+    writer.add_scalar('epochLoss.RMSD/train', epoch_loss_rmsd / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.Pred_RMSD/train', epoch_loss_prmsd / len(PRMSD_pred), epoch)
     writer.add_scalar('epochNum.TrainedBatches/train', global_steps_train, epoch)
     writer.add_scalar('epochNum.TrainedSamples/train', global_samples_train, epoch)
+
+    writer.add_scalar('epochLoss.rmsd_recycling_0/train', epoch_rmsd_recycling_0_loss / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.rmsd_recycling_2/train', epoch_rmsd_recycling_2_loss / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.rmsd_recycling_9/train', epoch_rmsd_recycling_9_loss / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.rmsd_recycling_19/train', epoch_rmsd_recycling_19_loss / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.rmsd_recycling_39/train', epoch_rmsd_recycling_39_loss / len(RMSD_pred), epoch)
+
 
     #===================validation========================================
 

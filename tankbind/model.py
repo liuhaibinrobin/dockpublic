@@ -408,7 +408,7 @@ class GaussianSmearing(torch.nn.Module):
 
 
 class IaBNet_with_affinity(torch.nn.Module):
-    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, compound_embed_mode=1, n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2, finetune=False, recycling_num=2, logging=None):
+    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, compound_embed_mode=1, n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2, finetune=False, recycling_num=40, logging=None):
         super().__init__()
         self.layernorm = torch.nn.LayerNorm(embedding_channels)
         self.protein_bin_max = protein_bin_max
