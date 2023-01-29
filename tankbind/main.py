@@ -258,7 +258,7 @@ for epoch in range(100):
         # print(data.y.sum(), y_pred.sum())
         # print(data_new.is_equivalent_native_pocket, rmsd_list[2].shape) 训练时出现晶体构象不是is_equivalent_native_pocket情况，暂时无法打印rmsd_list
         for i in range(len(data_new_pos_batched_list)): #记录每个样本的后面recycling构象更新情况，第0个构象是原始构象 全口袋时删除  TODO
-            train_result_list.append([data.pdb[i], data_new_pos_batched_list[i], affinity_pred_A[i].detach().cpu().numpy(), affinity_pred_B_list[1][i].detach().cpu().numpy() , prmsd_list[1][i].detach().cpu().numpy()])
+            train_result_list.append([data.pdb[i], data_new_pos_batched_list[i], affinity_pred_A[i].detach().cpu().numpy(), affinity_pred_B_list[-1][i].detach().cpu().numpy() , prmsd_list[-1][i].detach().cpu().numpy()])
 
         y = data.y
         affinity = data.affinity
@@ -361,9 +361,9 @@ for epoch in range(100):
         y_pred_list.append(y_pred.detach())
         affinity_list.append(data.affinity)
         affinity_A_pred_list.append(affinity_pred_A.detach())
-        affinity_B_pred_list.append(affinity_pred_B_list[1].detach()) #只取最后一个pred做pearson， TODO
-        rmsd_pred_list.append(rmsd_list[2].detach())
-        prmsd_pred_list.append(prmsd_list[1].detach())
+        affinity_B_pred_list.append(affinity_pred_B_list[-1].detach()) #只取最后一个pred做pearson， TODO
+        rmsd_pred_list.append(rmsd_list[-1].detach())
+        prmsd_pred_list.append(prmsd_list[-1].detach())
         # torch.cuda.empty_cache()
 
         writer.add_scalar(f'batchLoss.Total/train', loss.item(), global_steps_train)
