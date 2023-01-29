@@ -225,7 +225,7 @@ for epoch in range(100):
     epoch_loss_prmsd = 0.0
 
     epoch_rmsd_recycling_0_loss=0
-    epoch_rmsd_recycling_2_loss=0
+    epoch_rmsd_recycling_1_loss=0
     epoch_rmsd_recycling_9_loss=0
     epoch_rmsd_recycling_19_loss=0
     epoch_rmsd_recycling_39_loss=0
@@ -282,7 +282,7 @@ for epoch in range(100):
         if args.pred_dis:
             rmsd_loss = torch.stack(rmsd_list[1:]).mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_0_loss=rmsd_list[0].mean() if len(rmsd_list)>0 else torch.tensor([0]).to(y_pred.device)
-            rmsd_recycling_2_loss = rmsd_list[2].mean() if len(rmsd_list) > 2 else torch.tensor([0]).to(
+            rmsd_recycling_1_loss = rmsd_list[1].mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(
                 y_pred.device)
             rmsd_recycling_9_loss = rmsd_list[9].mean() if len(rmsd_list) > 9 else torch.tensor([0]).to(
                 y_pred.device)
@@ -351,7 +351,7 @@ for epoch in range(100):
         epoch_loss_prmsd += len(prmsd_list[0]) * prmsd_loss.item()
 
         epoch_rmsd_recycling_0_loss +=len(rmsd_list[0]) * rmsd_recycling_0_loss.item()
-        epoch_rmsd_recycling_2_loss +=len(rmsd_list[0]) * rmsd_recycling_2_loss.item()
+        epoch_rmsd_recycling_1_loss +=len(rmsd_list[0]) * rmsd_recycling_1_loss.item()
         epoch_rmsd_recycling_9_loss  +=len(rmsd_list[0]) * rmsd_recycling_9_loss.item()
         epoch_rmsd_recycling_19_loss +=len(rmsd_list[0]) * rmsd_recycling_19_loss.item()
         epoch_rmsd_recycling_39_loss +=len(rmsd_list[0]) * rmsd_recycling_39_loss.item()
@@ -428,7 +428,7 @@ for epoch in range(100):
     writer.add_scalar('epochNum.TrainedSamples/train', global_samples_train, epoch)
 
     writer.add_scalar('epochLoss.rmsd_recycling_0/train', epoch_rmsd_recycling_0_loss / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.rmsd_recycling_2/train', epoch_rmsd_recycling_2_loss / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.rmsd_recycling_1/train', epoch_rmsd_recycling_1_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.rmsd_recycling_9/train', epoch_rmsd_recycling_9_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.rmsd_recycling_19/train', epoch_rmsd_recycling_19_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.rmsd_recycling_39/train', epoch_rmsd_recycling_39_loss / len(RMSD_pred), epoch)
