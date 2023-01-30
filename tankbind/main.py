@@ -204,7 +204,7 @@ global_steps_test = 0
 global_samples_train = 0
 global_samples_val = 0
 global_samples_test = 0
-for epoch in range(100):
+for epoch in range(10000):
     model.train()
     y_list = []
     y_pred_list = []
