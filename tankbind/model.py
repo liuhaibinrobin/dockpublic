@@ -21,6 +21,7 @@ from torch.distributions import Categorical
 from torch_scatter import scatter_mean
 from GATv2 import GAT
 from GINv2 import GIN
+from utils import OptimizeConformer
 
 import time
 import logging
@@ -408,7 +409,9 @@ class GaussianSmearing(torch.nn.Module):
 
 
 class IaBNet_with_affinity(torch.nn.Module):
-    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, compound_embed_mode=1, n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2, finetune=False, recycling_num=1, logging=None):
+    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, compound_embed_mode=1,
+                 n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2, finetune=False, recycling_num=1,
+                 logging=None): #TODO: recycling_num=1
         super().__init__()
         self.layernorm = torch.nn.LayerNorm(embedding_channels)
         self.protein_bin_max = protein_bin_max
@@ -579,9 +582,11 @@ class IaBNet_with_affinity(torch.nn.Module):
         data_new = copy.deepcopy(data)
         affinity_pred_B_list = []
         prmsd_pred_list = []
-        rmsd_list = []
+        rmsd_loss_list = []
+        tr_tor_rot_loss_list=[]
 
         data_new_list=[copy.deepcopy(data).detach(),]
+        rmsd_loss_list.append(self.get_symmetry_rmsd(data_new).to(prmsd_pred.device))
 
         for _ in range(self.recycling_num):
             protein_num_batch = degree(data_new['protein'].batch, dtype=torch.long).tolist()
@@ -593,7 +598,7 @@ class IaBNet_with_affinity(torch.nn.Module):
             #self.logging.info("3 z.shape:%s,protein_out_batched.shape:%s,  candicate_dis_matrix_batched.shape:%s "%(z.shape,protein_out_batched.shape,  candicate_dis_matrix_batched.shape))
             compound_out_batched_new, affinity_pred_B, prmsd_pred = self.MultiHeadAttention_dis_bias(z, z_mask, protein_out_batched, candicate_dis_matrix_batched) #获得包含protein和compound交互信息的compound single representation
             
-            rmsd_list.append(self.get_symmetry_rmsd(data_new).to(prmsd_pred.device))
+
 
             affinity_pred_B = affinity_pred_B.sigmoid() * 15
             prmsd_pred = prmsd_pred.sigmoid() * 20
@@ -628,14 +633,45 @@ class IaBNet_with_affinity(torch.nn.Module):
             tor_pred = self.tor_final_layer(tor_pred).squeeze(1)
             # batch_size = int(max(data_new['compound'].batch)) + 1
             # 步骤四
-            data_new = self.modify_conformer(data_new, tr_pred, rot_pred, tor_pred.detach().cpu().numpy(), batch_size)
+            next_candicate_conf_pos, next_candicate_dis_matrix = self.modify_conformer(data_new, tr_pred, rot_pred, tor_pred, batch_size)
 
+            tmp_loss_list=self.get_tr_tor_rot_loss( data_new,tr_pred, rot_pred, tor_pred, batch_size)
+            tr_tor_rot_loss_list.append(tmp_loss_list)
+
+            data_new.candicate_conf_pos = next_candicate_conf_pos
+            data_new.candicate_dis_matrix = next_candicate_dis_matrix
             data_new_list.append(copy.deepcopy(data_new.detach()))
 
-        rmsd_list.append(self.get_symmetry_rmsd(data_new).to(prmsd_pred.device)) #加上最后一次更新的
+            rmsd_loss_list.append(self.get_symmetry_rmsd(data_new).to(prmsd_pred.device))
 
         #self.logging.info(f"after point B, affinity_pred_A shape: {affinity_pred_A.shape}, affinity_pred_B_list len: {len(affinity_pred_B_list)}, prmsd_pred_list len: {len(prmsd_pred_list)}, rmsd_list len: {len(rmsd_list)}")
-        return data_new_list, affinity_pred_A, affinity_pred_B_list, prmsd_pred_list, rmsd_list
+        return data_new_list, affinity_pred_A, affinity_pred_B_list, prmsd_pred_list, rmsd_loss_list,tr_tor_rot_loss_list
+
+    def get_tr_tor_rot_loss(self, data, tr_update, rot_update, torsion_updates, batch_size):
+        # 计算本轮recycling 初始构象到真实构象的tr,tor,rot，计算loss
+
+        #根据tr,rot,tor update data的candicate_conf_pos，然后return
+        rot_mat = axis_angle_to_matrix(rot_update.squeeze())
+        data_pos_batched = self.unbatch(data.candicate_conf_pos, data['compound'].batch)
+        true_data_pos_batched=self.unbatch(data['compound'].pos,data['compound'].batch)
+        compound_edge_index_batched = self.unbatch(data['compound', 'compound'].edge_index.T, data.compound_compound_edge_attr_batch)
+        compound_rotate_edge_mask_batched = self.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
+
+
+        loss_list=[]
+        for i in range(batch_size):
+
+            opt_obj=OptimizeConformer(data_pos_batched[i], true_data_pos_batched[i],
+                              compound_edge_index_batched[i],compound_rotate_edge_mask_batched[i])
+
+            opt_tr,opt_torsion,opt_rotate,opt_rmsd=opt_obj.run()
+
+            loss_list.append((nn.MSELoss(opt_torsion,torsion_updates),nn.MSELoss(opt_rotate,rot_update),nn.MSELoss(opt_tr,tr_update)))
+
+        return loss_list
+
+
+
 
     def build_center_conv_graph(self, data):
         # builds the filter and edges for the convolution generating translational and rotational scores
@@ -678,38 +714,44 @@ class IaBNet_with_affinity(torch.nn.Module):
         sizes = degree(batch, dtype=torch.long).tolist()
         return src.split(sizes)
 
+
     def modify_conformer(self, data, tr_update, rot_update, torsion_updates, batch_size):
         #根据tr,rot,tor update data的candicate_conf_pos，然后return
         rot_mat = axis_angle_to_matrix(rot_update.squeeze())
         data_pos_batched = self.unbatch(data.candicate_conf_pos, data['compound'].batch)
-        _rigid_new_pos_t = []
+        compound_edge_index_batched = self.unbatch(data['compound', 'compound'].edge_index.T, data.compound_compound_edge_attr_batch)
+        compound_rotate_edge_mask_batched = self.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
+
+
+        new_pos_t=[]
         for i in range(batch_size):
-            lig_center = torch.mean(data_pos_batched[i], dim=0, keepdim=True)
-            _rigid_new_pos = (data_pos_batched[i] - lig_center) @ rot_mat.permute(0,2,1)[i] + tr_update[i,:] + lig_center
-            _rigid_new_pos_t.append(_rigid_new_pos)
-        rigid_new_pos = torch.concat(_rigid_new_pos_t)
-        #修改为batch级别
-        mask_rotate_list = copy.deepcopy(data['compound'].mask_rotate)
-        mask_rotate_batch = mask_rotate_list[0]
-        for i in range(len(mask_rotate_list) - 1):
-            mask_rotate_batch = np.block([[mask_rotate_batch, np.zeros((mask_rotate_batch.shape[0], mask_rotate_list[i+1].shape[1])).astype(bool)], [np.zeros((mask_rotate_list[i+1].shape[0], mask_rotate_batch.shape[1])).astype(bool), mask_rotate_list[i+1]]])
-        
-        if torsion_updates is not None:
-            flexible_new_pos = modify_conformer_torsion_angles(rigid_new_pos.detach(),
-                                                            data['compound', 'compound'].edge_index.T[data['compound'].edge_mask],
-                                                            mask_rotate_batch,
-                                                            torsion_updates).to(rigid_new_pos.device)
-            R, t = rigid_transform_Kabsch_3D_torch(flexible_new_pos.T, rigid_new_pos.T)
-            aligned_flexible_pos = flexible_new_pos @ R.T + t.T
-            data.candicate_conf_pos = aligned_flexible_pos
-            data_pos_batched_new = self.unbatch(aligned_flexible_pos, data['compound'].batch)
-        else:
-            data.candicate_conf_pos = rigid_new_pos
-            data_pos_batched_new = self.unbatch(rigid_new_pos, data['compound'].batch)
+
+            if torsion_updates is not None:
+                rotate_edge_index=compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]]
+                flexible_new_pos = modify_conformer_torsion_angles(data_pos_batched[i],
+                                                                   rotate_edge_index,
+                                                                   data['compound'].mask_rotate[i],
+                                                                   torsion_updates)
+                # TODO:这里先删掉原版diffdock代码中的align
+                # R, t = rigid_transform_Kabsch_3D_torch(flexible_new_pos.T, rigid_new_pos.T)
+                # aligned_flexible_pos = flexible_new_pos @ R.T + t.T
+                # candicate_conf_pos = aligned_flexible_pos
+
+            else:
+                flexible_new_pos=data_pos_batched[i]
+
+            lig_center = torch.mean(flexible_new_pos, dim=0, keepdim=True)
+            _new_pos = (flexible_new_pos - lig_center) @ rot_mat.permute(0, 2, 1)[i] + tr_update[i,:] + lig_center
+            new_pos_t.append(_new_pos)
+
+        candicate_conf_pos = torch.concat(new_pos_t)
+
+
         #更新candicate_dis_matrix
+        data_pos_batched_new = self.unbatch(candicate_conf_pos, data['compound'].batch)
         protein_pos_batched = self.unbatch(data.node_xyz, data['protein'].batch)
-        data.candicate_dis_matrix = torch.concat([torch.cdist(data_pos_batched_new[i], protein_pos_batched[i]).flatten() for i in range(batch_size)])
-        return data
+        candicate_dis_matrix = torch.concat([torch.cdist(data_pos_batched_new[i], protein_pos_batched[i]).flatten() for i in range(batch_size)])
+        return candicate_conf_pos,candicate_dis_matrix
 
     def get_symmetry_rmsd(self, data):
         #calculate symmetry rmsd with true pocket

@@ -130,6 +130,9 @@ def construct_data_from_graph_gvp(protein_node_xyz, protein_seq, protein_node_s,
         data['compound'].edge_mask = torch.tensor(edge_mask)
         data['compound'].mask_rotate = mask_rotate
 
+    #放到data下，follow_batch要加上
+    data.compound_compound_edge_attr=data['compound', 'c2c', 'compound'].edge_attr
+
     return data, input_node_xyz, keepNode
 
 
@@ -471,3 +474,210 @@ def evaluate_affinity_only(data_loader, model, criterion, affinity_criterion, re
 
     return metrics
 
+
+
+#以下为获得每轮recycling最佳旋转/平移/扭转的方法
+
+def SetDihedral(conf, atom_idx, new_vale):
+    rdMolTransforms.SetDihedralRad(conf, atom_idx[0], atom_idx[1], atom_idx[2], atom_idx[3], new_vale)
+
+
+def apply_changes(mol, values, rotable_bonds, conf_id):
+    opt_mol = copy.copy(mol)
+    [SetDihedral(opt_mol.GetConformer(conf_id), rotable_bonds[r], values[r]) for r in range(len(rotable_bonds))]
+
+    return opt_mol
+
+
+def optimize_rotatable_bonds(mol, true_mol, rotable_bonds, probe_id=-1, ref_id=-1, seed=0, popsize=15, maxiter=500,
+                             mutation=(0.5, 1), recombination=0.8):
+    opt = OptimizeConformer(mol, true_mol, rotable_bonds, seed=seed, probe_id=probe_id, ref_id=ref_id)
+    max_bound = [np.pi] * len(opt.rotable_bonds)
+    min_bound = [-np.pi] * len(opt.rotable_bonds)
+    bounds = (min_bound, max_bound)
+    bounds = list(zip(bounds[0], bounds[1]))
+
+    # Optimize conformations
+    result = differential_evolution(opt.score_conformation, bounds,
+                                    maxiter=maxiter, popsize=popsize,
+                                    mutation=mutation, recombination=recombination, disp=False, seed=seed)
+    opt_mol = apply_changes(opt.ori_mol, result['x'], opt.rotable_bonds, conf_id=probe_id)
+
+    res_RMSD,transform_matrix=AllChem.GetAlignmentTransform(opt_mol, true_mol, probe_id, ref_id)
+    opt_pos0=opt_mol.GetConformer(0).GetPositions()
+
+    opt_pos1=np.dot(opt_mol.GetConformer(0).GetPositions(), transform_matrix[0:3, 0:3].T)+ transform_matrix[0:3, 3]
+
+    opt_mol2=copy.deepcopy(opt_mol)
+    AllChem.TransformMol(opt_mol2, transform_matrix)
+    opt_pos2=opt_mol2.GetConformer(0).GetPositions()
+
+    opt_mol3 = copy.deepcopy(opt_mol)
+    AllChem.AlignMol(opt_mol3, true_mol, probe_id, ref_id)
+    opt_pos3 = opt_mol3.GetConformer(0).GetPositions()
+
+    print(opt_pos0[0],opt_pos1[0],opt_pos2[0],opt_pos3[0])
+    return transform_matrix[0:3, 0:3].T,transform_matrix[0:3, 3],opt_mol,result['x']
+
+
+class OptimizeConformer:
+    def __init__(self, mol, true_mol, rotable_bonds, probe_id=-1, ref_id=-1, seed=None):
+        super(OptimizeConformer, self).__init__()
+        if seed:
+            np.random.seed(seed)
+        self.rotable_bonds = rotable_bonds
+        self.mol = mol
+        self.ori_mol=copy.deepcopy(mol)
+        self.true_mol = true_mol
+        self.probe_id = probe_id
+        self.ref_id = ref_id
+
+    def score_conformation(self, values):
+        for i, r in enumerate(self.rotable_bonds):
+            SetDihedral(self.mol.GetConformer(self.probe_id), r, values[i])
+        return RMSD(self.mol, self.true_mol, self.probe_id, self.ref_id)
+
+
+def get_torsion_angles(mol):
+    torsions_list = []
+    G = nx.Graph()
+    for i, atom in enumerate(mol.GetAtoms()):
+        G.add_node(i)
+    nodes = set(G.nodes())
+    for bond in mol.GetBonds():
+        start, end = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
+        G.add_edge(start, end)
+    for e in G.edges():
+        G2 = copy.deepcopy(G)
+        G2.remove_edge(*e)
+        if nx.is_connected(G2): continue
+        l = list(sorted(nx.connected_components(G2), key=len)[0])
+        if len(l) < 2: continue
+        n0 = list(G2.neighbors(e[0]))
+        n1 = list(G2.neighbors(e[1]))
+        torsions_list.append(
+            (n0[0], e[0], e[1], n1[0])
+        )
+    return torsions_list
+
+RMSD = AllChem.AlignMol
+
+
+def generate_conformer(mol):
+    ps = AllChem.ETKDGv2()
+    id = AllChem.EmbedMolecule(mol, ps)
+    if id == -1:
+        print('rdkit coords could not be generated without using random coords. using random coords now.')
+        ps.useRandomCoords = True
+        AllChem.EmbedMolecule(mol, ps)
+        AllChem.MMFFOptimizeMolecule(mol, confId=0)
+    # else:
+
+def main():
+    from rdkit.Chem import AllChem
+    from rdkit import Chem
+    import numpy as np
+
+    for mol in Chem.SDMolSupplier("N96_conformation.sdf"):
+        if mol==None:
+            raise Exception
+        mol_true=mol
+        break
+    mol_true = AllChem.RemoveHs(mol_true)
+    smiles=AllChem.MolToSmiles(mol_true)
+    rotable_bonds_ = get_torsion_angles(mol_true)
+
+    mol_rand=AllChem.MolFromSmiles(smiles)
+    mol_rand = AllChem.RemoveHs(mol_rand)
+    generate_conformer(mol_rand)
+    for atom_i in range(mol_rand.GetConformer(0).GetNumAtoms()):
+        old_position=mol_rand.GetConformer(0).GetAtomPosition(atom_i)
+        new_position=np.array(old_position)+10
+        mol_rand.GetConformer(0).SetAtomPosition(atom_i,new_position)
+    rotable_bonds = get_torsion_angles(mol_rand)
+    with open("rand_mol.sdf","w") as sdf_fp:
+        w = Chem.SDWriter(sdf_fp)
+        w.write(mol_rand)
+        w.close()
+
+    if rotable_bonds_!=rotable_bonds_:
+        raise Exception
+
+    opt_mol=optimize_rotatable_bonds(mol_rand, mol_true, rotable_bonds, popsize=15, maxiter=550)
+
+    with open("opt_mol.sdf","w") as sdf_fp:
+        w = Chem.SDWriter(sdf_fp)
+        w.write(opt_mol)
+        w.close()
+
+    print()
+
+
+
+from torsion_geometry import modify_conformer_torsion_angles,rigid_transform_Kabsch_3D_torch,matrix_to_axis_angle
+from scipy.optimize import differential_evolution
+
+class OptimizeConformer:
+    def __init__(self,candidate_pos,ground_truth_pos,rotate_edge_index,mask_rotate):
+        """
+        计算从初始构象到真值构象的 rot,tr,tor,用于构建recycling 中的真值标签
+        :param candicate_pos:
+        :param ground_truth_pos:
+        :param rotate_edge_index:
+        :param mask_rotate
+        """
+        self.candidate_pos=candidate_pos
+        self.ground_truth_pos=ground_truth_pos
+        self.rotate_edge_index=rotate_edge_index
+        self.mask_rotate=mask_rotate
+        self.rotate_bond_num=len(self.mask_rotate)
+
+    def apply_torsion(self,torsion):
+        if torsion is not None:
+            new_pos = modify_conformer_torsion_angles(self.candidate_pos, self.rotate_edge_index,
+                                                  self.mask_rotate, torsion)
+        else:
+            new_pos=self.candidate_pos
+        R, t = rigid_transform_Kabsch_3D_torch(new_pos.T, self.ground_truth_pos.T)
+        aligned_new_pos = new_pos @ R.T + t.T
+
+        rmsd = np.sqrt(np.average(np.sum((aligned_new_pos - self.ground_truth_pos) ** 2, axis=-1)))
+        return rmsd,R, t
+
+    def score_conformation(self, torsion):
+        return self.apply_torsion(torsion)[0]
+
+
+    def run(self ,popsize=15,maxiter=500,mutation=(0.5, 1), recombination=0.8,seed=0):
+        """
+
+        :param popsize:
+        :param maxiter:
+        :param mutation:
+        :param recombination:
+        :param seed:
+        :return:
+         opt_tr:
+         opt_torsion:
+         opt_rotate:
+         opt_rmsd: 当前构象优化到真实构象后剩余的rmsd，这个值越小代表返回的 opt_t,tor,rot 越准确
+        """
+
+        max_bound = [np.pi] * self.rotate_bond_num
+        min_bound = [-np.pi] * self.rotate_bond_num
+        bounds = (min_bound, max_bound)
+        bounds = list(zip(bounds[0], bounds[1]))
+
+        # Optimize conformations
+        result = differential_evolution(self.score_conformation, bounds,
+                                        maxiter=maxiter, popsize=popsize,
+                                        mutation=mutation, recombination=recombination, disp=False, seed=seed)
+        opt_rmsd,opt_R, opt_tr=self.apply_torsion(result["x"])
+        opt_torsion=result["x"]
+        opt_rotate=matrix_to_axis_angle(opt_R)
+
+        return opt_tr,opt_torsion,opt_rotate,opt_rmsd
+
+
+if __name__ == "__main__":
+    main()
