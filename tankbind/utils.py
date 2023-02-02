@@ -128,7 +128,7 @@ def construct_data_from_graph_gvp(protein_node_xyz, protein_seq, protein_node_s,
         get_lig_graph(data_compound, data)
         edge_mask, mask_rotate = get_transformation_mask(data_compound)
         data['compound'].edge_mask = torch.tensor(edge_mask)
-        data['compound'].mask_rotate = torch.tensor(mask_rotate)
+        data['compound'].mask_rotate = mask_rotate
 
     #放到data下，follow_batch要加上
     data.compound_compound_edge_attr=data['compound', 'c2c', 'compound'].edge_attr
