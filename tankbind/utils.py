@@ -560,60 +560,6 @@ def get_torsion_angles(mol):
         )
     return torsions_list
 
-RMSD = AllChem.AlignMol
-
-
-def generate_conformer(mol):
-    ps = AllChem.ETKDGv2()
-    id = AllChem.EmbedMolecule(mol, ps)
-    if id == -1:
-        print('rdkit coords could not be generated without using random coords. using random coords now.')
-        ps.useRandomCoords = True
-        AllChem.EmbedMolecule(mol, ps)
-        AllChem.MMFFOptimizeMolecule(mol, confId=0)
-    # else:
-
-def main():
-    from rdkit.Chem import AllChem
-    from rdkit import Chem
-    import numpy as np
-
-    for mol in Chem.SDMolSupplier("N96_conformation.sdf"):
-        if mol==None:
-            raise Exception
-        mol_true=mol
-        break
-    mol_true = AllChem.RemoveHs(mol_true)
-    smiles=AllChem.MolToSmiles(mol_true)
-    rotable_bonds_ = get_torsion_angles(mol_true)
-
-    mol_rand=AllChem.MolFromSmiles(smiles)
-    mol_rand = AllChem.RemoveHs(mol_rand)
-    generate_conformer(mol_rand)
-    for atom_i in range(mol_rand.GetConformer(0).GetNumAtoms()):
-        old_position=mol_rand.GetConformer(0).GetAtomPosition(atom_i)
-        new_position=np.array(old_position)+10
-        mol_rand.GetConformer(0).SetAtomPosition(atom_i,new_position)
-    rotable_bonds = get_torsion_angles(mol_rand)
-    with open("rand_mol.sdf","w") as sdf_fp:
-        w = Chem.SDWriter(sdf_fp)
-        w.write(mol_rand)
-        w.close()
-
-    if rotable_bonds_!=rotable_bonds_:
-        raise Exception
-
-    opt_mol=optimize_rotatable_bonds(mol_rand, mol_true, rotable_bonds, popsize=15, maxiter=550)
-
-    with open("opt_mol.sdf","w") as sdf_fp:
-        w = Chem.SDWriter(sdf_fp)
-        w.write(opt_mol)
-        w.close()
-
-    print()
-
-
-
 from torsion_geometry import modify_conformer_torsion_angles,rigid_transform_Kabsch_3D_torch,matrix_to_axis_angle
 from scipy.optimize import differential_evolution
 
