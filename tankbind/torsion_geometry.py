@@ -259,9 +259,11 @@ def modify_conformer_torsion_angles(pos, edge_index, mask_rotate, torsion_update
     :param as_numpy:
     :return:
     """
+    #TODO:目前都是numpy 版本的，不需要梯度传播
     pos = copy.deepcopy(pos)
+    if type(pos) != np.ndarray: pos = pos.cpu().numpy()
 
-    for idx_edge, e in enumerate(edge_index):
+    for idx_edge, e in enumerate(edge_index.cpu().numpy()):
         if torsion_updates[idx_edge] == 0:
             continue
         u, v = e[0], e[1]
@@ -275,10 +277,10 @@ def modify_conformer_torsion_angles(pos, edge_index, mask_rotate, torsion_update
         # assert mask_rotate[idx_edge, v]
 
         rot_vec = pos[u] - pos[v]  # convention: positive rotation if pointing inwards
-        rot_vec = rot_vec * torsion_updates[idx_edge] / torch.norm(rot_vec) # idx_edge!
+        rot_vec = rot_vec * torsion_updates[idx_edge] / np.linalg.norm(rot_vec) # idx_edge!
         rot_mat = R.from_rotvec(rot_vec).as_matrix()
 
         pos[mask_rotate[idx_edge]] = (pos[mask_rotate[idx_edge]] - pos[v]) @ rot_mat.T + pos[v]
 
-    #if not as_numpy: pos = torch.from_numpy(pos.astype(np.float32))
+    if not as_numpy: pos = torch.from_numpy(pos.astype(np.float32))
     return pos
