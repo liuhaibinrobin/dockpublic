@@ -618,7 +618,7 @@ from torsion_geometry import modify_conformer_torsion_angles,rigid_transform_Kab
 from scipy.optimize import differential_evolution
 
 class OptimizeConformer:
-    def __init__(self,candidate_pos,ground_truth_pos,rotate_edge_index,mask_rotate):
+    def __init__(self, current_pos, ground_truth_pos, rotate_edge_index, mask_rotate):
         """
         计算从初始构象到真值构象的 rot,tr,tor,用于构建recycling 中的真值标签
         :param candicate_pos:
@@ -626,7 +626,7 @@ class OptimizeConformer:
         :param rotate_edge_index:
         :param mask_rotate
         """
-        self.candidate_pos=candidate_pos
+        self.candidate_pos=current_pos
         self.ground_truth_pos=ground_truth_pos
         self.rotate_edge_index=rotate_edge_index
         self.mask_rotate=mask_rotate
@@ -658,8 +658,8 @@ class OptimizeConformer:
         :param seed:
         :return:
          opt_tr:
-         opt_torsion:
          opt_rotate:
+         opt_torsion:
          opt_rmsd: 当前构象优化到真实构象后剩余的rmsd，这个值越小代表返回的 opt_t,tor,rot 越准确
         """
 
@@ -676,7 +676,7 @@ class OptimizeConformer:
         opt_torsion=result["x"]
         opt_rotate=matrix_to_axis_angle(opt_R)
 
-        return opt_tr,opt_torsion,opt_rotate,opt_rmsd
+        return opt_tr,opt_rotate,opt_torsion,opt_rmsd
 
 
 if __name__ == "__main__":

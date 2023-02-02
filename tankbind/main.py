@@ -28,7 +28,7 @@ from torch.utils.data import WeightedRandomSampler
 import random
 import math
 from torch.utils.tensorboard import SummaryWriter
-
+from utils import OptimizeConformer
 
 
 
@@ -230,6 +230,9 @@ for epoch in range(10000):
     epoch_rmsd_recycling_19_loss=0
     epoch_rmsd_recycling_39_loss=0
 
+    epoch_tr_loss =0
+    epoch_rot_loss =0
+    epoch_tor_loss=0
     #先修改数据为只有真口袋的，验证我们的方法，后续改回全部口袋 TODO
     # if epoch < data_warmup_epochs:
     #     data_it = tqdm(train_loader)
@@ -239,31 +242,32 @@ for epoch in range(10000):
     for data in data_it:
         data = data.to(device)
         optimizer.zero_grad()
-        data_new_list, affinity_pred_A, affinity_pred_B_list, prmsd_list, rmsd_list = model(data)
+        affinity_pred_A, affinity_pred_B_list, prmsd_list,pred_result_list= model(data)
         sample_num=len(data.pdb)
 
-        # sample_num*(recycling_num+1)*pos..
-        #data_new_pos_batched_list=[[]]*sample_num  #这么写会有严重的bug  所有[]其实都指向了一个[]
+        #记录每个样本的学习信息
         data_new_pos_batched_list=[]
-        for i in range(sample_num):
+        for i in range(sample_num):# data_new_pos_batched_list=[[]]*sample_num  #这么写会有严重的bug  所有[]其实都指向了一个[]
             data_new_pos_batched_list.append([])
-
-        for data_new in data_new_list:#每个data_new是一个迭代轮次的batch中的全部样本
+        candicate_conf_pos_batched=pred_result_list[0][5] #初始坐标
+        for i in range(len(candicate_conf_pos_batched)):
+            data_new_pos_batched_list[i].append(candicate_conf_pos_batched[i].detach().cpu().numpy().tolist())
+        for pred_result in pred_result_list:#每个pred_result是一个迭代轮次的batch中的全部样本
             #data_new_pos_batched:  bs*pos..
-            data_new_pos_batched=data_new.candicate_conf_pos.split(degree(data_new['compound'].batch, dtype=torch.long).tolist())
-            for i in range(len(data_new_pos_batched)):
-                data_new_pos_batched_list[i].append(data_new_pos_batched[i].detach().cpu().numpy().tolist())
-
-
+            next_candicate_conf_pos_batched=pred_result[3]
+            for i in range(len(next_candicate_conf_pos_batched)):
+                data_new_pos_batched_list[i].append(next_candicate_conf_pos_batched[i].detach().cpu().numpy().tolist())
         # print(data.y.sum(), y_pred.sum())
         # print(data_new.is_equivalent_native_pocket, rmsd_list[2].shape) 训练时出现晶体构象不是is_equivalent_native_pocket情况，暂时无法打印rmsd_list
         for i in range(len(data_new_pos_batched_list)): #记录每个样本的后面recycling构象更新情况，第0个构象是原始构象 全口袋时删除  TODO
             train_result_list.append([data.pdb[i], data_new_pos_batched_list[i], affinity_pred_A[i].detach().cpu().numpy(), affinity_pred_B_list[-1][i].detach().cpu().numpy() , prmsd_list[-1][i].detach().cpu().numpy()])
 
+        # RMSD loss
+        #dis_map
         y = data.y
         affinity = data.affinity
         dis_map = data.dis_map
-        y_pred = data_new.candicate_dis_matrix
+        y_pred = candicate_dis_matrix=pred_result_list[-1][4]
         if args.use_equivalent_native_y_mask:
             y_pred = y_pred[data.equivalent_native_y_mask]
             y = y[data.equivalent_native_y_mask]
@@ -274,22 +278,46 @@ for epoch in range(10000):
             y_pred = y_pred[data.real_y_mask]
             y = y[data.real_y_mask]
             dis_map = dis_map[data.real_y_mask]
-
-        if args.use_affinity_mask:
-            affinity_pred_A = affinity_pred_A[data.real_affinity_mask]
-            affinity = affinity[data.real_affinity_mask]
-
         if args.pred_dis:
-            rmsd_loss = torch.stack(rmsd_list[1:]).mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(y_pred.device)
-            rmsd_recycling_0_loss=rmsd_list[0].mean() if len(rmsd_list)>0 else torch.tensor([0]).to(y_pred.device)
-            rmsd_recycling_1_loss = rmsd_list[1].mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(
-                y_pred.device)
-            rmsd_recycling_9_loss = rmsd_list[9].mean() if len(rmsd_list) > 9 else torch.tensor([0]).to(
-                y_pred.device)
-            rmsd_recycling_19_loss = rmsd_list[19].mean() if len(rmsd_list) > 19 else torch.tensor([0]).to(
-                y_pred.device)
-            rmsd_recycling_39_loss = rmsd_list[39].mean() if len(rmsd_list) > 39 else torch.tensor([0]).to(
-                y_pred.device)
+
+            #tr,rot,tor loss
+            tr_loss=0
+            rot_loss=0
+            tor_loss=0
+            for pred_result in pred_result_list:
+
+                tr_pred, rot_pred, tor_pred, _, _, current_candicate_conf_pos = pred_result
+                current_candicate_conf_pos_batched=data.unbatch(current_candicate_conf_pos, data['compound'].batch)
+                data_groundtruth_pos_batched = data.unbatch(data['compound'].pos, data['compound'].batch)
+                compound_edge_index_batched = data.unbatch(data['compound', 'compound'].edge_index.T,data.compound_compound_edge_attr_batch)
+                compound_rotate_edge_mask_batched = data.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
+                for i in range(len(data_groundtruth_pos_batched)):
+                    OptimizeConformer_obj = OptimizeConformer(current_candicate_conf_pos_batched[i],
+                                                              data_groundtruth_pos_batched[i],
+                                                              compound_edge_index_batched[i],
+                                                              compound_rotate_edge_mask_batched[i])
+                    opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run()
+                    tr_loss+=F.mse_loss(tr_pred,opt_tr)
+                    rot_loss+=F.mse_loss(rot_pred,opt_rotate)
+                    tor_loss+=F.mse_loss(rot_pred, opt_torsion)
+
+
+            #rmsd_loss
+            rmsd_list=[]
+            for pred_result in pred_result_list:
+                next_candicate_conf_pos_batched=pred_result[3]
+                data_groundtruth_pos_batched = data.unbatch(data['compound'].pos, data['compound'].batch)
+                tmp_list=[]
+                for i in range(len(data_groundtruth_pos_batched)):
+                    tmp_list.append(torch.sqrt(F.mse_loss(next_candicate_conf_pos_batched[i],data_groundtruth_pos_batched[i], reduction="mean")))
+                rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).requires_grad_())
+            rmsd_loss = torch.stack(rmsd_list).mean() #TODO:
+            candicate_conf_pos = pred_result_list[0][5]  # 初始坐标
+            rmsd_recycling_0_loss = torch.sqrt(F.mse_loss(candicate_conf_pos, data['compound'].pos, reduction="mean"))
+            rmsd_recycling_1_loss = rmsd_list[1] if len(rmsd_list) >= 1 else torch.tensor([0]).to(y_pred.device)
+            rmsd_recycling_9_loss = rmsd_list[9] if len(rmsd_list) >=9 else torch.tensor([0]).to(y_pred.device)
+            rmsd_recycling_19_loss = rmsd_list[19] if len(rmsd_list) >= 19 else torch.tensor([0]).to(y_pred.device)
+            rmsd_recycling_39_loss = rmsd_list[39] if len(rmsd_list) >= 39 else torch.tensor([0]).to(y_pred.device)
 
             if args.use_weighted_rmsd_loss:
                 prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i], args.contact_loss_mode) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
@@ -312,6 +340,9 @@ for epoch in range(10000):
         else:
             contact_loss = contact_criterion(y_pred, y) if len(y) > 0 else torch.tensor([0]).to(y.device)
             y_pred = y_pred.sigmoid()
+
+
+        #relative_k
         if args.restart is None:
             base_relative_k = args.relative_k
             if args.relative_k_mode == 0:
@@ -320,9 +351,14 @@ for epoch in range(10000):
             if args.relative_k_mode == 1:
                 # increase linearly
                 relative_k = min(base_relative_k / warm_up_epochs * epoch, base_relative_k)
-
         else:
             relative_k = args.relative_k
+
+
+        #affinity_loss
+        if args.use_affinity_mask:
+            affinity_pred_A = affinity_pred_A[data.real_affinity_mask]
+            affinity = affinity[data.real_affinity_mask]
         if args.affinity_loss_mode == 0:
             affinity_loss_A = relative_k * affinity_criterion(affinity_pred_A, affinity)
             affinity_loss_B = relative_k * torch.stack([affinity_criterion(affinity_pred_B_list[i], affinity) for i in range(len(affinity_pred_B_list))],0).mean()
@@ -333,15 +369,27 @@ for epoch in range(10000):
                                                                 native_pocket_mask, decoy_gap=args.decoy_gap)
             affinity_loss_B = relative_k * torch.stack([my_affinity_criterion(affinity_pred_B_list[i], affinity, native_pocket_mask, decoy_gap=args.decoy_gap) for i in range(len(affinity_pred_B_list))],0).mean()
 
+
+
         # print(contact_loss.item(), affinity_loss_A.item())
+
+        #total loss
         if args.use_contact_loss == 0:
-            loss = prmsd_loss.double() + rmsd_loss.double() + affinity_loss_A + affinity_loss_B
+            loss=tr_loss+tor_loss+rot_loss #TODO:debug阶段
+            #loss = prmsd_loss.double() + rmsd_loss.double() + affinity_loss_A + affinity_loss_B
         else:
             loss = contact_loss.float()
             loss = loss.requires_grad_(True)
         # logging.info(f"prmsd_loss: {prmsd_loss.detach().cpu()}, rmsd_loss: {rmsd_loss.detach().cpu()}, affinity_loss_A: {affinity_loss_A.detach().cpu()}, affinity_loss_B: {affinity_loss_B.detach().cpu()}")
         loss.backward()
         optimizer.step()
+
+        #记录日志
+        epoch_tr_loss+=len(rmsd_list[0]) * tr_loss.item()
+        epoch_rot_loss += len(rmsd_list[0]) * rot_loss.item()
+        epoch_tor_loss += len(rmsd_list[0]) * tor_loss.item()
+
+
         epoch_loss_contact += len(y_pred) * contact_loss.item()
         epoch_loss_contact_5A += len(y_pred) * contact_loss_cat_off_rmsd_5.item()
         epoch_loss_contact_10A += len(y_pred) * contact_loss_cat_off_rmsd_10.item()
@@ -433,7 +481,12 @@ for epoch in range(10000):
     writer.add_scalar('epochLoss.rmsd_recycling_19/train', epoch_rmsd_recycling_19_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.rmsd_recycling_39/train', epoch_rmsd_recycling_39_loss / len(RMSD_pred), epoch)
 
+    writer.add_scalar('epochLoss.tr/train', epoch_tr_loss / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.rot/train', epoch_rot_loss / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.tor/train', epoch_tor_loss / len(RMSD_pred), epoch)
 
+
+    continue #TODO :debug
     #===================validation========================================
 
 
