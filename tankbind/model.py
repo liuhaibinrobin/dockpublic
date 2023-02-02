@@ -698,6 +698,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         #根据tr,rot,tor update data的candicate_conf_pos，然后return
         rot_mat = axis_angle_to_matrix(rot_update.squeeze())
         data_pos_batched = self.unbatch(candicate_conf_pos, data['compound'].batch)
+        ligand_atom_sizes = degree(data['compound'].batch, dtype=torch.long).tolist()
         compound_edge_index_batched = self.unbatch(data['compound', 'compound'].edge_index.T, data.compound_compound_edge_attr_batch)
         compound_rotate_edge_mask_batched = self.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
 
@@ -706,7 +707,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         for i in range(batch_size):
 
             if torsion_updates is not None:
-                rotate_edge_index=compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]]
+                rotate_edge_index=compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]]-sum(ligand_atom_sizes[:i+1]) #把edge_id 从batch计数转换为样本内部计数
                 flexible_new_pos = modify_conformer_torsion_angles(data_pos_batched[i],
                                                                    rotate_edge_index,
                                                                    data['compound'].mask_rotate[i],
