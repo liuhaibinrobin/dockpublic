@@ -265,8 +265,8 @@ def modify_conformer_torsion_angles(pos, edge_index, mask_rotate, torsion_update
     torsion_updates=torsion_updates.detach().to("cpu").numpy()
     if type(pos) != np.ndarray: pos = pos.cpu().numpy()
 
-    import pdb
-    pdb.set_trace()
+    # import pdb
+    # pdb.set_trace()
 
     for idx_edge, e in enumerate(edge_index.cpu().numpy()):
         if torsion_updates[idx_edge] == 0:
@@ -274,9 +274,9 @@ def modify_conformer_torsion_angles(pos, edge_index, mask_rotate, torsion_update
         u, v = e[0], e[1]
 
         # check if need to reverse the edge, v should be connected to the part that gets rotated
-        if mask_rotate[idx_edge, u] or not mask_rotate[idx_edge, v]:
-            # TODO 这里不太懂
-            u, v = e[1], e[0]
+        # if mask_rotate[idx_edge, u] or not mask_rotate[idx_edge, v]:
+        #     # TODO 这里有问题
+        #     u, v = e[1], e[0]
         # assert not mask_rotate[idx_edge, u]
         # assert mask_rotate[idx_edge, v]
 
