@@ -706,7 +706,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         for i in range(batch_size):
 
             if torsion_updates is not None:
-                rotate_edge_index=compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]]-sum(ligand_atom_sizes[:i+1]) #把edge_id 从batch计数转换为样本内部计数
+                rotate_edge_index=compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]]-sum(ligand_atom_sizes[:i]) #把edge_id 从batch计数转换为样本内部计数
                 flexible_new_pos = modify_conformer_torsion_angles(data_pos_batched[i],
                                                                    rotate_edge_index,
                                                                    data['compound'].mask_rotate[i],
