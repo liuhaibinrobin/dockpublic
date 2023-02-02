@@ -279,23 +279,29 @@ for epoch in range(10000):
             y = y[data.real_y_mask]
             dis_map = dis_map[data.real_y_mask]
         if args.pred_dis:
-
+            import pdb
+            pdb.set_trace()
             #tr,rot,tor loss
             tr_loss=0
             rot_loss=0
             tor_loss=0
             for pred_result in pred_result_list:
 
-                tr_pred, rot_pred, tor_pred, _, _, current_candicate_conf_pos = pred_result
-                current_candicate_conf_pos_batched=data.unbatch(current_candicate_conf_pos, data['compound'].batch)
-                data_groundtruth_pos_batched = data.unbatch(data['compound'].pos, data['compound'].batch)
-                compound_edge_index_batched = data.unbatch(data['compound', 'compound'].edge_index.T,data.compound_compound_edge_attr_batch)
-                compound_rotate_edge_mask_batched = data.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
+                tr_pred, rot_pred, tor_pred, _, _, current_candicate_conf_pos_batched = pred_result
+
+                data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
+                compound_edge_index_batched = self.unbatch(data['compound', 'compound'].edge_index.T,data.compound_compound_edge_attr_batch)
+                compound_rotate_edge_mask_batched = self.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
+
                 for i in range(len(data_groundtruth_pos_batched)):
-                    OptimizeConformer_obj = OptimizeConformer(current_candicate_conf_pos_batched[i],
-                                                              data_groundtruth_pos_batched[i],
-                                                              compound_edge_index_batched[i],
-                                                              compound_rotate_edge_mask_batched[i])
+                    rotate_edge_index = compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]] - sum(
+                        ligand_atom_sizes[:i + 1])  # 把edge_id 从batch计数转换为样本内部计数
+                    OptimizeConformer_obj = OptimizeConformer( current_pos=current_candicate_conf_pos_batched[i],
+                                                               ground_truth_pos=data_groundtruth_pos_batched[i],
+                                                               rotate_edge_index=rotate_edge_index,
+                                                               mask_rotate=data['compound'].mask_rotate[i])
+
+
                     opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run()
                     tr_loss+=F.mse_loss(tr_pred,opt_tr)
                     rot_loss+=F.mse_loss(rot_pred,opt_rotate)

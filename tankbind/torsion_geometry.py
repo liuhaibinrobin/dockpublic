@@ -249,11 +249,11 @@ def rigid_transform_Kabsch_3D_torch(A, B):
     t = -R @ centroid_A + centroid_B
     return R, t
 
-def modify_conformer_torsion_angles(pos, edge_index, mask_rotate, torsion_updates, as_numpy=False):
+def modify_conformer_torsion_angles(pos, rotate_edge_index, mask_rotate, torsion_updates, as_numpy=False):
     """
 
     :param pos: compound 坐标 : atom_num*3(float)
-    :param edge_index: 柔性键 atom_pair index: rotate_bond_num*2(int)
+    :param rotate_edge_index: 柔性键 atom_pair index: rotate_bond_num*2(int)
     :param mask_rotate:  每个柔性键对应的需要旋转的batch中所有分子所有原子的mask: rotate_bond_num*batch_atom_num(bool)
     :param torsion_updates:每个柔性键扭转角  ：rotate_bond_num（float）
     :param as_numpy:
@@ -268,7 +268,7 @@ def modify_conformer_torsion_angles(pos, edge_index, mask_rotate, torsion_update
     # import pdb
     # pdb.set_trace()
 
-    for idx_edge, e in enumerate(edge_index.cpu().numpy()):
+    for idx_edge, e in enumerate(rotate_edge_index.cpu().numpy()):
         if torsion_updates[idx_edge] == 0:
             continue
         u, v = e[0], e[1]
