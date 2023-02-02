@@ -619,8 +619,7 @@ class IaBNet_with_affinity(torch.nn.Module):
             rot_norm = torch.linalg.vector_norm(rot_pred, dim=1).unsqueeze(1)
             rot_pred = rot_pred / rot_norm * self.rot_final_layer(rot_norm)
             # torsional components
-            import pdb
-            pdb.set_trace()
+
             tor_bonds, tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_bond_conv_graph(data,current_candicate_conf_pos)
             tor_bond_vec = current_candicate_conf_pos[tor_bonds[1]] - current_candicate_conf_pos[tor_bonds[0]]
             tor_bond_attr = compound_out_new[tor_bonds[0]] + compound_out_new[tor_bonds[1]]

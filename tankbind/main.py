@@ -290,8 +290,8 @@ for epoch in range(10000):
                 tr_pred, rot_pred, tor_pred, _, _, current_candicate_conf_pos_batched = pred_result
 
                 data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
-                compound_edge_index_batched = self.unbatch(data['compound', 'compound'].edge_index.T,data.compound_compound_edge_attr_batch)
-                compound_rotate_edge_mask_batched = self.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
+                compound_edge_index_batched = model.unbatch(data['compound', 'compound'].edge_index.T,data.compound_compound_edge_attr_batch)
+                compound_rotate_edge_mask_batched = model.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
 
                 for i in range(len(data_groundtruth_pos_batched)):
                     rotate_edge_index = compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]] - sum(
