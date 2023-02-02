@@ -478,88 +478,6 @@ def evaluate_affinity_only(data_loader, model, criterion, affinity_criterion, re
 
 #以下为获得每轮recycling最佳旋转/平移/扭转的方法
 
-def SetDihedral(conf, atom_idx, new_vale):
-    rdMolTransforms.SetDihedralRad(conf, atom_idx[0], atom_idx[1], atom_idx[2], atom_idx[3], new_vale)
-
-
-def apply_changes(mol, values, rotable_bonds, conf_id):
-    opt_mol = copy.copy(mol)
-    [SetDihedral(opt_mol.GetConformer(conf_id), rotable_bonds[r], values[r]) for r in range(len(rotable_bonds))]
-
-    return opt_mol
-
-
-def optimize_rotatable_bonds(mol, true_mol, rotable_bonds, probe_id=-1, ref_id=-1, seed=0, popsize=15, maxiter=500,
-                             mutation=(0.5, 1), recombination=0.8):
-    opt = OptimizeConformer(mol, true_mol, rotable_bonds, seed=seed, probe_id=probe_id, ref_id=ref_id)
-    max_bound = [np.pi] * len(opt.rotable_bonds)
-    min_bound = [-np.pi] * len(opt.rotable_bonds)
-    bounds = (min_bound, max_bound)
-    bounds = list(zip(bounds[0], bounds[1]))
-
-    # Optimize conformations
-    result = differential_evolution(opt.score_conformation, bounds,
-                                    maxiter=maxiter, popsize=popsize,
-                                    mutation=mutation, recombination=recombination, disp=False, seed=seed)
-    opt_mol = apply_changes(opt.ori_mol, result['x'], opt.rotable_bonds, conf_id=probe_id)
-
-    res_RMSD,transform_matrix=AllChem.GetAlignmentTransform(opt_mol, true_mol, probe_id, ref_id)
-    opt_pos0=opt_mol.GetConformer(0).GetPositions()
-
-    opt_pos1=np.dot(opt_mol.GetConformer(0).GetPositions(), transform_matrix[0:3, 0:3].T)+ transform_matrix[0:3, 3]
-
-    opt_mol2=copy.deepcopy(opt_mol)
-    AllChem.TransformMol(opt_mol2, transform_matrix)
-    opt_pos2=opt_mol2.GetConformer(0).GetPositions()
-
-    opt_mol3 = copy.deepcopy(opt_mol)
-    AllChem.AlignMol(opt_mol3, true_mol, probe_id, ref_id)
-    opt_pos3 = opt_mol3.GetConformer(0).GetPositions()
-
-    print(opt_pos0[0],opt_pos1[0],opt_pos2[0],opt_pos3[0])
-    return transform_matrix[0:3, 0:3].T,transform_matrix[0:3, 3],opt_mol,result['x']
-
-
-class OptimizeConformer:
-    def __init__(self, mol, true_mol, rotable_bonds, probe_id=-1, ref_id=-1, seed=None):
-        super(OptimizeConformer, self).__init__()
-        if seed:
-            np.random.seed(seed)
-        self.rotable_bonds = rotable_bonds
-        self.mol = mol
-        self.ori_mol=copy.deepcopy(mol)
-        self.true_mol = true_mol
-        self.probe_id = probe_id
-        self.ref_id = ref_id
-
-    def score_conformation(self, values):
-        for i, r in enumerate(self.rotable_bonds):
-            SetDihedral(self.mol.GetConformer(self.probe_id), r, values[i])
-        return RMSD(self.mol, self.true_mol, self.probe_id, self.ref_id)
-
-
-def get_torsion_angles(mol):
-    torsions_list = []
-    G = nx.Graph()
-    for i, atom in enumerate(mol.GetAtoms()):
-        G.add_node(i)
-    nodes = set(G.nodes())
-    for bond in mol.GetBonds():
-        start, end = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
-        G.add_edge(start, end)
-    for e in G.edges():
-        G2 = copy.deepcopy(G)
-        G2.remove_edge(*e)
-        if nx.is_connected(G2): continue
-        l = list(sorted(nx.connected_components(G2), key=len)[0])
-        if len(l) < 2: continue
-        n0 = list(G2.neighbors(e[0]))
-        n1 = list(G2.neighbors(e[1]))
-        torsions_list.append(
-            (n0[0], e[0], e[1], n1[0])
-        )
-    return torsions_list
-
 from torsion_geometry import modify_conformer_torsion_angles,rigid_transform_Kabsch_3D_torch,matrix_to_axis_angle
 from scipy.optimize import differential_evolution
 
@@ -584,10 +502,14 @@ class OptimizeConformer:
                                                   self.mask_rotate, torsion)
         else:
             new_pos=self.candidate_pos
-        R, t = rigid_transform_Kabsch_3D_torch(new_pos.T, self.ground_truth_pos.T)
-        aligned_new_pos = new_pos @ R.T + t.T
 
-        rmsd = np.sqrt(np.average(np.sum((aligned_new_pos - self.ground_truth_pos) ** 2, axis=-1)))
+        lig_center = torch.mean(new_pos, dim=0, keepdim=True)
+        R, t = rigid_transform_Kabsch_3D_torch((new_pos-lig_center).T, (self.ground_truth_pos-lig_center).T)
+        aligned_new_pos = torch.mm((new_pos-lig_center) , R.T) + t.T+lig_center
+
+
+        #rmsd = np.sqrt(np.average(torch.sum((aligned_new_pos - self.ground_truth_pos) ** 2, axis=-1)))
+        rmsd=torch.sqrt(F.mse_loss(aligned_new_pos, self.ground_truth_pos,reduction="mean"))
         return rmsd,R, t
 
     def score_conformation(self, torsion):
