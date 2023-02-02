@@ -619,7 +619,9 @@ class IaBNet_with_affinity(torch.nn.Module):
             rot_norm = torch.linalg.vector_norm(rot_pred, dim=1).unsqueeze(1)
             rot_pred = rot_pred / rot_norm * self.rot_final_layer(rot_norm)
             # torsional components
-            tor_bonds, tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_bond_conv_graph(data)
+            import pdb
+            pdb.set_trace()
+            tor_bonds, tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_bond_conv_graph(data,current_candicate_conf_pos)
             tor_bond_vec = current_candicate_conf_pos[tor_bonds[1]] - current_candicate_conf_pos[tor_bonds[0]]
             tor_bond_attr = compound_out_new[tor_bonds[0]] + compound_out_new[tor_bonds[1]]
             tor_bonds_sh = o3.spherical_harmonics("2e", tor_bond_vec, normalize=True, normalization='component')
@@ -666,14 +668,14 @@ class IaBNet_with_affinity(torch.nn.Module):
         edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
         return edge_index, edge_attr, edge_sh
 
-    def build_bond_conv_graph(self, data):
+    def build_bond_conv_graph(self, data,current_candicate_conf_pos):
         # builds the graph for the convolution between the center of the rotatable bonds and the neighbouring nodes
         bonds = data['compound', 'compound'].edge_index[:, data['compound'].edge_mask].long()
-        bond_pos = (data.candicate_conf_pos[bonds[0]] + data.candicate_conf_pos[bonds[1]]) / 2
+        bond_pos = (current_candicate_conf_pos[bonds[0]] + current_candicate_conf_pos[bonds[1]]) / 2
         bond_batch = data['compound'].batch[bonds[0]]
-        edge_index = radius(data.candicate_conf_pos, bond_pos, self.lig_max_radius, batch_x=data['compound'].batch, batch_y=bond_batch)
+        edge_index = radius(current_candicate_conf_pos, bond_pos, self.lig_max_radius, batch_x=data['compound'].batch, batch_y=bond_batch)
 
-        edge_vec = data.candicate_conf_pos[edge_index[1]] - bond_pos[edge_index[0]]
+        edge_vec = current_candicate_conf_pos[edge_index[1]] - bond_pos[edge_index[0]]
         edge_attr = self.lig_distance_expansion(edge_vec.norm(dim=-1))
 
         edge_attr = self.final_edge_embedding(edge_attr)
