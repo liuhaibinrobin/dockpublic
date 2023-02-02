@@ -262,9 +262,8 @@ def modify_conformer_torsion_angles(pos, rotate_edge_index, mask_rotate, torsion
     #TODO:目前都是numpy 版本的，不需要梯度传播
     device=pos.device
     pos = copy.deepcopy(pos)
-    torsion_updates=torsion_updates.detach().to("cpu").numpy()
     if type(pos) != np.ndarray: pos = pos.cpu().numpy()
-
+    if type(torsion_updates) != np.ndarray: torsion_updates = torsion_updates.cpu().numpy()  #opt的时候是array，train的时候是tensor
     # import pdb
     # pdb.set_trace()
 
