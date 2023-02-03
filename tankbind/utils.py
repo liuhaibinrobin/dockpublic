@@ -512,8 +512,7 @@ class OptimizeConformer:
         else:
             new_pos=self.candidate_pos
 
-        import pdb
-        pdb.set_trace()
+
         #lig_center=np.mean(new_pos, axis=0, )
         lig_center = torch.mean(new_pos, dim=0, keepdim=True)
 
@@ -521,10 +520,15 @@ class OptimizeConformer:
             (new_pos-lig_center).T,
             (self.ground_truth_pos-lig_center).T)
 
+
         aligned_new_pos = torch.mm((new_pos - lig_center), R.T) + t.T + lig_center
         #aligned_new_pos = np.dot((new_pos-lig_center) , R.T) + t.T+lig_center
-        #rmsd = np.sqrt(np.average(np.sum((aligned_new_pos - self.ground_truth_pos) ** 2, axis=-1)))
-        rmsd = torch.sqrt(F.mse_loss(aligned_new_pos, self.ground_truth_pos, reduction="mean"))
+
+        import pdb
+        pdb.set_trace()
+        # RMSD 计算公式https://cloud.tencent.com/developer/article/1668887
+        #rmsd = np.sqrt(np.sum((aligned_new_pos.cpu().numpy() - self.ground_truth_pos.cpu().numpy()) ** 2)/len(aligned_new_pos)) #
+        rmsd = torch.sqrt(F.mse_loss(aligned_new_pos, self.ground_truth_pos, reduction="sum")/len(aligned_new_pos))
         return rmsd,R, t
 
     def score_conformation(self, torsion):
