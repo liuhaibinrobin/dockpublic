@@ -314,14 +314,17 @@ for epoch in range(10000):
             tor_loss=tor_loss/tmp_cnt
 
 
-
             #rmsd_loss
             rmsd_list=[]
-            data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
-            for pred_result in pred_result_list:#recycling
+            for pred_result in pred_result_list:
                 next_candicate_conf_pos_batched=pred_result[3]
-
-            rmsd_loss = torch.stack(rmsd_list).mean() #TODO:
+                data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
+                tmp_list=[]
+                for i in range(len(data_groundtruth_pos_batched)):
+                    tmp_rmsd=utils.RMSD(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
+                    tmp_list.append(tmp_rmsd)
+                rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).requires_grad_())
+            rmsd_loss = torch.stack(rmsd_list).mean()  # TODO:
 
 
             candicate_conf_pos_batched = pred_result_list[0][5]  # 初始坐标
