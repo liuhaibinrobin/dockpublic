@@ -538,7 +538,7 @@ class OptimizeConformer:
         return score
 
 
-    def run(self ,popsize=15,maxiter=500,mutation=(0.5, 1), recombination=0.8,seed=0):
+    def run(self ,popsize=15,maxiter=500,mutation=(0.5, 1), recombination=0.8,seed=0,workers=-1):
         """
 
         :param popsize:
@@ -561,7 +561,7 @@ class OptimizeConformer:
         # Optimize conformations
         result = differential_evolution(self.score_conformation, bounds,
                                         maxiter=maxiter, popsize=popsize,
-                                        mutation=mutation, recombination=recombination, disp=False, seed=seed)
+                                        mutation=mutation, recombination=recombination, disp=False, seed=seed,workers=workers)
         opt_rmsd,opt_R, opt_tr=self.apply_torsion(result["x"])
         opt_torsion=torch.from_numpy(result["x"]).to(self.candidate_pos.device)
         opt_rotate=matrix_to_axis_angle(opt_R)
