@@ -279,12 +279,12 @@ for epoch in range(10000):
             y = y[data.real_y_mask]
             dis_map = dis_map[data.real_y_mask]
         if args.pred_dis:
-            import pdb
-            pdb.set_trace()
+
             #tr,rot,tor loss
             tr_loss=0
             rot_loss=0
             tor_loss=0
+            tmp_cnt=0
             for pred_result in pred_result_list:
 
                 tr_pred, rot_pred, tor_pred, _, _, current_candicate_conf_pos_batched = pred_result
@@ -302,10 +302,16 @@ for epoch in range(10000):
 
 
                     opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run()
-                    tr_loss+=F.mse_loss(tr_pred,opt_tr)
-                    rot_loss+=F.mse_loss(rot_pred,opt_rotate)
-                    tor_loss+=F.mse_loss(rot_pred, opt_torsion)
+                    tr_loss+=F.mse_loss(tr_pred[i],opt_tr)
+                    rot_loss+=F.mse_loss(rot_pred[i],opt_rotate)
+                    tor_loss+=F.mse_loss(rot_pred[i], opt_torsion)
+                    tmp_cnt+=1
+            tr_loss=tr_loss/tmp_cnt
+            rot_loss=rot_loss/tmp_cnt
+            tor_loss=tor_loss/tmp_cnt
 
+            import pdb
+            pdb.set_trace()
 
             #rmsd_loss
             rmsd_list=[]

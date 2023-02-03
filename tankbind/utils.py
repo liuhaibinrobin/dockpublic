@@ -563,7 +563,7 @@ class OptimizeConformer:
         opt_rmsd,opt_R, opt_tr=self.apply_torsion(result["x"])
         opt_torsion=result["x"]
         opt_rotate=matrix_to_axis_angle(opt_R)
-
+        opt_tr=opt_tr.T
         return opt_tr,opt_rotate,opt_torsion,opt_rmsd
 
 
