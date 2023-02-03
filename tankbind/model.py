@@ -713,7 +713,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                 flexible_new_pos = modify_conformer_torsion_angles(data_pos_batched[i],
                                                                    rotate_edge_index,
                                                                    data['compound'].mask_rotate[i],
-                                                                   torsion_updates)
+                                                                   torsion_updates_batched[i])
                 # TODO:这里先删掉原版diffdock代码中的align
                 # R, t = rigid_transform_Kabsch_3D_torch(flexible_new_pos.T, rigid_new_pos.T)
                 # aligned_flexible_pos = flexible_new_pos @ R.T + t.T
