@@ -262,7 +262,7 @@ def modify_conformer_torsion_angles(pos, rotate_edge_index, mask_rotate, torsion
     device=pos.device
     new_pos=modify_conformer_torsion_angles_np(pos.detach().cpu().numpy(),
                                        rotate_edge_index.detach().cpu().numpy(),
-                                       mask_rotate.detach().cpu().numpy(),
+                                       mask_rotate,
                                        torsion_updates.detach().cpu().numpy())
     new_pos=torch.from_numpy(new_pos).to(device)
     return new_pos

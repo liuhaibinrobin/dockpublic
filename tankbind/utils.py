@@ -493,7 +493,7 @@ class OptimizeConformer:
         self.candidate_pos=current_pos.detach().cpu().numpy()
         self.ground_truth_pos=ground_truth_pos.detach().cpu().numpy()
         self.rotate_edge_index=rotate_edge_index.detach().cpu().numpy()
-        self.mask_rotate=mask_rotate.detach().cpu().numpy()
+        self.mask_rotate=mask_rotate
         self.rotate_bond_num=len(self.mask_rotate)
 
     def apply_torsion(self,torsion):
