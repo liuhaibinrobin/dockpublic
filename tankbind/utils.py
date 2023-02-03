@@ -490,9 +490,9 @@ class OptimizeConformer:
         :param rotate_edge_index:
         :param mask_rotate
         """
-        self.candidate_pos=current_pos.detach().cpu().numpy()
-        self.ground_truth_pos=ground_truth_pos.detach().cpu().numpy()
-        self.rotate_edge_index=rotate_edge_index.detach().cpu().numpy()
+        self.candidate_pos=current_pos
+        self.ground_truth_pos=ground_truth_pos
+        self.rotate_edge_index=rotate_edge_index
         self.mask_rotate=mask_rotate
         self.rotate_bond_num=len(self.mask_rotate)
 
@@ -503,26 +503,32 @@ class OptimizeConformer:
         :return:
         """
         if torsion is not None:
-            new_pos = modify_conformer_torsion_angles_np(self.candidate_pos, self.rotate_edge_index,self.mask_rotate, torsion)
+
+            new_pos = modify_conformer_torsion_angles_np(self.candidate_pos.detach().cpu().numpy(),
+                                                         self.rotate_edge_index.detach().cpu().numpy(),
+                                                         self.mask_rotate,
+                                                          torsion)
+            new_pos=torch.from_numpy(new_pos).to(self.candidate_pos.device)
         else:
             new_pos=self.candidate_pos
 
+        import pdb
+        pdb.set_trace()
+        #lig_center=np.mean(new_pos, axis=0, )
+        lig_center = torch.mean(new_pos, dim=0, keepdim=True)
 
-        lig_center=np.mean(new_pos, axis=0, )
         R, t = rigid_transform_Kabsch_3D_torch(
-            torch.from_numpy(new_pos-lig_center).T,
-            torch.from_numpy(self.ground_truth_pos-lig_center).T
-        )
-        R = R.numpy()
-        t = t.numpy()
+            (new_pos-lig_center).T,
+            (self.ground_truth_pos-lig_center).T)
 
-        aligned_new_pos = np.dot((new_pos-lig_center) , R.T) + t.T+lig_center
-        rmsd = np.sqrt(np.average(np.sum((aligned_new_pos - self.ground_truth_pos) ** 2, axis=-1)))
+        aligned_new_pos = torch.mm((new_pos - lig_center), R.T) + t.T + lig_center
+        #aligned_new_pos = np.dot((new_pos-lig_center) , R.T) + t.T+lig_center
+        #rmsd = np.sqrt(np.average(np.sum((aligned_new_pos - self.ground_truth_pos) ** 2, axis=-1)))
+        rmsd = torch.sqrt(F.mse_loss(aligned_new_pos, self.ground_truth_pos, reduction="mean"))
         return rmsd,R, t
 
     def score_conformation(self, torsion):
-        import pdb
-        pdb.set_trace()
+
         score=self.apply_torsion(torsion)[0]
         return score
 
