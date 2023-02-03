@@ -563,7 +563,7 @@ class OptimizeConformer:
         opt_rmsd,opt_R, opt_tr=self.apply_torsion(result["x"])
         opt_torsion=torch.from_numpy(result["x"]).to(self.candidate_pos.device)
         opt_rotate=matrix_to_axis_angle(opt_R)
-        opt_tr=opt_tr.T
+        opt_tr=opt_tr.T[0]
         return opt_tr,opt_rotate,opt_torsion,opt_rmsd
 
 

@@ -304,7 +304,7 @@ for epoch in range(10000):
                     opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run()
                     tr_loss+=F.mse_loss(tr_pred[i],opt_tr)
                     rot_loss+=F.mse_loss(rot_pred[i],opt_rotate)
-                    tor_loss+=F.mse_loss(rot_pred[i], opt_torsion)
+                    tor_loss+=F.mse_loss(tor_pred[i], opt_torsion)
                     tmp_cnt+=1
             tr_loss=tr_loss/tmp_cnt
             rot_loss=rot_loss/tmp_cnt
