@@ -249,7 +249,7 @@ def rigid_transform_Kabsch_3D_torch(A, B):
     t = -R @ centroid_A + centroid_B
     return R, t
 
-def modify_conformer_torsion_angles_np(pos, rotate_edge_index, mask_rotate, torsion_updates):
+def modify_conformer_torsion_angles(pos, rotate_edge_index, mask_rotate, torsion_updates):
     """
 
     :param pos: compound 坐标 : atom_num*3(float)
@@ -259,6 +259,24 @@ def modify_conformer_torsion_angles_np(pos, rotate_edge_index, mask_rotate, tors
     :return:
     """
     #TODO:目前都是numpy 版本的，不需要梯度传播
+    device=pos.device
+    new_pos=modify_conformer_torsion_angles_np(pos.detach.cpu().numpy(),
+                                       rotate_edge_index.detach.cpu().numpy(),
+                                       mask_rotate.detach.cpu().numpy(),
+                                       torsion_updates.detach.cpu().numpy())
+    new_pos=torch.from_numpy(new_pos).to(device)
+    return new_pos
+
+def modify_conformer_torsion_angles_np(pos, rotate_edge_index, mask_rotate, torsion_updates):
+    """
+    np版本用于opt
+    :param pos: compound 坐标 : atom_num*3(float)
+    :param rotate_edge_index: 柔性键 atom_pair index: rotate_bond_num*2(int)
+    :param mask_rotate:  每个柔性键对应的需要旋转的batch中所有分子所有原子的mask: rotate_bond_num*batch_atom_num(bool)
+    :param torsion_updates:每个柔性键扭转角  ：rotate_bond_num（float）
+    :return:
+    """
+
 
     pos = copy.deepcopy(pos)
     if type(pos) != np.ndarray:raise Exception
