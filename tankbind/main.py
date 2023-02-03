@@ -301,7 +301,7 @@ for epoch in range(10000):
                                                                mask_rotate=data['compound'].mask_rotate[i])
 
                     ttt=time.time()
-                    opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=50,workers=-1)
+                    opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
                     print(tmp_cnt, opt_rmsd,time.time()-ttt)
                     tr_loss+=F.mse_loss(tr_pred[i],opt_tr)
                     rot_loss+=F.mse_loss(rot_pred[i],opt_rotate)
