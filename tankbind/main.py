@@ -306,6 +306,7 @@ for epoch in range(10000):
                     rot_loss+=F.mse_loss(rot_pred[i],opt_rotate)
                     tor_loss+=F.mse_loss(tor_pred[i], opt_torsion)
                     tmp_cnt+=1
+                    print(tmp_cnt)
             tr_loss=tr_loss/tmp_cnt
             rot_loss=rot_loss/tmp_cnt
             tor_loss=tor_loss/tmp_cnt
