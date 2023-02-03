@@ -291,7 +291,6 @@ for epoch in range(10000):
                 tr_pred, rot_pred, torsion_pred_batched, _, _, current_candicate_conf_pos_batched = pred_result
                 tr_pred.retain_grad()
                 rot_pred.retain_grad()
-                torsion_pred_batched.retain_grad()
                 for tmp_torsion_pred in torsion_pred_batched:
                     tmp_torsion_pred.retain_grad()
 
