@@ -340,8 +340,8 @@ for epoch in range(10000):
             rmsd_recycling_9_loss = torch.mean(rmsd_list[8]) if len(rmsd_list) >=9 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_19_loss = torch.mean(rmsd_list[18]) if len(rmsd_list) >= 19 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_39_loss = torch.mean(rmsd_list[38]) if len(rmsd_list) >= 39 else torch.tensor([0]).to(y_pred.device)
-            import pdb
-            pdb.set_trace()
+            # import pdb
+            # pdb.set_trace()
 
             if args.use_weighted_rmsd_loss:
                 prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i], args.contact_loss_mode) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
