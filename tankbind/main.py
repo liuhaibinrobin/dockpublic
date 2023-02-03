@@ -279,8 +279,8 @@ for epoch in range(10000):
             y = y[data.real_y_mask]
             dis_map = dis_map[data.real_y_mask]
         if args.pred_dis:
-            # import pdb
-            # pdb.set_trace()
+            import pdb
+            pdb.set_trace()
             #tr,rot,tor loss
             tr_loss=0
             rot_loss=0
@@ -314,11 +314,13 @@ for epoch in range(10000):
                 data_groundtruth_pos_batched = data.unbatch(data['compound'].pos, data['compound'].batch)
                 tmp_list=[]
                 for i in range(len(data_groundtruth_pos_batched)):
-                    tmp_list.append(torch.sqrt(F.mse_loss(next_candicate_conf_pos_batched[i],data_groundtruth_pos_batched[i], reduction="mean")))
+                    tmp_rmsd=torch.sqrt(F.mse_loss(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i], reduction="sum") / len(
+                        aligned_new_pos)).item()
+                    tmp_list.append(tmp_rmsd)
                 rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).requires_grad_())
             rmsd_loss = torch.stack(rmsd_list).mean() #TODO:
             candicate_conf_pos = pred_result_list[0][5]  # 初始坐标
-            rmsd_recycling_0_loss = torch.sqrt(F.mse_loss(candicate_conf_pos, data['compound'].pos, reduction="mean"))
+            rmsd_recycling_0_loss = torch.sqrt(F.mse_loss(candicate_conf_pos, data['compound'].pos, reduction="sum") / len(aligned_new_pos)).item()
             rmsd_recycling_1_loss = rmsd_list[1] if len(rmsd_list) >= 1 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_9_loss = rmsd_list[9] if len(rmsd_list) >=9 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_19_loss = rmsd_list[19] if len(rmsd_list) >= 19 else torch.tensor([0]).to(y_pred.device)
