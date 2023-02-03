@@ -507,7 +507,8 @@ class OptimizeConformer:
         else:
             new_pos=self.candidate_pos
 
-        lig_center = np.mean(new_pos, dim=0, keepdim=True)
+
+        lig_center=np.mean(new_pos, axis=0, )
         R, t = rigid_transform_Kabsch_3D_torch(
             torch.from_numpy(new_pos-lig_center).T,
             torch.from_numpy(self.ground_truth_pos-lig_center).T
@@ -520,7 +521,10 @@ class OptimizeConformer:
         return rmsd,R, t
 
     def score_conformation(self, torsion):
-        return self.apply_torsion(torsion)[0]
+        import pdb
+        pdb.set_trace()
+        score=self.apply_torsion(torsion)[0]
+        return score
 
 
     def run(self ,popsize=15,maxiter=500,mutation=(0.5, 1), recombination=0.8,seed=0):

@@ -279,8 +279,8 @@ for epoch in range(10000):
             y = y[data.real_y_mask]
             dis_map = dis_map[data.real_y_mask]
         if args.pred_dis:
-            import pdb
-            pdb.set_trace()
+            # import pdb
+            # pdb.set_trace()
             #tr,rot,tor loss
             tr_loss=0
             rot_loss=0
