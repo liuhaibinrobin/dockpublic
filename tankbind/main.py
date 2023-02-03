@@ -289,6 +289,11 @@ for epoch in range(10000):
             for pred_result in pred_result_list:
 
                 tr_pred, rot_pred, torsion_pred_batched, _, _, current_candicate_conf_pos_batched = pred_result
+                tr_pred.retain_grad()
+                rot_pred.retain_grad()
+                torsion_pred_batched.retain_grad()
+                for tmp_torsion_pred in torsion_pred_batched:
+                    tmp_torsion_pred.retain_grad()
 
                 data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
                 compound_edge_index_batched = model.unbatch(data['compound', 'compound'].edge_index.T,data.compound_compound_edge_attr_batch)
@@ -405,6 +410,9 @@ for epoch in range(10000):
             loss = contact_loss.float()
             loss = loss.requires_grad_(True)
         # logging.info(f"prmsd_loss: {prmsd_loss.detach().cpu()}, rmsd_loss: {rmsd_loss.detach().cpu()}, affinity_loss_A: {affinity_loss_A.detach().cpu()}, affinity_loss_B: {affinity_loss_B.detach().cpu()}")
+
+        import pdb
+        pdb.set_trace()
         loss.backward()
         optimizer.step()
 
