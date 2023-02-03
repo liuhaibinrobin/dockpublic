@@ -323,7 +323,7 @@ for epoch in range(10000):
                 for i in range(len(data_groundtruth_pos_batched)):
                     tmp_rmsd=utils.RMSD(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
                     tmp_list.append(tmp_rmsd)
-                rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).requires_grad_())
+                rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).requires_grad_().to(y_pred.device))
             rmsd_loss = torch.stack(rmsd_list).mean()  # TODO:
 
 
@@ -333,14 +333,15 @@ for epoch in range(10000):
                 tmp_rmsd = utils.RMSD(candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
                 rmsd_recycling_0_loss+=tmp_rmsd
 
-            import pdb
-            pdb.set_trace()
 
-            rmsd_recycling_0_loss = rmsd_recycling_0_loss/len(data_groundtruth_pos_batched)
+
+            rmsd_recycling_0_loss = torch.tensor(rmsd_recycling_0_loss/len(data_groundtruth_pos_batched)).to(y_pred.device)
             rmsd_recycling_1_loss = torch.mean(rmsd_list[0]) if len(rmsd_list) >= 1 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_9_loss = torch.mean(rmsd_list[8]) if len(rmsd_list) >=9 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_19_loss = torch.mean(rmsd_list[18]) if len(rmsd_list) >= 19 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_39_loss = torch.mean(rmsd_list[38]) if len(rmsd_list) >= 39 else torch.tensor([0]).to(y_pred.device)
+            import pdb
+            pdb.set_trace()
 
             if args.use_weighted_rmsd_loss:
                 prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i], args.contact_loss_mode) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
