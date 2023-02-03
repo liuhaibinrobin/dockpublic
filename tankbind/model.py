@@ -701,9 +701,8 @@ class IaBNet_with_affinity(torch.nn.Module):
         compound_edge_index_batched = self.unbatch(data['compound', 'compound'].edge_index.T, data.compound_compound_edge_attr_batch)
         compound_rotate_edge_mask_batched = self.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
 
-        import pdb
-        pdb.set_trace()
-        torsion_updates_batched=torsion_updates.split(data["compound"].rotate_bond_num)
+
+        torsion_updates_batched=torsion_updates.split(data["compound"].rotate_bond_num.detach().cpu().numpy().tolist())
 
         new_pos_t=[]
         for i in range(batch_size):
