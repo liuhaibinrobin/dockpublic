@@ -478,7 +478,7 @@ def evaluate_affinity_only(data_loader, model, criterion, affinity_criterion, re
 
 #以下为获得每轮recycling最佳旋转/平移/扭转的方法
 
-from torsion_geometry import modify_conformer_torsion_angles,rigid_transform_Kabsch_3D_torch,matrix_to_axis_angle
+from torsion_geometry import modify_conformer_torsion_angles_np,rigid_transform_Kabsch_3D_torch,matrix_to_axis_angle
 from scipy.optimize import differential_evolution
 
 class OptimizeConformer:
@@ -490,26 +490,33 @@ class OptimizeConformer:
         :param rotate_edge_index:
         :param mask_rotate
         """
-        self.candidate_pos=current_pos
-        self.ground_truth_pos=ground_truth_pos
-        self.rotate_edge_index=rotate_edge_index
-        self.mask_rotate=mask_rotate
+        self.candidate_pos=current_pos.detach().cpu().numpy()
+        self.ground_truth_pos=ground_truth_pos.detach().cpu().numpy()
+        self.rotate_edge_index=rotate_edge_index.detach().cpu().numpy()
+        self.mask_rotate=mask_rotate.detach().cpu().numpy()
         self.rotate_bond_num=len(self.mask_rotate)
 
     def apply_torsion(self,torsion):
+        """
+
+        :param torsion: 输入是numpy.ndarray
+        :return:
+        """
         if torsion is not None:
-            new_pos = modify_conformer_torsion_angles(self.candidate_pos, self.rotate_edge_index,
-                                                  self.mask_rotate, torsion)
+            new_pos = modify_conformer_torsion_angles_np(self.candidate_pos, self.rotate_edge_index,self.mask_rotate, torsion)
         else:
             new_pos=self.candidate_pos
 
-        lig_center = torch.mean(new_pos, dim=0, keepdim=True)
-        R, t = rigid_transform_Kabsch_3D_torch((new_pos-lig_center).T, (self.ground_truth_pos-lig_center).T)
-        aligned_new_pos = torch.mm((new_pos-lig_center) , R.T) + t.T+lig_center
+        lig_center = np.mean(new_pos, dim=0, keepdim=True)
+        R, t = rigid_transform_Kabsch_3D_torch(
+            torch.from_numpy(new_pos-lig_center).T,
+            torch.from_numpy(self.ground_truth_pos-lig_center).T
+        )
+        R = R.numpy()
+        t = t.numpy()
 
-
-        #rmsd = np.sqrt(np.average(torch.sum((aligned_new_pos - self.ground_truth_pos) ** 2, axis=-1)))
-        rmsd=torch.sqrt(F.mse_loss(aligned_new_pos, self.ground_truth_pos,reduction="mean"))
+        aligned_new_pos = np.dot((new_pos-lig_center) , R.T) + t.T+lig_center
+        rmsd = np.sqrt(np.average(np.sum((aligned_new_pos - self.ground_truth_pos) ** 2, axis=-1)))
         return rmsd,R, t
 
     def score_conformation(self, torsion):

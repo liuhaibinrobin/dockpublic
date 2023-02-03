@@ -249,25 +249,26 @@ def rigid_transform_Kabsch_3D_torch(A, B):
     t = -R @ centroid_A + centroid_B
     return R, t
 
-def modify_conformer_torsion_angles(pos, rotate_edge_index, mask_rotate, torsion_updates, as_numpy=False):
+def modify_conformer_torsion_angles_np(pos, rotate_edge_index, mask_rotate, torsion_updates):
     """
 
     :param pos: compound 坐标 : atom_num*3(float)
     :param rotate_edge_index: 柔性键 atom_pair index: rotate_bond_num*2(int)
     :param mask_rotate:  每个柔性键对应的需要旋转的batch中所有分子所有原子的mask: rotate_bond_num*batch_atom_num(bool)
     :param torsion_updates:每个柔性键扭转角  ：rotate_bond_num（float）
-    :param as_numpy:
     :return:
     """
     #TODO:目前都是numpy 版本的，不需要梯度传播
-    device=pos.device
+
     pos = copy.deepcopy(pos)
-    if type(pos) != np.ndarray: pos = pos.cpu().numpy()
-    if type(torsion_updates) != np.ndarray: torsion_updates = torsion_updates.cpu().numpy()  #opt的时候是array，train的时候是tensor
+    if type(pos) != np.ndarray:raise Exception
+    if type(torsion_updates) != np.ndarray:raise Exception   #opt的时候是array，train的时候是tensor
+    if type(rotate_edge_index) != np.ndarray: raise Exception
+    if type(mask_rotate) != np.ndarray: raise Exception
     # import pdb
     # pdb.set_trace()
 
-    for idx_edge, e in enumerate(rotate_edge_index.cpu().numpy()):
+    for idx_edge, e in enumerate(rotate_edge_index):
         if torsion_updates[idx_edge] == 0:
             continue
         u, v = e[0], e[1]
@@ -285,5 +286,5 @@ def modify_conformer_torsion_angles(pos, rotate_edge_index, mask_rotate, torsion
 
         pos[mask_rotate[idx_edge]] = (pos[mask_rotate[idx_edge]] - pos[v]) @ rot_mat.T + pos[v]
 
-    if not as_numpy: pos = torch.from_numpy(pos.astype(np.float32)).to(device)
+
     return pos
