@@ -29,6 +29,7 @@ import random
 import math
 from torch.utils.tensorboard import SummaryWriter
 from utils import OptimizeConformer
+import utils
 
 
 
@@ -319,16 +320,15 @@ for epoch in range(10000):
             rmsd_list=[]
             for pred_result in pred_result_list:
                 next_candicate_conf_pos_batched=pred_result[3]
-                data_groundtruth_pos_batched = data.unbatch(data['compound'].pos, data['compound'].batch)
+                data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
                 tmp_list=[]
                 for i in range(len(data_groundtruth_pos_batched)):
-                    tmp_rmsd=torch.sqrt(F.mse_loss(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i], reduction="sum") / len(
-                        aligned_new_pos)).item()
+                    tmp_rmsd=utils.RMSD(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
                     tmp_list.append(tmp_rmsd)
                 rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).requires_grad_())
             rmsd_loss = torch.stack(rmsd_list).mean() #TODO:
             candicate_conf_pos = pred_result_list[0][5]  # 初始坐标
-            rmsd_recycling_0_loss = torch.sqrt(F.mse_loss(candicate_conf_pos, data['compound'].pos, reduction="sum") / len(aligned_new_pos)).item()
+            rmsd_recycling_0_loss = utils.RMSD(candicate_conf_pos, data['compound'].pos)
             rmsd_recycling_1_loss = rmsd_list[1] if len(rmsd_list) >= 1 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_9_loss = rmsd_list[9] if len(rmsd_list) >=9 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_19_loss = rmsd_list[19] if len(rmsd_list) >= 19 else torch.tensor([0]).to(y_pred.device)

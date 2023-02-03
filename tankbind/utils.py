@@ -529,7 +529,7 @@ class OptimizeConformer:
 
         # RMSD 计算公式https://cloud.tencent.com/developer/article/1668887
         #rmsd = np.sqrt(np.sum((aligned_new_pos.cpu().numpy() - self.ground_truth_pos.cpu().numpy()) ** 2)/len(aligned_new_pos)) #
-        rmsd = torch.sqrt(F.mse_loss(aligned_new_pos, self.ground_truth_pos, reduction="sum")/len(aligned_new_pos)).item()
+        rmsd = RMSD(aligned_new_pos, self.ground_truth_pos)
         return rmsd,R, t
 
     def score_conformation(self, torsion):
@@ -569,5 +569,12 @@ class OptimizeConformer:
         return opt_tr,opt_rotate,opt_torsion,opt_rmsd
 
 
-if __name__ == "__main__":
-    main()
+def RMSD(pos1,pos2):
+    """
+    for tensor
+    :param pos1: n*3
+    :param pos2: n*3
+    :return:
+    """
+    rmsd=torch.sqrt(F.mse_loss(pos1, pos2, reduction="sum") / len(pos1)).item()
+    return rmsd
