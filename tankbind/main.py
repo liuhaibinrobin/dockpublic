@@ -410,8 +410,8 @@ for epoch in range(10000):
             loss = loss.requires_grad_(True)
         # logging.info(f"prmsd_loss: {prmsd_loss.detach().cpu()}, rmsd_loss: {rmsd_loss.detach().cpu()}, affinity_loss_A: {affinity_loss_A.detach().cpu()}, affinity_loss_B: {affinity_loss_B.detach().cpu()}")
 
-        import pdb
-        pdb.set_trace()
+        # import pdb
+        # pdb.set_trace()
         loss.backward()
         optimizer.step()
 
