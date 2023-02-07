@@ -14,6 +14,7 @@ import torchmetrics
 import math
 from torch_geometric.utils import to_networkx, degree
 import networkx as nx
+import time
 def read_pdbbind_data(fileName):
     with open(fileName) as f:
         a = f.readlines()
@@ -304,6 +305,9 @@ def evaluate_with_affinity(data_loader,
     epoch_rmsd_recycling_19_loss=0
     epoch_rmsd_recycling_39_loss=0
 
+    epoch_tr_loss =0
+    epoch_rot_loss =0
+    epoch_tor_loss=0
 
     for data in tqdm(data_loader):
         protein_ptr = data['protein']['ptr']
@@ -364,6 +368,41 @@ def evaluate_with_affinity(data_loader,
                 prmsd_list[i] = prmsd_list[i][data.is_equivalent_native_pocket]
         with torch.no_grad():
             if pred_dis:
+
+                # tr,rot,tor loss
+                tr_loss = 0
+                rot_loss = 0
+                tor_loss = 0
+                tmp_cnt = 0
+                for pred_result in pred_result_list:
+
+                    tr_pred, rot_pred, torsion_pred_batched, _, _, current_candicate_conf_pos_batched = pred_result
+
+
+                    compound_edge_index_batched = model.unbatch(data['compound', 'compound'].edge_index.T,
+                                                                data.compound_compound_edge_attr_batch)
+                    compound_rotate_edge_mask_batched = model.unbatch(data['compound'].edge_mask,
+                                                                      data.compound_compound_edge_attr_batch)
+                    ligand_atom_sizes = degree(data['compound'].batch, dtype=torch.long).tolist()
+                    for i in range(len(data_groundtruth_pos_batched)):
+                        rotate_edge_index = compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]] - sum(
+                            ligand_atom_sizes[:i])  # 把edge_id 从batch计数转换为样本内部计数
+                        OptimizeConformer_obj = OptimizeConformer(current_pos=current_candicate_conf_pos_batched[i],
+                                                                  ground_truth_pos=data_groundtruth_pos_batched[i],
+                                                                  rotate_edge_index=rotate_edge_index,
+                                                                  mask_rotate=data['compound'].mask_rotate[i])
+
+                        ttt = time.time()
+                        opt_tr, opt_rotate, opt_torsion, opt_rmsd = OptimizeConformer_obj.run(maxiter=1)
+                        print(tmp_cnt, opt_rmsd, time.time() - ttt)
+                        tr_loss += F.mse_loss(tr_pred[i], opt_tr)
+                        rot_loss += F.mse_loss(rot_pred[i], opt_rotate)
+                        tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion)
+                        tmp_cnt += 1
+
+
+
+
                 prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i]) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
                 rmsd_loss = torch.stack(rmsd_list[1:]).mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(y_pred.device)
                 contact_loss = contact_criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
@@ -397,6 +436,10 @@ def evaluate_with_affinity(data_loader,
         epoch_rmsd_recycling_9_loss += len(rmsd_list[0]) * rmsd_recycling_9_loss.item()
         epoch_rmsd_recycling_19_loss += len(rmsd_list[0]) * rmsd_recycling_19_loss.item()
         epoch_rmsd_recycling_39_loss += len(rmsd_list[0]) * rmsd_recycling_39_loss.item()
+
+        epoch_tr_loss += len(rmsd_list[0]) * tr_loss.item()
+        epoch_rot_loss += len(rmsd_list[0]) * rot_loss.item()
+        epoch_tor_loss += len(rmsd_list[0]) * tor_loss.item()
 
         y_list.append(y)
         y_pred_list.append(y_pred.detach())
@@ -437,6 +480,9 @@ def evaluate_with_affinity(data_loader,
         "epoch_rmsd_recycling_9_loss": epoch_rmsd_recycling_9_loss / len(RMSD_pred),
         "epoch_rmsd_recycling_19_loss": epoch_rmsd_recycling_19_loss / len(RMSD_pred),
         "epoch_rmsd_recycling_39_loss": epoch_rmsd_recycling_39_loss / len(RMSD_pred),
+        "epoch_tr_loss":epoch_tr_loss / len(RMSD_pred),
+        "epoch_rot_loss": epoch_rot_loss / len(RMSD_pred),
+        "epoch_tor_loss": epoch_tor_loss / len(RMSD_pred),
 
     }
 
