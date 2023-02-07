@@ -287,7 +287,7 @@ def evaluate_with_affinity(data_loader,
     affinity_B_pred_list = []
     rmsd_pred_list = []
     prmsd_pred_list = []
-    pos_pred_list = []
+    data_new_pos_batched_list = []
     epoch_loss_affinity_A = 0.0
     epoch_loss_affinity_B = 0.0
     epoch_loss_rmsd = 0.0
@@ -297,6 +297,14 @@ def evaluate_with_affinity(data_loader,
     epoch_num_nan_contact_5A = 0
     epoch_loss_contact_10A = 0.0
     epoch_num_nan_contact_10A = 0
+
+    epoch_rmsd_recycling_0_loss=0
+    epoch_rmsd_recycling_1_loss=0
+    epoch_rmsd_recycling_9_loss=0
+    epoch_rmsd_recycling_19_loss=0
+    epoch_rmsd_recycling_39_loss=0
+
+
     for data in tqdm(data_loader):
         protein_ptr = data['protein']['ptr']
         p_length_list += [int(protein_ptr[ptr] - protein_ptr[ptr-1]) for ptr in range(1, len(protein_ptr))]
@@ -304,14 +312,50 @@ def evaluate_with_affinity(data_loader,
         c_length_list += [int(compound_ptr[ptr] - compound_ptr[ptr-1]) for ptr in range(1, len(compound_ptr))]
 
         data = data.to(device)
-        data_new_list,affinity_pred_A, affinity_pred_B_list, prmsd_list,rmsd_list = model(data)
-        data_new=data_new_list[-1]
+        sample_num = len(data.pdb)
+
+        affinity_pred_A, affinity_pred_B_list, prmsd_list, pred_result_list= model(data)
+
         y = data.y
         dis_map = data.dis_map
-        y_pred = data_new.candicate_dis_matrix
-        data_new_pos_batched = data_new.candicate_conf_pos.split(degree(data_new['compound'].batch, dtype=torch.long).tolist())
-        for pos in data_new_pos_batched:
-            pos_pred_list.append(pos.detach().cpu().numpy())
+        y_pred = pred_result_list[-1][4] #pred_result_list:(tr_pred, rot_pred, torsion_pred_batched,next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched)
+
+        # 记录每个样本的学习信息
+        data_new_pos_batched_list = []
+        for i in range(sample_num):  # data_new_pos_batched_list=[[]]*sample_num  #这么写会有严重的bug  所有[]其实都指向了一个[]
+            data_new_pos_batched_list.append([])
+        candicate_conf_pos_batched = pred_result_list[0][5]  # 初始坐标
+        for i in range(len(candicate_conf_pos_batched)):
+            data_new_pos_batched_list[i].append(candicate_conf_pos_batched[i].detach().cpu().numpy().tolist())
+        for pred_result in pred_result_list:  # 每个pred_result是一个迭代轮次的batch中的全部样本
+            # data_new_pos_batched:  bs*pos..
+            next_candicate_conf_pos_batched = pred_result[3]
+            for i in range(len(next_candicate_conf_pos_batched)):
+                data_new_pos_batched_list[i].append(next_candicate_conf_pos_batched[i].detach().cpu().numpy().tolist())
+        # rmsd_loss
+        rmsd_list = []
+        for pred_result in pred_result_list:
+            next_candicate_conf_pos_batched = pred_result[3]
+            data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
+            tmp_list = []
+            for i in range(len(data_groundtruth_pos_batched)):
+                tmp_rmsd = RMSD(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
+                tmp_list.append(tmp_rmsd)
+            rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).to(y_pred.device))
+
+        candicate_conf_pos_batched = pred_result_list[0][5]  # 初始坐标
+        rmsd_recycling_0_loss = 0
+        for i in range(len(data_groundtruth_pos_batched)):
+            tmp_rmsd = RMSD(candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
+            rmsd_recycling_0_loss += tmp_rmsd
+
+        rmsd_recycling_0_loss = torch.tensor(rmsd_recycling_0_loss / len(data_groundtruth_pos_batched)).to(y_pred.device)
+        rmsd_recycling_1_loss = torch.mean(rmsd_list[0]) if len(rmsd_list) >= 1 else torch.tensor([0]).to(y_pred.device)
+        rmsd_recycling_9_loss = torch.mean(rmsd_list[8]) if len(rmsd_list) >= 9 else torch.tensor([0]).to(y_pred.device)
+        rmsd_recycling_19_loss = torch.mean(rmsd_list[18]) if len(rmsd_list) >= 19 else torch.tensor([0]).to(y_pred.device)
+        rmsd_recycling_39_loss = torch.mean(rmsd_list[38]) if len(rmsd_list) >= 39 else torch.tensor([0]).to(y_pred.device)
+
+
         if use_y_mask:
             y_pred = y_pred[data.real_y_mask]
             y = y[data.real_y_mask]
@@ -347,6 +391,13 @@ def evaluate_with_affinity(data_loader,
         epoch_loss_affinity_B += len(affinity_pred_B_list[0]) * affinity_loss_B.item()
         epoch_loss_rmsd += len(rmsd_list[0]) * rmsd_loss.item()
         epoch_loss_prmsd += len(prmsd_list[0]) * prmsd_loss.item()
+
+        epoch_rmsd_recycling_0_loss += len(rmsd_list[0]) * rmsd_recycling_0_loss.item()
+        epoch_rmsd_recycling_1_loss += len(rmsd_list[0]) * rmsd_recycling_1_loss.item()
+        epoch_rmsd_recycling_9_loss += len(rmsd_list[0]) * rmsd_recycling_9_loss.item()
+        epoch_rmsd_recycling_19_loss += len(rmsd_list[0]) * rmsd_recycling_19_loss.item()
+        epoch_rmsd_recycling_39_loss += len(rmsd_list[0]) * rmsd_recycling_39_loss.item()
+
         y_list.append(y)
         y_pred_list.append(y_pred.detach())
         affinity_list.append(data.affinity)
@@ -381,6 +432,12 @@ def evaluate_with_affinity(data_loader,
         "loss_contact": epoch_loss_contact / len(y_pred),
         "loss_contact_5A": epoch_loss_contact_5A / (len(y_pred) - epoch_num_nan_contact_5A),
         "loss_contact_10A": epoch_loss_contact_10A / (len(y_pred) - epoch_num_nan_contact_10A),
+        "epoch_rmsd_recycling_0_loss":epoch_rmsd_recycling_0_loss/len(RMSD_pred),
+        "epoch_rmsd_recycling_1_loss": epoch_rmsd_recycling_1_loss / len(RMSD_pred),
+        "epoch_rmsd_recycling_9_loss": epoch_rmsd_recycling_9_loss / len(RMSD_pred),
+        "epoch_rmsd_recycling_19_loss": epoch_rmsd_recycling_19_loss / len(RMSD_pred),
+        "epoch_rmsd_recycling_39_loss": epoch_rmsd_recycling_39_loss / len(RMSD_pred),
+
     }
 
     if info is not None:
@@ -394,7 +451,7 @@ def evaluate_with_affinity(data_loader,
         info['affinity_pred_B'] = affinity_pred_B.cpu().numpy()
         info['rmsd_pred'] = RMSD_pred.cpu().numpy()
         info['prmsd_pred'] = PRMSD_pred.cpu().numpy()
-        info['candicate_conf_pos'] = pos_pred_list
+        info['candicate_conf_pos'] = data_new_pos_batched_list
         # selected_A, selected_B = select_pocket_by_predicted_affinity(info) #真口袋用不上排序选最好的，但是后面全部口袋时要用上 TODO
         selected_A = selected_B = info
         result = {}

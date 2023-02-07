@@ -245,6 +245,7 @@ for epoch in range(10000):
         optimizer.zero_grad()
         affinity_pred_A, affinity_pred_B_list, prmsd_list,pred_result_list= model(data)
         sample_num=len(data.pdb)
+        data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
 
         #记录每个样本的学习信息
         data_new_pos_batched_list=[]
@@ -294,7 +295,7 @@ for epoch in range(10000):
                 for tmp_torsion_pred in torsion_pred_batched:
                     tmp_torsion_pred.retain_grad()
 
-                data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
+
                 compound_edge_index_batched = model.unbatch(data['compound', 'compound'].edge_index.T,data.compound_compound_edge_attr_batch)
                 compound_rotate_edge_mask_batched = model.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
                 ligand_atom_sizes= degree(data['compound'].batch, dtype=torch.long).tolist()
@@ -322,7 +323,6 @@ for epoch in range(10000):
             rmsd_list=[]
             for pred_result in pred_result_list:
                 next_candicate_conf_pos_batched=pred_result[3]
-                data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
                 tmp_list=[]
                 for i in range(len(data_groundtruth_pos_batched)):
                     tmp_rmsd=utils.RMSD(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
