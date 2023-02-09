@@ -1,0 +1,2 @@
+cd /home/jovyan/main_tankbind/tankbind_prototype
+python main_prototype_continue.py --learning_rate 0.0001 --pair_threshold 2 --readout_mode 1 --restart "/home/jovyan/main_tankbind/tankbind_prototype/result/2023_01_12_11_14_37/models/epoch_49.pt" --restart_epoch 49 --num_epochs 100
