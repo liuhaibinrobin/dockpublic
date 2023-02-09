@@ -295,6 +295,8 @@ def modify_conformer_torsion_angles_np(pos, rotate_edge_index, mask_rotate, tors
         # if mask_rotate[idx_edge, u] or not mask_rotate[idx_edge, v]:
         #     # TODO 这里有问题
         #     u, v = e[1], e[0]
+        if mask_rotate[idx_edge, u] or not mask_rotate[idx_edge, v]:
+            print('error of reverse the edge, v should be connected to the part that gets rotated')
         # assert not mask_rotate[idx_edge, u]
         # assert mask_rotate[idx_edge, v]
 
