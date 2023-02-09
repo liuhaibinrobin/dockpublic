@@ -157,14 +157,14 @@ logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_a
 num_workers = 10
 # sampler = RandomSampler(train, replacement=True, num_samples=args.sample_n)
 sampler = RandomSampler(train, replacement=False, num_samples=len(train)) #训练数据不足2w，全部口袋时要换回来 TODO
-train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix',"compound_compound_edge_attr"], sampler=sampler, pin_memory=False, num_workers=num_workers)
+train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler, pin_memory=False, num_workers=num_workers)
 sampler2 = RandomSampler(train_after_warm_up, replacement=False, num_samples=args.sample_n)
-train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix'], sampler=sampler2, pin_memory=False, num_workers=num_workers)
+train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler2, pin_memory=False, num_workers=num_workers)
 valid_batch_size = test_batch_size = 4
-valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix'], shuffle=False, pin_memory=False, num_workers=num_workers)
-test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix'], shuffle=False, pin_memory=False, num_workers=num_workers)
-all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix'], shuffle=False, pin_memory=False, num_workers=4)
-all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix'], shuffle=False, pin_memory=False, num_workers=4)
+valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=num_workers)
+test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=num_workers)
+all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=4)
+all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=4)
 # import model is put here due to an error related to torch.utils.data.ConcatDataset after importing torchdrug.
 from model import *
 device = 'cuda'
@@ -205,6 +205,7 @@ global_steps_test = 0
 global_samples_train = 0
 global_samples_val = 0
 global_samples_test = 0
+opt_torsion_dict = {}
 for epoch in range(100000):
     model.train()
     y_list = []
@@ -307,12 +308,18 @@ for epoch in range(100000):
                                                                mask_rotate=data['compound'].mask_rotate[i])
 
                     ttt=time.time()
-                    opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
+                    if data.pdb[i] not in opt_torsion_dict.keys():
+                        opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
+                        opt_torsion_dict[data.pdb[i]] = opt_torsion
+                    else:
+                        opt_torsion = opt_torsion_dict[data.pdb[i]]
+                        opt_rmsd, opt_rotate, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion.detach().cpu().numpy())
                     print(tmp_cnt, opt_rmsd,time.time()-ttt)
-                    tr_loss+=F.mse_loss(tr_pred[i],opt_tr)
-                    rot_loss+=F.mse_loss(rot_pred[i],opt_rotate)
-                    tor_loss+=F.mse_loss(torsion_pred_batched[i], opt_torsion)
-                    tmp_cnt+=1
+                    tr_loss += F.mse_loss(tr_pred[i],opt_tr)
+                    rot_loss += F.mse_loss(rot_pred[i],opt_rotate)
+                    if opt_torsion is not None:
+                        tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion)
+                    tmp_cnt += 1
 
             tr_loss=tr_loss/tmp_cnt
             rot_loss=rot_loss/tmp_cnt
@@ -327,7 +334,7 @@ for epoch in range(100000):
                 for i in range(len(data_groundtruth_pos_batched)):
                     tmp_rmsd=utils.RMSD(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
                     tmp_list.append(tmp_rmsd)
-                rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).requires_grad_().to(y_pred.device))
+                rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).requires_grad_().to(y_pred.device)[data.is_equivalent_native_pocket])
             rmsd_loss = torch.stack(rmsd_list).mean()  # TODO:
 
 
@@ -403,15 +410,12 @@ for epoch in range(100000):
 
         #total loss
         if args.use_contact_loss == 0:
-            loss=tr_loss+tor_loss+rot_loss #TODO:debug阶段
+            loss = tr_loss  + rot_loss + tor_loss #TODO:debug阶段
             #loss = prmsd_loss.double() + rmsd_loss.double() + affinity_loss_A + affinity_loss_B
         else:
             loss = contact_loss.float()
             loss = loss.requires_grad_(True)
         # logging.info(f"prmsd_loss: {prmsd_loss.detach().cpu()}, rmsd_loss: {rmsd_loss.detach().cpu()}, affinity_loss_A: {affinity_loss_A.detach().cpu()}, affinity_loss_B: {affinity_loss_B.detach().cpu()}")
-
-        # import pdb
-        # pdb.set_trace()
         loss.backward()
         optimizer.step()
 
@@ -515,8 +519,6 @@ for epoch in range(100000):
     writer.add_scalar('epochLoss.tr/train', epoch_tr_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.rot/train', epoch_rot_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.tor/train', epoch_tor_loss / len(RMSD_pred), epoch)
-
-
 
     #===================validation========================================
 

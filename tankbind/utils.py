@@ -325,17 +325,18 @@ def evaluate_with_affinity(data_loader,
         y_pred = pred_result_list[-1][4] #pred_result_list:(tr_pred, rot_pred, torsion_pred_batched,next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched)
 
         # 记录每个样本的学习信息
-        data_new_pos_batched_list = []
+        _data_new_pos_batched_list = []
         for i in range(sample_num):  # data_new_pos_batched_list=[[]]*sample_num  #这么写会有严重的bug  所有[]其实都指向了一个[]
-            data_new_pos_batched_list.append([])
+            _data_new_pos_batched_list.append([])
         candicate_conf_pos_batched = pred_result_list[0][5]  # 初始坐标
         for i in range(len(candicate_conf_pos_batched)):
-            data_new_pos_batched_list[i].append(candicate_conf_pos_batched[i].detach().cpu().numpy().tolist())
+            _data_new_pos_batched_list[i].append(candicate_conf_pos_batched[i].detach().cpu().numpy().tolist())
         for pred_result in pred_result_list:  # 每个pred_result是一个迭代轮次的batch中的全部样本
             # data_new_pos_batched:  bs*pos..
             next_candicate_conf_pos_batched = pred_result[3]
             for i in range(len(next_candicate_conf_pos_batched)):
-                data_new_pos_batched_list[i].append(next_candicate_conf_pos_batched[i].detach().cpu().numpy().tolist())
+                _data_new_pos_batched_list[i].append(next_candicate_conf_pos_batched[i].detach().cpu().numpy().tolist())
+        data_new_pos_batched_list.extend(_data_new_pos_batched_list)
         # rmsd_loss
         rmsd_list = []
         for pred_result in pred_result_list:
@@ -378,7 +379,6 @@ def evaluate_with_affinity(data_loader,
 
                     tr_pred, rot_pred, torsion_pred_batched, _, _, current_candicate_conf_pos_batched = pred_result
 
-
                     compound_edge_index_batched = model.unbatch(data['compound', 'compound'].edge_index.T,
                                                                 data.compound_compound_edge_attr_batch)
                     compound_rotate_edge_mask_batched = model.unbatch(data['compound'].edge_mask,
@@ -387,20 +387,20 @@ def evaluate_with_affinity(data_loader,
                     for i in range(len(data_groundtruth_pos_batched)):
                         rotate_edge_index = compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]] - sum(
                             ligand_atom_sizes[:i])  # 把edge_id 从batch计数转换为样本内部计数
+                       
                         OptimizeConformer_obj = OptimizeConformer(current_pos=current_candicate_conf_pos_batched[i],
-                                                                  ground_truth_pos=data_groundtruth_pos_batched[i],
-                                                                  rotate_edge_index=rotate_edge_index,
-                                                                  mask_rotate=data['compound'].mask_rotate[i])
-
+                                                                ground_truth_pos=data_groundtruth_pos_batched[i],
+                                                                rotate_edge_index=rotate_edge_index,
+                                                                mask_rotate=data['compound'].mask_rotate[i])
                         ttt = time.time()
                         opt_tr, opt_rotate, opt_torsion, opt_rmsd = OptimizeConformer_obj.run(maxiter=1)
+                        
                         print(tmp_cnt, opt_rmsd, time.time() - ttt)
                         tr_loss += F.mse_loss(tr_pred[i], opt_tr)
                         rot_loss += F.mse_loss(rot_pred[i], opt_rotate)
-                        tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion)
+                        if opt_torsion is not None:
+                            tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion)
                         tmp_cnt += 1
-
-
 
 
                 prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i]) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
@@ -445,9 +445,9 @@ def evaluate_with_affinity(data_loader,
         y_pred_list.append(y_pred.detach())
         affinity_list.append(data.affinity)
         affinity_A_pred_list.append(affinity_pred_A.detach())
-        affinity_B_pred_list.append(affinity_pred_B_list[1].detach()) #只取最后一个pred做pearson， TODO
-        rmsd_pred_list.append(rmsd_list[2].detach())
-        prmsd_pred_list.append(prmsd_list[1].detach())
+        affinity_B_pred_list.append(affinity_pred_B_list[-1].detach()) #只取最后一个pred做pearson， TODO
+        rmsd_pred_list.append(rmsd_list[-1].detach())
+        prmsd_pred_list.append(prmsd_list[-1].detach())
 
         real_y_mask_list.append(data.real_y_mask)
         # torch.cuda.empty_cache()
@@ -662,13 +662,18 @@ class OptimizeConformer:
         bounds = list(zip(bounds[0], bounds[1]))
 
         # Optimize conformations
-        result = differential_evolution(self.score_conformation, bounds,
-                                        maxiter=maxiter, popsize=popsize,
-                                        mutation=mutation, recombination=recombination, disp=False, seed=seed)
-        opt_rmsd,opt_R, opt_tr=self.apply_torsion(result["x"])
-        opt_torsion=torch.from_numpy(result["x"]).to(self.candidate_pos.device).float()
-        opt_rotate=matrix_to_axis_angle(opt_R).float()
-        opt_tr=opt_tr.T[0]
+        if self.rotate_bond_num!=0:
+            result = differential_evolution(self.score_conformation, bounds,
+                                            maxiter=maxiter, popsize=popsize,
+                                            mutation=mutation, recombination=recombination, disp=False, seed=seed)
+            opt_torsion = torch.from_numpy(result["x"]).to(self.candidate_pos.device).float()
+            opt_rmsd,opt_R, opt_tr = self.apply_torsion(result["x"])
+        else:
+            opt_rmsd,opt_R, opt_tr = self.apply_torsion(None)
+            opt_torsion = None
+        
+        opt_rotate = matrix_to_axis_angle(opt_R).float()
+        opt_tr = opt_tr.T[0]
         return opt_tr,opt_rotate,opt_torsion,opt_rmsd
 
 
