@@ -205,7 +205,7 @@ global_steps_test = 0
 global_samples_train = 0
 global_samples_val = 0
 global_samples_test = 0
-for epoch in range(10000):
+for epoch in range(100000):
     model.train()
     y_list = []
     y_pred_list = []
@@ -517,7 +517,7 @@ for epoch in range(10000):
     writer.add_scalar('epochLoss.tor/train', epoch_tor_loss / len(RMSD_pred), epoch)
 
 
-    continue #TODO :debug
+
     #===================validation========================================
 
 

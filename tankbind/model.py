@@ -722,8 +722,8 @@ class IaBNet_with_affinity(torch.nn.Module):
                 flexible_new_pos=data_pos_batched[i]
 
             lig_center = torch.mean(flexible_new_pos, dim=0, keepdim=True)
-            #TODO:这部分看一下是否正确
-            _new_pos = torch.mm((flexible_new_pos - lig_center),  rot_mat[i].T )+ tr_update[i,:] + lig_center #TODO rot_mat.permute(0, 2, 1)[i]
+
+            _new_pos = torch.mm((flexible_new_pos - lig_center),  rot_mat[i].T )+ tr_update[i,:] + lig_center
             new_pos_t.append(_new_pos)
 
         candicate_conf_pos_new = torch.concat(new_pos_t)
