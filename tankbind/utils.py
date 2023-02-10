@@ -31,6 +31,9 @@ def compute_dis_between_two_vector(a, b):
     return (((a - b)**2).sum())**0.5
 
 def get_protein_edge_features_and_index(protein_edge_index, protein_edge_s, protein_edge_v, keepNode):
+    
+    
+    
     # protein
     input_edge_list = []
     input_protein_edge_feature_idx = []
@@ -44,6 +47,8 @@ def get_protein_edge_features_and_index(protein_edge_index, protein_edge_s, prot
 
 def get_keepNode(com, protein_node_xyz, n_node, pocket_radius, use_whole_protein, 
                      use_compound_com_as_pocket, add_noise_to_com, chosen_pocket_com):
+    
+    
     if use_whole_protein:
         keepNode = np.ones(n_node, dtype=bool)
     else:
@@ -57,6 +62,7 @@ def get_keepNode(com, protein_node_xyz, n_node, pocket_radius, use_whole_protein
                 keepNode[i] = dis < pocket_radius
 
     if chosen_pocket_com is not None:
+        
         another_keepNode = np.zeros(n_node, dtype=bool)
         for a_com in chosen_pocket_com:
             if add_noise_to_com:
