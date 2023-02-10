@@ -271,8 +271,10 @@ def run_train(pre, args, dataloader,
         del _  # Note: for now, y is not in need.
         affinity_true = data.value
 
+
+
         if not args.use_mse_loss:
-            loss, recto_rate, num_pairs = pairwiseloss(affinity_pred, affinity_true)
+            loss, recto_rate, num_pairs = pairwiseloss(pred=affinity_pred, true=affinity_true)
         else:
             loss = mseloss(affinity_pred.float(), torch.log10(affinity_true).float())
 
@@ -350,6 +352,11 @@ def run_validation(pre, dataset, dataloader,
             df = info[info.session_au == session]
             affinity_true = torch.tensor(df.value.values).to(device)
             affinity_pred = torch.tensor(df.affinity_pred.values).to(device)
+            
+            
+            torch.save(affinity_pred.cpu(), f"session_{session}_pred.pt")
+            torch.save(affinity_pred.cpu(), f"session_{session}_true.pt")
+            
             loss, recto_rate, num_pairs = pairwiseloss(pred=affinity_pred, true=affinity_true)
             loss = loss.detach().cpu().item()
             recto_rate = recto_rate.detach().cpu().item()
@@ -433,59 +440,59 @@ if __name__ == "__main__":
     main(args)
 
 
-# Trash
-def demode_arguments(parser):
-    # TODO: Session Mode ?
-    # TODO: to be replaced with SessionDynamicSampler
-    parser.add_argument("--sample_n", type=int, default=20000,
-                        help="number of samples in one epoch.")
-    parser.add_argument("--split_mode", type=int, default=0,
-                        help="Mode of split applicated to dataset.")
-    parser.add_argument("--use_affinity_mask", type=int, default=0,
-                        help="mask affinity in loss evaluation based on data.real_affinity_mask")
-    parser.add_argument("--addNoise", type=str, default=None,
-                        help="shift the location of the pocket center in each training sample \
-                        such that the protein pocket encloses a slightly different space.")
-    pair_interaction_mask = parser.add_mutually_exclusive_group()
-    # use_equivalent_native_y_mask is probably a better choice.
-    pair_interaction_mask.add_argument("--use_y_mask", action='store_true',
-                                       help="mask the pair interaction during pair interaction loss evaluation based on data.real_y_mask. \
-                        real_y_mask=True if it's the native pocket that ligand binds to.")
-    pair_interaction_mask.add_argument("--use_equivalent_native_y_mask", action='store_true',
-                                       help="mask the pair interaction during pair interaction loss evaluation based on data.equivalent_native_y_mask. \
-                        real_y_mask=True if most of the native interaction between ligand and protein happen inside this pocket.")
-    parser.add_argument("-m", "--mode", type=int, default=0,
-                        help="mode specify the model to use.")
-    parser.add_argument("-d", "--data", type=str, default="0",
-                        help="data specify the data to use.")
-    # demode
+# # Trash
+# def demode_arguments(parser):
+#     # TODO: Session Mode ?
+#     # TODO: to be replaced with SessionDynamicSampler
+#     parser.add_argument("--sample_n", type=int, default=20000,
+#                         help="number of samples in one epoch.")
+#     parser.add_argument("--split_mode", type=int, default=0,
+#                         help="Mode of split applicated to dataset.")
+#     parser.add_argument("--use_affinity_mask", type=int, default=0,
+#                         help="mask affinity in loss evaluation based on data.real_affinity_mask")
+#     parser.add_argument("--addNoise", type=str, default=None,
+#                         help="shift the location of the pocket center in each training sample \
+#                         such that the protein pocket encloses a slightly different space.")
+#     pair_interaction_mask = parser.add_mutually_exclusive_group()
+#     # use_equivalent_native_y_mask is probably a better choice.
+#     pair_interaction_mask.add_argument("--use_y_mask", action='store_true',
+#                                        help="mask the pair interaction during pair interaction loss evaluation based on data.real_y_mask. \
+#                         real_y_mask=True if it's the native pocket that ligand binds to.")
+#     pair_interaction_mask.add_argument("--use_equivalent_native_y_mask", action='store_true',
+#                                        help="mask the pair interaction during pair interaction loss evaluation based on data.equivalent_native_y_mask. \
+#                         real_y_mask=True if most of the native interaction between ligand and protein happen inside this pocket.")
+#     parser.add_argument("-m", "--mode", type=int, default=0,
+#                         help="mode specify the model to use.")
+#     parser.add_argument("-d", "--data", type=str, default="0",
+#                         help="data specify the data to use.")
+#     # demode
 
-    parser.add_argument("--affinity_loss_mode", type=int, default=1,
-                        help="define which affinity loss function to use.")
-    parser.add_argument("--decoy_gap", type=int, default=1,
-                        help="define deocy gap used in args.affinity_loss_mode=1")
+#     parser.add_argument("--affinity_loss_mode", type=int, default=1,
+#                         help="define which affinity loss function to use.")
+#     parser.add_argument("--decoy_gap", type=int, default=1,
+#                         help="define deocy gap used in args.affinity_loss_mode=1")
 
-    parser.add_argument("--pred_dis", type=int, default=1,
-                        help="pred distance map or predict contact map.")
-    # parser.add_argument("--posweight", type=int, default=8,
-    #                     help="pos weight in pair contact loss, not useful if args.pred_dis=1")
+#     parser.add_argument("--pred_dis", type=int, default=1,
+#                         help="pred distance map or predict contact map.")
+#     # parser.add_argument("--posweight", type=int, default=8,
+#     #                     help="pos weight in pair contact loss, not useful if args.pred_dis=1")
 
-    # demode
-    parser.add_argument("--relative_k", type=float, default=0.01,
-                        help="adjust the strength of the affinity loss head relative to the pair interaction loss.")
-    parser.add_argument("-r", "--relative_k_mode", type=int, default=0,
-                        help="define how the relative_k changes over epochs")
-    parser.add_argument("--warm_up_epochs", type=int, default=15,
-                        help="used in combination with relative_k_mode.")
-    parser.add_argument("--data_warm_up_epochs", type=int, default=0,
-                        help="option to switch training data after certain epochs.")
-    parser.add_argument("--resultFolder", type=str, default="../",
-                        help="information you want to keep a record.")
-    # demode
-    parser.add_argument("--use_contact_loss", type=int, default=0,
-                        help="whether to upgrade contact loss during training, 0 means both, other means only contact loss")
-    parser.add_argument("--contact_loss_mode", type=int, default=0, choices=[0, 1, 2, 3, 4, 5],
-                        help="choose contact loss mode, 0 means dis^2, 1 means e^dis, 2 means 2^dis, 3,4,5 means dis^3,4,5")
-    # demode
-    parser.add_argument("--use_weighted_rmsd_loss", type=bool, default=False,
-                        help="whether to change contact weight according to distance")
+#     # demode
+#     parser.add_argument("--relative_k", type=float, default=0.01,
+#                         help="adjust the strength of the affinity loss head relative to the pair interaction loss.")
+#     parser.add_argument("-r", "--relative_k_mode", type=int, default=0,
+#                         help="define how the relative_k changes over epochs")
+#     parser.add_argument("--warm_up_epochs", type=int, default=15,
+#                         help="used in combination with relative_k_mode.")
+#     parser.add_argument("--data_warm_up_epochs", type=int, default=0,
+#                         help="option to switch training data after certain epochs.")
+#     parser.add_argument("--resultFolder", type=str, default="../",
+#                         help="information you want to keep a record.")
+#     # demode
+#     parser.add_argument("--use_contact_loss", type=int, default=0,
+#                         help="whether to upgrade contact loss during training, 0 means both, other means only contact loss")
+#     parser.add_argument("--contact_loss_mode", type=int, default=0, choices=[0, 1, 2, 3, 4, 5],
+#                         help="choose contact loss mode, 0 means dis^2, 1 means e^dis, 2 means 2^dis, 3,4,5 means dis^3,4,5")
+#     # demode
+#     parser.add_argument("--use_weighted_rmsd_loss", type=bool, default=False,
+#                         help="whether to change contact weight according to distance")
