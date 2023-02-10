@@ -400,7 +400,7 @@ def evaluate_with_affinity(data_loader,
                         else:
                             opt_torsion = opt_torsion_dict[data.pdb[i]]
                             opt_rmsd, opt_rotate, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion.detach().cpu().numpy())
-                        print(tmp_cnt, opt_rmsd, time.time() - ttt)
+                        # print(tmp_cnt, opt_rmsd, time.time() - ttt)
                         tr_loss += F.mse_loss(tr_pred[i], opt_tr)
                         rot_loss += F.mse_loss(rot_pred[i], opt_rotate)
                         if opt_torsion is not None:

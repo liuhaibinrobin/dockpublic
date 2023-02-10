@@ -172,7 +172,7 @@ device = 'cuda'
 model = get_model(args.mode, logger, device)
 if args.restart:
     model.load_state_dict(torch.load(args.restart))
-optimizer = torch.optim.Adam(model.parameters(), lr=0.01) #TODO 原始0.0001
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001) #TODO 原始0.0001
 # model.train()
 if args.pred_dis:
     if args.use_weighted_rmsd_loss:
@@ -291,16 +291,21 @@ for epoch in range(100000):
             tmp_cnt=0
             for pred_result in pred_result_list:
 
-                tr_pred, rot_pred, torsion_pred_batched, _, _, current_candicate_conf_pos_batched = pred_result
+                # tr_pred, rot_pred, torsion_pred_batched, _, _, current_candicate_conf_pos_batched = pred_result
+                # tr_pred.retain_grad()
+                # rot_pred.retain_grad()
+                # for tmp_torsion_pred in torsion_pred_batched:
+                #     tmp_torsion_pred.retain_grad()
+                tr_pred, rot_pred, tor_pred, _, _, current_candicate_conf_pos_batched = pred_result
                 tr_pred.retain_grad()
                 rot_pred.retain_grad()
-                for tmp_torsion_pred in torsion_pred_batched:
-                    tmp_torsion_pred.retain_grad()
+                tor_pred.retain_grad()
 
 
                 compound_edge_index_batched = model.unbatch(data['compound', 'compound'].edge_index.T,data.compound_compound_edge_attr_batch)
                 compound_rotate_edge_mask_batched = model.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
                 ligand_atom_sizes= degree(data['compound'].batch, dtype=torch.long).tolist()
+                opt_torsion_batch = []
                 for i in range(len(data_groundtruth_pos_batched)):
                     rotate_edge_index = compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]] - sum(ligand_atom_sizes[:i])  # 把edge_id 从batch计数转换为样本内部计数
                     OptimizeConformer_obj = OptimizeConformer( current_pos=current_candicate_conf_pos_batched[i],
@@ -312,20 +317,26 @@ for epoch in range(100000):
                     if data.pdb[i] not in opt_torsion_dict.keys():
                         opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
                         opt_torsion_dict[data.pdb[i]] = opt_torsion
+                        if opt_torsion is not None:
+                            opt_torsion_batch.append(opt_torsion)
                     else:
                         opt_torsion = opt_torsion_dict[data.pdb[i]]
                         opt_rmsd, opt_rotate, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion.detach().cpu().numpy())
+                        if opt_torsion is not None: #TODO 全空
+                            opt_torsion_batch.append(opt_torsion)
                     # print(tmp_cnt, opt_rmsd,time.time()-ttt)
                     tr_loss += F.mse_loss(tr_pred[i],opt_tr)
                     rot_loss += F.mse_loss(rot_pred[i],opt_rotate)
-                    if opt_torsion is not None:
-                        tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion)
                     tmp_cnt += 1
-
+                if not opt_torsion_batch:
+                    opt_torsion = torch.concat(opt_torsion_batch)
+                    tor_loss += F.mse_loss(tor_pred, opt_torsion)
+                    
             tr_loss=tr_loss/tmp_cnt
             rot_loss=rot_loss/tmp_cnt
             tor_loss=tor_loss/tmp_cnt
-
+            from IPython import embed
+            embed()
 
 
             #rmsd_loss
