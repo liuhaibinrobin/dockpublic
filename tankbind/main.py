@@ -172,7 +172,7 @@ device = 'cuda'
 model = get_model(args.mode, logger, device)
 if args.restart:
     model.load_state_dict(torch.load(args.restart))
-optimizer = torch.optim.Adam(model.parameters(), lr=0.01) #TODO 原始0.0001
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001) #TODO 原始0.0001
 # model.train()
 if args.pred_dis:
     if args.use_weighted_rmsd_loss:
