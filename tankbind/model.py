@@ -639,7 +639,6 @@ class IaBNet_with_affinity(torch.nn.Module):
 
             affinity_pred_B_list.append(affinity_pred_B)
             prmsd_list.append(prmsd_pred)
-
             next_candicate_conf_pos_batched = self.unbatch(next_candicate_conf_pos,data['compound'].batch)
             current_candicate_conf_pos_batched = self.unbatch(current_candicate_conf_pos,data['compound'].batch)
             pred_result_list.append((tr_pred, rot_pred, torsion_pred_batched, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched))
