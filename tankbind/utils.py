@@ -277,6 +277,7 @@ def evaluate_with_affinity(data_loader,
                            info=None,
                            saveFileName=None,
                            use_y_mask=False,
+                           opt_torsion_dict=None,
                            skip_y_metrics_evaluation=False):
     y_list = []
     y_pred_list = []
@@ -393,8 +394,12 @@ def evaluate_with_affinity(data_loader,
                                                                 rotate_edge_index=rotate_edge_index,
                                                                 mask_rotate=data['compound'].mask_rotate[i])
                         ttt = time.time()
-                        opt_tr, opt_rotate, opt_torsion, opt_rmsd = OptimizeConformer_obj.run(maxiter=1)
-                        
+                        if data.pdb[i] not in opt_torsion_dict.keys():
+                            opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
+                            opt_torsion_dict[data.pdb[i]] = opt_torsion
+                        else:
+                            opt_torsion = opt_torsion_dict[data.pdb[i]]
+                            opt_rmsd, opt_rotate, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion.detach().cpu().numpy())
                         print(tmp_cnt, opt_rmsd, time.time() - ttt)
                         tr_loss += F.mse_loss(tr_pred[i], opt_tr)
                         rot_loss += F.mse_loss(rot_pred[i], opt_rotate)
@@ -528,7 +533,7 @@ def evaluate_with_affinity(data_loader,
     # if not skip_y_metrics_evaluation:
     #     metrics.update(myMetric(y_pred, y, threshold=threshold))
     # metrics.update(affinity_metrics(affinity_pred_A, affinity))
-    return metrics, info
+    return metrics, info, opt_torsion_dict
 
 def evaluate_affinity_only(data_loader, model, criterion, affinity_criterion, relative_k, device, info=None, saveFileName=None, use_y_mask=False):
     y_list = []

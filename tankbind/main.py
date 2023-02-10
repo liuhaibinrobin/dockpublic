@@ -315,7 +315,7 @@ for epoch in range(100000):
                     else:
                         opt_torsion = opt_torsion_dict[data.pdb[i]]
                         opt_rmsd, opt_rotate, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion.detach().cpu().numpy())
-                    print(tmp_cnt, opt_rmsd,time.time()-ttt)
+                    # print(tmp_cnt, opt_rmsd,time.time()-ttt)
                     tr_loss += F.mse_loss(tr_pred[i],opt_tr)
                     rot_loss += F.mse_loss(rot_pred[i],opt_rotate)
                     if opt_torsion is not None:
@@ -325,6 +325,7 @@ for epoch in range(100000):
             tr_loss=tr_loss/tmp_cnt
             rot_loss=rot_loss/tmp_cnt
             tor_loss=tor_loss/tmp_cnt
+
 
 
             #rmsd_loss
@@ -524,7 +525,6 @@ for epoch in range(100000):
     #===================validation========================================
 
 
-
     y = None
     y_pred = None
     # torch.cuda.empty_cache()
@@ -533,7 +533,7 @@ for epoch in range(100000):
     # saveFileName = f"{pre}/results/single_valid_epoch_{epoch}.pt"
     saveFileName = f"{pre}/results/valid_epoch_{epoch}.pt"
     info_va_only_compound = info_va.query("use_compound_com and group =='valid' and c_length < 100 and native_num_contact > 5")
-    metrics, info_va_save = evaluate_with_affinity(valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va_only_compound, saveFileName=saveFileName)
+    metrics, info_va_save, opt_torsion_dict = evaluate_with_affinity(valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
     valid_result = pd.DataFrame(info_va_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
     save_path = f"{pre}/results/valid_result_{epoch}.csv"
     valid_result.to_csv(save_path)
@@ -587,8 +587,8 @@ for epoch in range(100000):
     # saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
     saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
     info_only_compound = info.query("use_compound_com and group =='test' and c_length < 100 and native_num_contact > 5")
-    metrics,info_save  = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
-                                     device, pred_dis=pred_dis, info=info_only_compound, saveFileName=saveFileName)
+    metrics, info_save, opt_torsion_dict  = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
+                                     device, pred_dis=pred_dis, info=info_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
     test_metrics_list.append(metrics)
     test_result = pd.DataFrame(info_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
     save_path = f"{pre}/results/test_result_{epoch}.csv"
