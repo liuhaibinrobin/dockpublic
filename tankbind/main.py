@@ -116,10 +116,12 @@ arg_hash = str(abs(hash(str(args))))[0:10]
 
 writer = SummaryWriter(f"./logs/{timestamp}_{args.label}")
 
+pre = f"{args.resultFolder}/{timestamp}"
+os.system(f"mkdir -p {pre}")
 logger = logging.getLogger()
 # 指定logger输出格式
 formatter = logging.Formatter('%(asctime)s - %(filename)s[line:%(lineno)d] - %(levelname)s: %(message)s')
-handler = logging.FileHandler(f'{timestamp}.log')
+handler = logging.FileHandler(f'{pre}/{timestamp}.log')
 #handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(formatter)  # 可以通过setFormatter指定输出格式
 
@@ -136,7 +138,6 @@ logging.info(f'''\
 {args.label}
 --------------------------------
 ''')
-pre = f"{args.resultFolder}/{timestamp}"
 os.system(f"mkdir -p {pre}/models")
 os.system(f"mkdir -p {pre}/results")
 os.system(f"mkdir -p {pre}/src")
