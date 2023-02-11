@@ -161,7 +161,7 @@ sampler = RandomSampler(train, replacement=False, num_samples=len(train)) #шонч╗
 train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler, pin_memory=False, num_workers=num_workers)
 sampler2 = RandomSampler(train_after_warm_up, replacement=False, num_samples=args.sample_n)
 train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler2, pin_memory=False, num_workers=num_workers)
-valid_batch_size = test_batch_size = 4
+valid_batch_size = test_batch_size = 4 #TODO:why
 valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=num_workers)
 test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=num_workers)
 all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=4)
@@ -308,16 +308,18 @@ for epoch in range(100000):
                                                                rotate_edge_index=rotate_edge_index,
                                                                mask_rotate=data['compound'].mask_rotate[i])
 
-                    ttt=time.time()
+
                     if data.pdb[i] not in opt_torsion_dict.keys():
+                        ttt = time.time()
                         opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
                         opt_torsion_dict[data.pdb[i]] = opt_torsion
+                        print(tmp_cnt, opt_rmsd,time.time()-ttt)
                     else:
                         opt_torsion = opt_torsion_dict[data.pdb[i]]
                         opt_rmsd, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.detach().cpu().numpy())
                         opt_rotate = matrix_to_axis_angle(opt_R).float()
                         opt_tr = opt_tr.T[0]
-                    # print(tmp_cnt, opt_rmsd,time.time()-ttt)
+
                     tr_loss += F.mse_loss(tr_pred[i],opt_tr)
                     rot_loss += F.mse_loss(rot_pred[i],opt_rotate)
                     if opt_torsion is not None:
