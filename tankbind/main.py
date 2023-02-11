@@ -522,6 +522,8 @@ for epoch in range(100000):
     writer.add_scalar('epochLoss.rot/train', epoch_rot_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.tor/train', epoch_tor_loss / len(RMSD_pred), epoch)
 
+
+    continue #TODO :debug
     #===================validation========================================
 
 
