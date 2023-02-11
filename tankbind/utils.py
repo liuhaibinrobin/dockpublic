@@ -626,19 +626,19 @@ class OptimizeConformer:
         #lig_center=np.mean(new_pos, axis=0, )
         lig_center = torch.mean(new_pos, dim=0, keepdim=True)
 
-        R, t = rigid_transform_Kabsch_3D_torch(
+        R_, t = rigid_transform_Kabsch_3D_torch(
             (new_pos-lig_center).T,
             (self.ground_truth_pos-lig_center).T)
 
 
-        aligned_new_pos = torch.mm((new_pos - lig_center), R.T) + t.T + lig_center
+        aligned_new_pos = torch.mm((new_pos - lig_center), R_.T) + t.T + lig_center
         #aligned_new_pos = np.dot((new_pos-lig_center) , R.T) + t.T+lig_center
 
 
         # RMSD 计算公式https://cloud.tencent.com/developer/article/1668887
         #rmsd = np.sqrt(np.sum((aligned_new_pos.cpu().numpy() - self.ground_truth_pos.cpu().numpy()) ** 2)/len(aligned_new_pos)) #
         rmsd = RMSD(aligned_new_pos, self.ground_truth_pos)
-        return rmsd,R, t
+        return rmsd,R_, t
 
     def score_conformation(self, torsion):
 
@@ -676,7 +676,7 @@ class OptimizeConformer:
         else:
             opt_rmsd,opt_R, opt_tr = self.apply_torsion(None)
             opt_torsion = None
-        
+
         opt_rotate = matrix_to_axis_angle(opt_R).float()
         opt_tr = opt_tr.T[0]
         return opt_tr,opt_rotate,opt_torsion,opt_rmsd
