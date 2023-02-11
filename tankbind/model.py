@@ -632,17 +632,16 @@ class IaBNet_with_affinity(torch.nn.Module):
             tor_pred = self.tor_final_layer(tor_pred).squeeze(1)
             # batch_size = int(max(data_new['compound'].batch)) + 1
             # 步骤四
-
             torsion_pred_batched = tor_pred.split( data["compound"].rotate_bond_num.detach().cpu().numpy().tolist())
             with torch.no_grad():#TODO:这部分的梯度如何传播的目前没搞懂，先不做RMSD loss 了 20230201
-                next_candicate_conf_pos, next_candicate_dis_matrix = self.modify_conformer(data, tr_pred, rot_pred, torsion_pred_batched, batch_size,current_candicate_conf_pos)
+                # next_candicate_conf_pos, next_candicate_dis_matrix = self.modify_conformer(data, tr_pred, rot_pred, tor_pred, batch_size, current_candicate_conf_pos)
+                next_candicate_conf_pos, next_candicate_dis_matrix = self.modify_conformer(data, tr_pred, rot_pred, torsion_pred_batched, batch_size, current_candicate_conf_pos)
 
             affinity_pred_B_list.append(affinity_pred_B)
             prmsd_list.append(prmsd_pred)
-
             next_candicate_conf_pos_batched = self.unbatch(next_candicate_conf_pos,data['compound'].batch)
             current_candicate_conf_pos_batched = self.unbatch(current_candicate_conf_pos,data['compound'].batch)
-            pred_result_list.append((tr_pred, rot_pred, torsion_pred_batched,next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched))
+            pred_result_list.append((tr_pred, rot_pred, torsion_pred_batched, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched))
             current_candicate_conf_pos = next_candicate_conf_pos
             current_candicate_dis_matrix = next_candicate_dis_matrix
 
@@ -694,7 +693,6 @@ class IaBNet_with_affinity(torch.nn.Module):
         sizes = degree(batch, dtype=torch.long).tolist()
         return src.split(sizes)
 
-
     def modify_conformer(self, data, tr_update, rot_update, torsion_pred_batched, batch_size,candicate_conf_pos):
         #根据tr,rot,tor update data的candicate_conf_pos，然后return
         rot_mat = axis_angle_to_matrix(rot_update.squeeze())
@@ -722,8 +720,8 @@ class IaBNet_with_affinity(torch.nn.Module):
                 flexible_new_pos=data_pos_batched[i]
 
             lig_center = torch.mean(flexible_new_pos, dim=0, keepdim=True)
-            #TODO:这部分看一下是否正确
-            _new_pos = torch.mm((flexible_new_pos - lig_center),  rot_mat[i].T )+ tr_update[i,:] + lig_center #TODO rot_mat.permute(0, 2, 1)[i]
+
+            _new_pos = torch.mm((flexible_new_pos - lig_center),  rot_mat[i].T )+ tr_update[i,:] + lig_center
             new_pos_t.append(_new_pos)
 
         candicate_conf_pos_new = torch.concat(new_pos_t)
@@ -734,6 +732,45 @@ class IaBNet_with_affinity(torch.nn.Module):
         protein_pos_batched = self.unbatch(data.node_xyz, data['protein'].batch)
         candicate_dis_matrix_new = torch.concat([torch.cdist(data_pos_batched_new[i], protein_pos_batched[i]).flatten() for i in range(batch_size)])
         return candicate_conf_pos_new,candicate_dis_matrix_new
+
+    # def modify_conformer(self, data, tr_update, rot_update, torsion_updates, batch_size, candicate_conf_pos):
+    # #根据tr,rot,tor update data的candicate_conf_pos，然后return
+    #     rot_mat = axis_angle_to_matrix(rot_update.squeeze())
+    #     #修改为batch级别
+    #     mask_rotate_list = copy.deepcopy(data['compound'].mask_rotate)
+    #     mask_rotate_batch = mask_rotate_list[0]
+    #     for i in range(len(mask_rotate_list) - 1):
+    #         mask_rotate_batch = np.block([[mask_rotate_batch, np.zeros((mask_rotate_batch.shape[0], mask_rotate_list[i+1].shape[1])).astype(bool)], \
+    #                                     [np.zeros((mask_rotate_list[i+1].shape[0], mask_rotate_batch.shape[1])).astype(bool), mask_rotate_list[i+1]]])
+
+    #     #更新torsion
+    #     if torsion_updates is not None:
+    #         flexible_new_pos = modify_conformer_torsion_angles(candicate_conf_pos.detach(),
+    #                                                         data['compound', 'compound'].edge_index.T[data['compound'].edge_mask],
+    #                                                         mask_rotate_batch,
+    #                                                         torsion_updates).to(candicate_conf_pos.device)
+
+    #     #更新translation， rotation
+    #     candicate_conf_pos_sizes = degree(data['compound'].batch, dtype=torch.long).tolist()
+    #     data_pos_batched = self.unbatch(flexible_new_pos, data['compound'].batch)
+    #     candicate_conf_pos_batched = flexible_new_pos.new_full([batch_size, max(degree(data['compound'].batch, dtype=torch.long).tolist()), 3], 0.)
+    #     lig_center = []
+    #     for i in range(batch_size):
+    #         lig_center.append(torch.mean(data_pos_batched[i], dim=0, keepdim=True).repeat(max(degree(data['compound'].batch, dtype=torch.long).tolist()),1))
+    #     lig_center_batched = torch.concat(lig_center).view(batch_size, -1, 3)
+    #     tr_update_batched = tr_update.repeat(max(degree(data['compound'].batch, dtype=torch.long).tolist()),1).view(batch_size, -1, 3)
+    #     for i in range(batch_size):
+    #         candicate_conf_pos_batched[i, :candicate_conf_pos_sizes[i], :] = data_pos_batched[i]
+    #     rot_mat_T = rot_mat.permute(0,2,1)
+    #     candicate_conf_pos_new_batched = torch.bmm((candicate_conf_pos_batched - lig_center_batched), rot_mat_T) + tr_update_batched + lig_center_batched
+    #     candicate_conf_pos_new = self.rebatch(candicate_conf_pos_new_batched, data['compound'].batch)
+
+    #     #更新candicate_dis_matrix
+    #     data_pos_batched_new = self.unbatch(candicate_conf_pos_new, data['compound'].batch)
+    #     protein_pos_batched = self.unbatch(data.node_xyz, data['protein'].batch)
+    #     candicate_dis_matrix_new = torch.concat([torch.cdist(data_pos_batched_new[i], protein_pos_batched[i]).flatten() for i in range(batch_size)])
+    #     return candicate_conf_pos_new,candicate_dis_matrix_new
+
 
     # def get_symmetry_rmsd(self, data):
     #

@@ -116,10 +116,12 @@ arg_hash = str(abs(hash(str(args))))[0:10]
 
 writer = SummaryWriter(f"./logs/{timestamp}_{args.label}")
 
+pre = f"{args.resultFolder}/{timestamp}"
+os.system(f"mkdir -p {pre}")
 logger = logging.getLogger()
 # 指定logger输出格式
 formatter = logging.Formatter('%(asctime)s - %(filename)s[line:%(lineno)d] - %(levelname)s: %(message)s')
-handler = logging.FileHandler(f'{timestamp}.log')
+handler = logging.FileHandler(f'{pre}/{timestamp}.log')
 #handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(formatter)  # 可以通过setFormatter指定输出格式
 
@@ -136,7 +138,6 @@ logging.info(f'''\
 {args.label}
 --------------------------------
 ''')
-pre = f"{args.resultFolder}/{timestamp}"
 os.system(f"mkdir -p {pre}/models")
 os.system(f"mkdir -p {pre}/results")
 os.system(f"mkdir -p {pre}/src")
@@ -157,14 +158,14 @@ logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_a
 num_workers = 10
 # sampler = RandomSampler(train, replacement=True, num_samples=args.sample_n)
 sampler = RandomSampler(train, replacement=False, num_samples=len(train)) #训练数据不足2w，全部口袋时要换回来 TODO
-train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix',"compound_compound_edge_attr"], sampler=sampler, pin_memory=False, num_workers=num_workers)
+train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler, pin_memory=False, num_workers=num_workers)
 sampler2 = RandomSampler(train_after_warm_up, replacement=False, num_samples=args.sample_n)
-train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix'], sampler=sampler2, pin_memory=False, num_workers=num_workers)
+train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler2, pin_memory=False, num_workers=num_workers)
 valid_batch_size = test_batch_size = 4
-valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix'], shuffle=False, pin_memory=False, num_workers=num_workers)
-test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix'], shuffle=False, pin_memory=False, num_workers=num_workers)
-all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix'], shuffle=False, pin_memory=False, num_workers=4)
-all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix'], shuffle=False, pin_memory=False, num_workers=4)
+valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=num_workers)
+test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=num_workers)
+all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=4)
+all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=4)
 # import model is put here due to an error related to torch.utils.data.ConcatDataset after importing torchdrug.
 from model import *
 device = 'cuda'
@@ -205,6 +206,7 @@ global_steps_test = 0
 global_samples_train = 0
 global_samples_val = 0
 global_samples_test = 0
+opt_torsion_dict = {}
 for epoch in range(100000):
     model.train()
     y_list = []
@@ -245,6 +247,7 @@ for epoch in range(100000):
         optimizer.zero_grad()
         affinity_pred_A, affinity_pred_B_list, prmsd_list,pred_result_list= model(data)
         sample_num=len(data.pdb)
+        data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
 
         #记录每个样本的学习信息
         data_new_pos_batched_list=[]
@@ -294,7 +297,7 @@ for epoch in range(100000):
                 for tmp_torsion_pred in torsion_pred_batched:
                     tmp_torsion_pred.retain_grad()
 
-                data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
+
                 compound_edge_index_batched = model.unbatch(data['compound', 'compound'].edge_index.T,data.compound_compound_edge_attr_batch)
                 compound_rotate_edge_mask_batched = model.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
                 ligand_atom_sizes= degree(data['compound'].batch, dtype=torch.long).tolist()
@@ -306,23 +309,29 @@ for epoch in range(100000):
                                                                mask_rotate=data['compound'].mask_rotate[i])
 
                     ttt=time.time()
-                    opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
-                    print(tmp_cnt, opt_rmsd,time.time()-ttt)
-                    tr_loss+=F.mse_loss(tr_pred[i],opt_tr)
-                    rot_loss+=F.mse_loss(rot_pred[i],opt_rotate)
-                    tor_loss+=F.mse_loss(torsion_pred_batched[i], opt_torsion)
-                    tmp_cnt+=1
+                    if data.pdb[i] not in opt_torsion_dict.keys():
+                        opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
+                        opt_torsion_dict[data.pdb[i]] = opt_torsion
+                    else:
+                        opt_torsion = opt_torsion_dict[data.pdb[i]]
+                        opt_rmsd, opt_rotate, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion.detach().cpu().numpy())
+                    # print(tmp_cnt, opt_rmsd,time.time()-ttt)
+                    tr_loss += F.mse_loss(tr_pred[i],opt_tr)
+                    rot_loss += F.mse_loss(rot_pred[i],opt_rotate)
+                    if opt_torsion is not None:
+                        tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion)
+                    tmp_cnt += 1
 
             tr_loss=tr_loss/tmp_cnt
             rot_loss=rot_loss/tmp_cnt
             tor_loss=tor_loss/tmp_cnt
 
 
+
             #rmsd_loss
             rmsd_list=[]
             for pred_result in pred_result_list:
                 next_candicate_conf_pos_batched=pred_result[3]
-                data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
                 tmp_list=[]
                 for i in range(len(data_groundtruth_pos_batched)):
                     tmp_rmsd=utils.RMSD(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
@@ -403,15 +412,12 @@ for epoch in range(100000):
 
         #total loss
         if args.use_contact_loss == 0:
-            loss=tr_loss+tor_loss+rot_loss #TODO:debug阶段
+            loss = tr_loss  + rot_loss + tor_loss #TODO:debug阶段
             #loss = prmsd_loss.double() + rmsd_loss.double() + affinity_loss_A + affinity_loss_B
         else:
             loss = contact_loss.float()
             loss = loss.requires_grad_(True)
         # logging.info(f"prmsd_loss: {prmsd_loss.detach().cpu()}, rmsd_loss: {rmsd_loss.detach().cpu()}, affinity_loss_A: {affinity_loss_A.detach().cpu()}, affinity_loss_B: {affinity_loss_B.detach().cpu()}")
-
-        # import pdb
-        # pdb.set_trace()
         loss.backward()
         optimizer.step()
 
@@ -521,7 +527,6 @@ for epoch in range(100000):
     #===================validation========================================
 
 
-
     y = None
     y_pred = None
     # torch.cuda.empty_cache()
@@ -530,7 +535,7 @@ for epoch in range(100000):
     # saveFileName = f"{pre}/results/single_valid_epoch_{epoch}.pt"
     saveFileName = f"{pre}/results/valid_epoch_{epoch}.pt"
     info_va_only_compound = info_va.query("use_compound_com and group =='valid' and c_length < 100 and native_num_contact > 5")
-    metrics, info_va_save = evaluate_with_affinity(valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va_only_compound, saveFileName=saveFileName)
+    metrics, info_va_save, opt_torsion_dict = evaluate_with_affinity(valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
     valid_result = pd.DataFrame(info_va_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
     save_path = f"{pre}/results/valid_result_{epoch}.csv"
     valid_result.to_csv(save_path)
@@ -561,6 +566,14 @@ for epoch in range(100000):
     writer.add_scalar('epochMetric.Pearson_A/validation', metrics["Pearson_A"], epoch)
     writer.add_scalar('epochMetric.RMSE_B/validation', metrics["RMSE_B"], epoch)
     writer.add_scalar('epochMetric.Pearson_B/validation', metrics["Pearson_B"], epoch)
+    writer.add_scalar('epochMetric.epoch_tr_loss/validation', metrics["epoch_tr_loss"], epoch)
+    writer.add_scalar('epochMetric.epoch_rot_loss/validation', metrics["epoch_rot_loss"], epoch)
+    writer.add_scalar('epochMetric.epoch_tor_loss/validation', metrics["epoch_tor_loss"], epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/validation', metrics["epoch_rmsd_recycling_0_loss"], epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/validation', metrics["epoch_rmsd_recycling_0_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/validation', metrics["epoch_rmsd_recycling_0_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/validation', metrics["epoch_rmsd_recycling_0_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/validation', metrics["epoch_rmsd_recycling_0_loss"],epoch)
     # writer.add_scalar('epochMetric.NativeAUROC/validation', metrics["native_auroc"], epoch)
     # writer.add_scalar('epochMetric.SelectedAUROC/validation', metrics["selected_auroc"], epoch)
     #====================test============================================================
@@ -576,8 +589,8 @@ for epoch in range(100000):
     # saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
     saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
     info_only_compound = info.query("use_compound_com and group =='test' and c_length < 100 and native_num_contact > 5")
-    metrics,info_save  = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
-                                     device, pred_dis=pred_dis, info=info_only_compound, saveFileName=saveFileName)
+    metrics, info_save, opt_torsion_dict  = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
+                                     device, pred_dis=pred_dis, info=info_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
     test_metrics_list.append(metrics)
     test_result = pd.DataFrame(info_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
     save_path = f"{pre}/results/test_result_{epoch}.csv"
@@ -597,6 +610,15 @@ for epoch in range(100000):
     writer.add_scalar('epochMetric.Pearson_A/test', metrics["Pearson_A"], epoch)
     writer.add_scalar('epochMetric.RMSE_B/test', metrics["RMSE_B"], epoch)
     writer.add_scalar('epochMetric.Pearson_B/test', metrics["Pearson_B"], epoch)
+
+    writer.add_scalar('epochMetric.epoch_tr_loss/test', metrics["epoch_tr_loss"], epoch)
+    writer.add_scalar('epochMetric.epoch_rot_loss/test', metrics["epoch_rot_loss"], epoch)
+    writer.add_scalar('epochMetric.epoch_tor_loss/test', metrics["epoch_tor_loss"], epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/test', metrics["epoch_rmsd_recycling_0_loss"], epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/test', metrics["epoch_rmsd_recycling_0_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/test', metrics["epoch_rmsd_recycling_0_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/test', metrics["epoch_rmsd_recycling_0_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/test', metrics["epoch_rmsd_recycling_0_loss"],epoch)
     # writer.add_scalar('epochMetric.NativeAUROC/test', metrics["native_auroc"], epoch)
     # writer.add_scalar('epochMetric.SelectedAUROC/test', metrics["selected_auroc"], epoch)
 
