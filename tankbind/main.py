@@ -309,18 +309,12 @@ for epoch in range(100000):
                                                                mask_rotate=data['compound'].mask_rotate[i])
 
                     ttt=time.time()
-                    if data.pdb[i] not in opt_torsion_dict.keys():
-                        opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
-                        opt_torsion_dict[data.pdb[i]] = opt_torsion
-                    else:
-                        opt_torsion = opt_torsion_dict[data.pdb[i]]
-                        opt_rmsd, opt_rotate, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion.detach().cpu().numpy())
-                    # print(tmp_cnt, opt_rmsd,time.time()-ttt)
-                    tr_loss += F.mse_loss(tr_pred[i],opt_tr)
-                    rot_loss += F.mse_loss(rot_pred[i],opt_rotate)
-                    if opt_torsion is not None:
-                        tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion)
-                    tmp_cnt += 1
+                    opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
+                    print(tmp_cnt, opt_rmsd,time.time()-ttt)
+                    tr_loss+=F.mse_loss(tr_pred[i],opt_tr)
+                    rot_loss+=F.mse_loss(rot_pred[i],opt_rotate)
+                    tor_loss+=F.mse_loss(torsion_pred_batched[i], opt_torsion)
+                    tmp_cnt+=1
 
             tr_loss=tr_loss/tmp_cnt
             rot_loss=rot_loss/tmp_cnt
@@ -336,7 +330,7 @@ for epoch in range(100000):
                 for i in range(len(data_groundtruth_pos_batched)):
                     tmp_rmsd=utils.RMSD(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
                     tmp_list.append(tmp_rmsd)
-                rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).requires_grad_().to(y_pred.device))
+                rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).requires_grad_().to(y_pred.device)[data.is_equivalent_native_pocket])
             rmsd_loss = torch.stack(rmsd_list).mean()  # TODO:
 
 
