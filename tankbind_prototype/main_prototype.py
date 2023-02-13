@@ -141,7 +141,7 @@ def main(args):
     input_path = "/home/jovyan/main_tankbind/dataset_prototype"
     print(f"Getting datasets from {input_path}...", end="")
     if train_flag or iid_flag or ood_flag or test_flag:
-        train_dataset, iid_dataset, ood_dataset, test_dataset = get_full_data_prototype(input_path, data_mode=args.data_mode)
+        train_dataset, iid_dataset, ood_dataset, test_dataset = get_full_data_prototype(input_path, random_state=args.trainset_seed, data_mode=args.data_mode)
     else:
         train_dataset = iid_dataset = ood_dataset = test_dataset = None
     if internal_flag:
@@ -402,7 +402,8 @@ if __name__ == "__main__":
                         help="batch size.")
     parser.add_argument("--data_mode", type=str, default="full",
                         help="use 'full' or reduced 'small' dataset")
-
+    parser.add_argument("--trainset_seed", type=int, default=0,
+                        help="Random seed to generate training set")
     # Model configuration
     parser.add_argument("--pair_threshold", type=float, default=2,
                         help="threshold for the formation of sample pairs."

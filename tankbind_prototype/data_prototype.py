@@ -121,9 +121,9 @@ def get_data_prototype(pre, data_mode, addNoise=None):
 
 
 
-def get_full_data_prototype(pre, data_mode, addNoise=None):
+def get_full_data_prototype(pre, data_mode, random_state=0, addNoise=None):
     if data_mode not in ['small', 'full', 'duplicated']:
-        raise ValueError("data_mode should be chosen from ['small' and 'full']")
+        raise ValueError("data_mode should be chosen from ['small' and 'full']， or `duplicated` in rare cases.")
     
     
     if data_mode == "small":
@@ -159,7 +159,7 @@ def get_full_data_prototype(pre, data_mode, addNoise=None):
         
         train_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None)
         train_dataset.data = train_dataset.data.query("split_tag =='train' and c_length < 100").reset_index(drop=True)
-        train_dataset.data = train_dataset.data.groupby("session_aus").sample(n=1).reset_index(drop=True)
+        train_dataset.data = train_dataset.data.groupby("session_aus").sample(n=1, random_state=random_state).reset_index(drop=True)
         
         # Replaced with 0130 reduced dataset: one session, one smiles => unique pdb
         iid_dataset = TankBindDataSet_prototype(root=f"{pre}/extra_val_test_reduced_0130", add_noise_to_com=None)
