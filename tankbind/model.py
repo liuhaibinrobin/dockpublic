@@ -350,9 +350,11 @@ class MultiHeadAttention_dis_bias(nn.Module):
             self.triangle_self_attention_list = nn.ModuleList([TriangleSelfAttentionRowWise(embedding_channels=embedding_channels)
                                                                for _ in range(n_trigonometry_module_stack)])
             self.tranistion = Transition(embedding_channels=embedding_channels, n=4)
+            self.dropout = nn.Dropout2d(p=0.25)
         else:
             self.triangle_self_attention_list=None
             self.tranistion=None
+            self.dropout=None
         # self.confidence_predictor = nn.Sequential(
         #         nn.Linear(embedding_channels,ns),
         #         nn.BatchNorm1d(ns) if not confidence_no_batchnorm else nn.Identity(),
