@@ -349,7 +349,7 @@ class MultiHeadAttention_dis_bias(nn.Module):
         if n_trigonometry_module_stack!=0:
             self.triangle_self_attention_list = nn.ModuleList([TriangleSelfAttentionRowWise(embedding_channels=z_channel)
                                                                for _ in range(n_trigonometry_module_stack)])
-            self.tranistion = Transition(embedding_channels=embedding_channels, n=4)
+            self.tranistion = Transition(embedding_channels=z_channel, n=4)
             self.dropout = nn.Dropout2d(p=0.25)
         else:
             self.triangle_self_attention_list=None
@@ -397,7 +397,7 @@ class MultiHeadAttention_dis_bias(nn.Module):
             z_=z.transpose(3,1)#z.transpose(3,1):[b,pocket_len, ligand_len, z_channel, ]
             for _ in range(1):
                 for i_module in range(self.n_trigonometry_module_stack):
-                    z_ = z_ + self.dropout(self.triangle_self_attention_list[i_module](z_ , z_mask)).transpose(3,1)
+                    z_ = z_ + self.dropout(self.triangle_self_attention_list[i_module](z_ , z_mask))
                     z_ = self.tranistion(z_)
             z=z_.transpose(3,1)
 
