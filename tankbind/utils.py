@@ -402,7 +402,7 @@ def evaluate_with_affinity(data_loader,
                             opt_rmsd, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.detach().cpu().numpy())
                             opt_rotate = matrix_to_axis_angle(opt_R).float()
                             opt_tr = opt_tr.T[0]
-                        print(tmp_cnt, opt_rmsd, time.time() - ttt)
+                        # print(tmp_cnt, opt_rmsd, time.time() - ttt)
                         tr_loss += F.mse_loss(tr_pred[i], opt_tr)
                         rot_loss += F.mse_loss(rot_pred[i], opt_rotate)
                         if opt_torsion is not None:

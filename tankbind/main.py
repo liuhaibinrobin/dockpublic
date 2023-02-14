@@ -107,6 +107,9 @@ parser.add_argument("--contact_loss_mode", type=int, default=0, choices=[0, 1, 2
 
 parser.add_argument("--use_weighted_rmsd_loss", type=bool, default=False,
                     help="whether to change contact weight according to distance")
+parser.add_argument("--use_opt_torsion_dict", type=bool, default=True,
+                    help="whether to use prepared optimal torsional dict")
+parser.add_argument("--lr", type=float, default=0.0001, help="learning rate")
 args = parser.parse_args()
 
 
@@ -172,7 +175,7 @@ device = 'cuda'
 model = get_model(args.mode, logger, device)
 if args.restart:
     model.load_state_dict(torch.load(args.restart))
-optimizer = torch.optim.Adam(model.parameters(), lr=0.0001) #TODO 原始0.0001
+optimizer = torch.optim.Adam(model.parameters(), lr=args.lr) #TODO 原始0.0001
 # model.train()
 if args.pred_dis:
     if args.use_weighted_rmsd_loss:
@@ -206,7 +209,11 @@ global_steps_test = 0
 global_samples_train = 0
 global_samples_val = 0
 global_samples_test = 0
-opt_torsion_dict = {}
+if args.use_opt_torsion_dict:
+    opt_torsion_dict = torch.load('opt_torsion_dict.pt')
+    print('use prepared optimal torsional dict')
+else:
+    opt_torsion_dict = {}
 for epoch in range(100000):
     model.train()
     y_list = []
@@ -229,6 +236,7 @@ for epoch in range(100000):
 
     epoch_rmsd_recycling_0_loss=0
     epoch_rmsd_recycling_1_loss=0
+    epoch_rmsd_recycling_2_loss=0
     epoch_rmsd_recycling_9_loss=0
     epoch_rmsd_recycling_19_loss=0
     epoch_rmsd_recycling_39_loss=0
@@ -313,7 +321,7 @@ for epoch in range(100000):
                         ttt = time.time()
                         opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
                         opt_torsion_dict[data.pdb[i]] = opt_torsion
-                        print(tmp_cnt, opt_rmsd,time.time()-ttt)
+                        # print(tmp_cnt, opt_rmsd,time.time()-ttt)
                     else:
                         opt_torsion = opt_torsion_dict[data.pdb[i]]
                         opt_rmsd, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.detach().cpu().numpy())
@@ -354,6 +362,7 @@ for epoch in range(100000):
 
             rmsd_recycling_0_loss = torch.tensor(rmsd_recycling_0_loss/len(data_groundtruth_pos_batched)).to(y_pred.device)
             rmsd_recycling_1_loss = torch.mean(rmsd_list[0]) if len(rmsd_list) >= 1 else torch.tensor([0]).to(y_pred.device)
+            rmsd_recycling_2_loss = torch.mean(rmsd_list[0]) if len(rmsd_list) >= 2 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_9_loss = torch.mean(rmsd_list[8]) if len(rmsd_list) >=9 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_19_loss = torch.mean(rmsd_list[18]) if len(rmsd_list) >= 19 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_39_loss = torch.mean(rmsd_list[38]) if len(rmsd_list) >= 39 else torch.tensor([0]).to(y_pred.device)
@@ -441,6 +450,7 @@ for epoch in range(100000):
 
         epoch_rmsd_recycling_0_loss +=len(rmsd_list[0]) * rmsd_recycling_0_loss.item()
         epoch_rmsd_recycling_1_loss +=len(rmsd_list[0]) * rmsd_recycling_1_loss.item()
+        epoch_rmsd_recycling_2_loss +=len(rmsd_list[0]) * rmsd_recycling_2_loss.item()
         epoch_rmsd_recycling_9_loss  +=len(rmsd_list[0]) * rmsd_recycling_9_loss.item()
         epoch_rmsd_recycling_19_loss +=len(rmsd_list[0]) * rmsd_recycling_19_loss.item()
         epoch_rmsd_recycling_39_loss +=len(rmsd_list[0]) * rmsd_recycling_39_loss.item()
@@ -518,6 +528,7 @@ for epoch in range(100000):
 
     writer.add_scalar('epochLoss.rmsd_recycling_0/train', epoch_rmsd_recycling_0_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.rmsd_recycling_1/train', epoch_rmsd_recycling_1_loss / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.rmsd_recycling_2/train', epoch_rmsd_recycling_2_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.rmsd_recycling_9/train', epoch_rmsd_recycling_9_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.rmsd_recycling_19/train', epoch_rmsd_recycling_19_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.rmsd_recycling_39/train', epoch_rmsd_recycling_39_loss / len(RMSD_pred), epoch)
@@ -574,10 +585,10 @@ for epoch in range(100000):
     writer.add_scalar('epochMetric.epoch_rot_loss/validation', metrics["epoch_rot_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_tor_loss/validation', metrics["epoch_tor_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/validation', metrics["epoch_rmsd_recycling_0_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/validation', metrics["epoch_rmsd_recycling_0_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/validation', metrics["epoch_rmsd_recycling_0_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/validation', metrics["epoch_rmsd_recycling_0_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/validation', metrics["epoch_rmsd_recycling_0_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/validation', metrics["epoch_rmsd_recycling_1_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/validation', metrics["epoch_rmsd_recycling_9_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/validation', metrics["epoch_rmsd_recycling_19_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/validation', metrics["epoch_rmsd_recycling_39_loss"],epoch)
     # writer.add_scalar('epochMetric.NativeAUROC/validation', metrics["native_auroc"], epoch)
     # writer.add_scalar('epochMetric.SelectedAUROC/validation', metrics["selected_auroc"], epoch)
     #====================test============================================================
@@ -619,10 +630,10 @@ for epoch in range(100000):
     writer.add_scalar('epochMetric.epoch_rot_loss/test', metrics["epoch_rot_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_tor_loss/test', metrics["epoch_tor_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/test', metrics["epoch_rmsd_recycling_0_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/test', metrics["epoch_rmsd_recycling_0_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/test', metrics["epoch_rmsd_recycling_0_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/test', metrics["epoch_rmsd_recycling_0_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/test', metrics["epoch_rmsd_recycling_0_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/test', metrics["epoch_rmsd_recycling_1_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/test', metrics["epoch_rmsd_recycling_9_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/test', metrics["epoch_rmsd_recycling_19_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/test', metrics["epoch_rmsd_recycling_39_loss"],epoch)
     # writer.add_scalar('epochMetric.NativeAUROC/test', metrics["native_auroc"], epoch)
     # writer.add_scalar('epochMetric.SelectedAUROC/test', metrics["selected_auroc"], epoch)
 

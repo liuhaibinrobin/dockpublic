@@ -359,7 +359,7 @@ class MultiHeadAttention_dis_bias(nn.Module):
         
 
         
-    def forward(self, z, z_mask, pocket_rep, candicate_dis_matrix_batched ,edge_type_matrix=None, attn_bias=None, subsq_mask = None, valid=False,check=False):
+    def forward(self, z, z_mask, pocket_rep, candicate_dis_matrix_batched, z_previous, compound_out_batched_previous, edge_type_matrix=None, attn_bias=None, subsq_mask = None, valid=False, check=False):
         #z shape: [b, pocket_len, ligand_len, embedding_channels]
         #pocket_rep shape : [b, pocket_len, embedding_channels]
         #candicate_dis_matrix_batched shape: [b, ligand_len, pocket_len]
@@ -382,6 +382,8 @@ class MultiHeadAttention_dis_bias(nn.Module):
         # dis_attn_bias=get_dist_features(self,candicate_dis_matrix_batched, edge_type_matrix)
         edge_length_embedding = soft_one_hot_linspace(candicate_dis_matrix_batched,start=0.0,end=15,number=self.bucket_num,basis='smooth_finite',cutoff=True)
         z += self.dis_attn_linear(edge_length_embedding).view(batch_size, z_channel, ligand_len, pocket_len)
+        if z_previous is not None:
+            z += z_previous 
         z_mask_repeat = z_mask.repeat(z_channel, 1, 1).view([batch_size, -1, ligand_len, pocket_len])
         z = z.masked_fill(z_mask_repeat, 1e-9)
         pair_energy = (self.gate_linear(z.transpose(3,1)).sigmoid() * self.linear_energy(z.transpose(3,1))).squeeze(-1) * z_mask
@@ -393,7 +395,9 @@ class MultiHeadAttention_dis_bias(nn.Module):
         ligand_rep = ligand_rep.transpose(1, 2).contiguous()  # [b, ligand_len, z_channel, embedding_channels]
         ligand_rep = ligand_rep.view(batch_size, -1, head_size * embedding_channels) # [b, ligand_len, z_channel * embedding_channels]
         ligand_rep = self.output_layer(ligand_rep)
-        return ligand_rep, affinity_pred, prmsd_pred
+        if compound_out_batched_previous is not None:
+            ligand_rep += compound_out_batched_previous
+        return ligand_rep, affinity_pred, prmsd_pred, z
 
 class GaussianSmearing(torch.nn.Module):
     # used to embed the edge distances
@@ -586,7 +590,13 @@ class IaBNet_with_affinity(torch.nn.Module):
 
         current_candicate_dis_matrix= data.candicate_dis_matrix
         current_candicate_conf_pos=data.candicate_conf_pos
+        compound_out_batched_previous = z_previous = None
         for _ in range(self.recycling_num):
+            for _ in range(1):
+                for i_module in range(self.n_trigonometry_module_stack):
+                    z = z + self.dropout(self.protein_to_compound_list[i_module](z, protein_pair, compound_pair, z_mask.unsqueeze(-1)))
+                    z = z + self.dropout(self.triangle_self_attention_list[i_module](z, z_mask))
+                    z = self.tranistion(z)
             protein_num_batch = degree(data['protein'].batch, dtype=torch.long).tolist()
             compound_num_batch = degree(data['compound'].batch, dtype=torch.long).tolist()
             batch_size, ligand_len, pocket_len = z.shape[0], z.shape[2], z.shape[1]
@@ -595,8 +605,8 @@ class IaBNet_with_affinity(torch.nn.Module):
                 candicate_dis_matrix_batched[i, :compound_num_batch[i], :protein_num_batch[i]] = \
                     self.unbatch(current_candicate_dis_matrix, data.candicate_dis_matrix_batch)[i].view(compound_num_batch[i], protein_num_batch[i]) #让candicate_dis_matrix的维度与z一致
             #self.logging.info("3 z.shape:%s,protein_out_batched.shape:%s,  candicate_dis_matrix_batched.shape:%s "%(z.shape,protein_out_batched.shape,  candicate_dis_matrix_batched.shape))
-            compound_out_batched_new, affinity_pred_B, prmsd_pred = self.MultiHeadAttention_dis_bias(z, z_mask, protein_out_batched, candicate_dis_matrix_batched) #获得包含protein和compound交互信息的compound single representation
-            
+            compound_out_batched_current, affinity_pred_B, prmsd_pred, z_current = self.MultiHeadAttention_dis_bias(z, z_mask, protein_out_batched, candicate_dis_matrix_batched, z_previous, compound_out_batched_previous) #获得包含protein和compound交互信息的compound single representation
+            z_previous, compound_out_batched_previous = z_current, compound_out_batched_current
 
 
             affinity_pred_B = affinity_pred_B.sigmoid() * 15
@@ -604,7 +614,7 @@ class IaBNet_with_affinity(torch.nn.Module):
 
 
             #先算true_rmsd_上一轮的，再跟上面的算 prmsd_loss
-            compound_out_new = self.rebatch(compound_out_batched_new, compound_batch)
+            compound_out_new = self.rebatch(compound_out_batched_current, compound_batch)
             center_edge_index, center_edge_attr, center_edge_sh = self.build_center_conv_graph(data)
             center_edge_attr = self.center_edge_embedding(center_edge_attr)
             # lig_node_attr 和 compound_out_new 都是node embedding 有问题，compound_out_new也包含protein信息（z）
@@ -733,8 +743,8 @@ class IaBNet_with_affinity(torch.nn.Module):
         candicate_dis_matrix_new = torch.concat([torch.cdist(data_pos_batched_new[i], protein_pos_batched[i]).flatten() for i in range(batch_size)])
         return candicate_conf_pos_new,candicate_dis_matrix_new
 
-    # def modify_conformer(self, data, tr_update, rot_update, torsion_updates, batch_size, candicate_conf_pos):
-    # #根据tr,rot,tor update data的candicate_conf_pos，然后return  
+    # def modify_conformer(self, data, tr_update, rot_update, torsion_updates, batch_size, candicate_conf_pos): #已修正，与sample版本的输出一致
+    #     #batch级别的根据tr,rot,tor update data的candicate_conf_pos，然后return  
     #     rot_mat = axis_angle_to_matrix(rot_update.squeeze())
     #     #修改为batch级别
     #     mask_rotate_list = copy.deepcopy(data['compound'].mask_rotate)
@@ -742,7 +752,7 @@ class IaBNet_with_affinity(torch.nn.Module):
     #     for i in range(len(mask_rotate_list) - 1):
     #         mask_rotate_batch = np.block([[mask_rotate_batch, np.zeros((mask_rotate_batch.shape[0], mask_rotate_list[i+1].shape[1])).astype(bool)], \
     #                                     [np.zeros((mask_rotate_list[i+1].shape[0], mask_rotate_batch.shape[1])).astype(bool), mask_rotate_list[i+1]]])
-        
+
     #     #更新torsion
     #     if torsion_updates is not None:
     #         flexible_new_pos = modify_conformer_torsion_angles(candicate_conf_pos.detach(),
@@ -758,13 +768,13 @@ class IaBNet_with_affinity(torch.nn.Module):
     #     for i in range(batch_size):
     #         lig_center.append(torch.mean(data_pos_batched[i], dim=0, keepdim=True).repeat(max(degree(data['compound'].batch, dtype=torch.long).tolist()),1))
     #     lig_center_batched = torch.concat(lig_center).view(batch_size, -1, 3)
-    #     tr_update_batched = tr_update.repeat(max(degree(data['compound'].batch, dtype=torch.long).tolist()),1).view(batch_size, -1, 3)
+    #     tr_update_batched = tr_update.repeat(1, max(degree(data['compound'].batch, dtype=torch.long).tolist())).view(batch_size, -1, 3)
     #     for i in range(batch_size):
     #         candicate_conf_pos_batched[i, :candicate_conf_pos_sizes[i], :] = data_pos_batched[i]
     #     rot_mat_T = rot_mat.permute(0,2,1)
     #     candicate_conf_pos_new_batched = torch.bmm((candicate_conf_pos_batched - lig_center_batched), rot_mat_T) + tr_update_batched + lig_center_batched
     #     candicate_conf_pos_new = self.rebatch(candicate_conf_pos_new_batched, data['compound'].batch)
-        
+
     #     #更新candicate_dis_matrix
     #     data_pos_batched_new = self.unbatch(candicate_conf_pos_new, data['compound'].batch)
     #     protein_pos_batched = self.unbatch(data.node_xyz, data['protein'].batch)
