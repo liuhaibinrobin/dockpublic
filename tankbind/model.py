@@ -327,7 +327,7 @@ class TensorProductConvLayer(torch.nn.Module):
         return out
 
 class MultiHeadAttention_dis_bias(nn.Module):
-    def __init__(self, embedding_channels, attention_dropout_rate, z_channel):
+    def __init__(self, embedding_channels, attention_dropout_rate, z_channel,n_trigonometry_module_stack):
         super(MultiHeadAttention_dis_bias, self).__init__()
 
         self.att_dropout = nn.Dropout(attention_dropout_rate)
@@ -345,6 +345,14 @@ class MultiHeadAttention_dis_bias(nn.Module):
         self.leaky_prmsd = torch.nn.LeakyReLU()
         self.bias_prmsd = torch.nn.Parameter(torch.ones(1))
 
+        self.n_trigonometry_module_stack=n_trigonometry_module_stack
+        if n_trigonometry_module_stack!=0:
+            self.triangle_self_attention_list = nn.ModuleList([TriangleSelfAttentionRowWise(embedding_channels=embedding_channels)
+                                                               for _ in range(n_trigonometry_module_stack)])
+            self.tranistion = Transition(embedding_channels=embedding_channels, n=4)
+        else:
+            self.triangle_self_attention_list=None
+            self.tranistion=None
         # self.confidence_predictor = nn.Sequential(
         #         nn.Linear(embedding_channels,ns),
         #         nn.BatchNorm1d(ns) if not confidence_no_batchnorm else nn.Identity(),
@@ -359,7 +367,7 @@ class MultiHeadAttention_dis_bias(nn.Module):
         
 
         
-    def forward(self, z, z_mask, pocket_rep, candicate_dis_matrix_batched, z_previous, compound_out_batched_previous, edge_type_matrix=None, attn_bias=None, subsq_mask = None, valid=False, check=False):
+    def forward(self, z, z_mask, pocket_rep, candicate_dis_matrix_batched ,edge_type_matrix=None, attn_bias=None, subsq_mask = None, valid=False,check=False):
         #z shape: [b, pocket_len, ligand_len, embedding_channels]
         #pocket_rep shape : [b, pocket_len, embedding_channels]
         #candicate_dis_matrix_batched shape: [b, ligand_len, pocket_len]
@@ -382,8 +390,14 @@ class MultiHeadAttention_dis_bias(nn.Module):
         # dis_attn_bias=get_dist_features(self,candicate_dis_matrix_batched, edge_type_matrix)
         edge_length_embedding = soft_one_hot_linspace(candicate_dis_matrix_batched,start=0.0,end=15,number=self.bucket_num,basis='smooth_finite',cutoff=True)
         z += self.dis_attn_linear(edge_length_embedding).view(batch_size, z_channel, ligand_len, pocket_len)
-        if z_previous is not None:
-            z += z_previous 
+
+        if self.n_trigonometry_module_stack!=0:
+            for _ in range(1):
+                for i_module in range(self.n_trigonometry_module_stack):
+                    z = z + self.dropout(self.triangle_self_attention_list[i_module](z, z_mask))
+                    z = self.tranistion(z)
+
+
         z_mask_repeat = z_mask.repeat(z_channel, 1, 1).view([batch_size, -1, ligand_len, pocket_len])
         z = z.masked_fill(z_mask_repeat, 1e-9)
         pair_energy = (self.gate_linear(z.transpose(3,1)).sigmoid() * self.linear_energy(z.transpose(3,1))).squeeze(-1) * z_mask
@@ -395,9 +409,7 @@ class MultiHeadAttention_dis_bias(nn.Module):
         ligand_rep = ligand_rep.transpose(1, 2).contiguous()  # [b, ligand_len, z_channel, embedding_channels]
         ligand_rep = ligand_rep.view(batch_size, -1, head_size * embedding_channels) # [b, ligand_len, z_channel * embedding_channels]
         ligand_rep = self.output_layer(ligand_rep)
-        if compound_out_batched_previous is not None:
-            ligand_rep += compound_out_batched_previous
-        return ligand_rep, affinity_pred, prmsd_pred, z
+        return ligand_rep, affinity_pred, prmsd_pred
 
 class GaussianSmearing(torch.nn.Module):
     # used to embed the edge distances
@@ -442,7 +454,8 @@ class IaBNet_with_affinity(torch.nn.Module):
             self.conv_compound = GNN(hidden_channels, embedding_channels)
         elif compound_embed_mode == 1:
             self.conv_compound = GIN(input_dim = 56, hidden_dims = [128,56,embedding_channels], edge_input_dim = 19, concat_hidden = False)
-            self.MultiHeadAttention_dis_bias = MultiHeadAttention_dis_bias(embedding_channels = 128, attention_dropout_rate = 0.1, z_channel = 5)
+            self.MultiHeadAttention_dis_bias = MultiHeadAttention_dis_bias(embedding_channels = 128, attention_dropout_rate = 0.1,
+                                                                           z_channel = 5,n_trigonometry_module_stack=5)
             #步骤三声明
             torch.nn.Module = module
             self.ns = ns = 24 #small score model 参数
@@ -590,13 +603,7 @@ class IaBNet_with_affinity(torch.nn.Module):
 
         current_candicate_dis_matrix= data.candicate_dis_matrix
         current_candicate_conf_pos=data.candicate_conf_pos
-        compound_out_batched_previous = z_previous = None
         for _ in range(self.recycling_num):
-            for _ in range(1):
-                for i_module in range(self.n_trigonometry_module_stack):
-                    z = z + self.dropout(self.protein_to_compound_list[i_module](z, protein_pair, compound_pair, z_mask.unsqueeze(-1)))
-                    z = z + self.dropout(self.triangle_self_attention_list[i_module](z, z_mask))
-                    z = self.tranistion(z)
             protein_num_batch = degree(data['protein'].batch, dtype=torch.long).tolist()
             compound_num_batch = degree(data['compound'].batch, dtype=torch.long).tolist()
             batch_size, ligand_len, pocket_len = z.shape[0], z.shape[2], z.shape[1]
@@ -605,8 +612,8 @@ class IaBNet_with_affinity(torch.nn.Module):
                 candicate_dis_matrix_batched[i, :compound_num_batch[i], :protein_num_batch[i]] = \
                     self.unbatch(current_candicate_dis_matrix, data.candicate_dis_matrix_batch)[i].view(compound_num_batch[i], protein_num_batch[i]) #让candicate_dis_matrix的维度与z一致
             #self.logging.info("3 z.shape:%s,protein_out_batched.shape:%s,  candicate_dis_matrix_batched.shape:%s "%(z.shape,protein_out_batched.shape,  candicate_dis_matrix_batched.shape))
-            compound_out_batched_current, affinity_pred_B, prmsd_pred, z_current = self.MultiHeadAttention_dis_bias(z, z_mask, protein_out_batched, candicate_dis_matrix_batched, z_previous, compound_out_batched_previous) #获得包含protein和compound交互信息的compound single representation
-            z_previous, compound_out_batched_previous = z_current, compound_out_batched_current
+            compound_out_batched_new, affinity_pred_B, prmsd_pred = self.MultiHeadAttention_dis_bias(z, z_mask, protein_out_batched, candicate_dis_matrix_batched) #获得包含protein和compound交互信息的compound single representation
+
 
 
             affinity_pred_B = affinity_pred_B.sigmoid() * 15
@@ -614,7 +621,7 @@ class IaBNet_with_affinity(torch.nn.Module):
 
 
             #先算true_rmsd_上一轮的，再跟上面的算 prmsd_loss
-            compound_out_new = self.rebatch(compound_out_batched_current, compound_batch)
+            compound_out_new = self.rebatch(compound_out_batched_new, compound_batch)
             center_edge_index, center_edge_attr, center_edge_sh = self.build_center_conv_graph(data)
             center_edge_attr = self.center_edge_embedding(center_edge_attr)
             # lig_node_attr 和 compound_out_new 都是node embedding 有问题，compound_out_new也包含protein信息（z）

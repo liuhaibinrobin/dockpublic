@@ -362,7 +362,7 @@ for epoch in range(100000):
 
             rmsd_recycling_0_loss = torch.tensor(rmsd_recycling_0_loss/len(data_groundtruth_pos_batched)).to(y_pred.device)
             rmsd_recycling_1_loss = torch.mean(rmsd_list[0]) if len(rmsd_list) >= 1 else torch.tensor([0]).to(y_pred.device)
-            rmsd_recycling_2_loss = torch.mean(rmsd_list[0]) if len(rmsd_list) >= 2 else torch.tensor([0]).to(y_pred.device)
+            rmsd_recycling_2_loss = torch.mean(rmsd_list[1]) if len(rmsd_list) >= 2 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_9_loss = torch.mean(rmsd_list[8]) if len(rmsd_list) >=9 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_19_loss = torch.mean(rmsd_list[18]) if len(rmsd_list) >= 19 else torch.tensor([0]).to(y_pred.device)
             rmsd_recycling_39_loss = torch.mean(rmsd_list[38]) if len(rmsd_list) >= 39 else torch.tensor([0]).to(y_pred.device)
