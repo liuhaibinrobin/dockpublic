@@ -347,7 +347,7 @@ class MultiHeadAttention_dis_bias(nn.Module):
 
         self.n_trigonometry_module_stack=n_trigonometry_module_stack
         if n_trigonometry_module_stack!=0:
-            self.triangle_self_attention_list = nn.ModuleList([TriangleSelfAttentionRowWise(embedding_channels=embedding_channels)
+            self.triangle_self_attention_list = nn.ModuleList([TriangleSelfAttentionRowWise(embedding_channels=z_channel)
                                                                for _ in range(n_trigonometry_module_stack)])
             self.tranistion = Transition(embedding_channels=embedding_channels, n=4)
             self.dropout = nn.Dropout2d(p=0.25)
@@ -369,14 +369,14 @@ class MultiHeadAttention_dis_bias(nn.Module):
         
 
         
-    def forward(self, z, z_mask, pocket_rep, candicate_dis_matrix_batched ,edge_type_matrix=None, attn_bias=None, subsq_mask = None, valid=False,check=False):
+    def forward(self, z_ori, z_mask, pocket_rep, candicate_dis_matrix_batched ,edge_type_matrix=None, attn_bias=None, subsq_mask = None, valid=False,check=False):
         #z shape: [b, pocket_len, ligand_len, embedding_channels]
         #pocket_rep shape : [b, pocket_len, embedding_channels]
         #candicate_dis_matrix_batched shape: [b, ligand_len, pocket_len]
         #edge_type_matrix shape: [b, pocket_len, ligand_len,edge_type_pair_channels]
         
         
-        z = self.linear(z).transpose(3,1)  #z shape :[b, z_channel, ligand_len, pocket_len]
+        z = self.linear(z_ori).transpose(3,1)  #z shape :[b, z_channel, ligand_len, pocket_len]
         ligand_len, pocket_len = z.shape[2], z.shape[3]
         embedding_channels = pocket_rep.shape[-1]
         batch_size = z.shape[0]
@@ -394,10 +394,12 @@ class MultiHeadAttention_dis_bias(nn.Module):
         z += self.dis_attn_linear(edge_length_embedding).view(batch_size, z_channel, ligand_len, pocket_len)
 
         if self.n_trigonometry_module_stack!=0:
+            z_=z.transpose(3,1)#z.transpose(3,1):[b,pocket_len, ligand_len, z_channel, ]
             for _ in range(1):
                 for i_module in range(self.n_trigonometry_module_stack):
-                    z = z + self.dropout(self.triangle_self_attention_list[i_module](z, z_mask))
-                    z = self.tranistion(z)
+                    z_ = z_ + self.dropout(self.triangle_self_attention_list[i_module](z_ , z_mask)).transpose(3,1)
+                    z_ = self.tranistion(z_)
+            z=z_.transpose(3,1)
 
 
         z_mask_repeat = z_mask.repeat(z_channel, 1, 1).view([batch_size, -1, ligand_len, pocket_len])
@@ -457,7 +459,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         elif compound_embed_mode == 1:
             self.conv_compound = GIN(input_dim = 56, hidden_dims = [128,56,embedding_channels], edge_input_dim = 19, concat_hidden = False)
             self.MultiHeadAttention_dis_bias = MultiHeadAttention_dis_bias(embedding_channels = 128, attention_dropout_rate = 0.1,
-                                                                           z_channel = 5,n_trigonometry_module_stack=5)
+                                                                           z_channel = 10,n_trigonometry_module_stack=5)
             #步骤三声明
             torch.nn.Module = module
             self.ns = ns = 24 #small score model 参数
