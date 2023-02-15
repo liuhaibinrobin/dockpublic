@@ -173,8 +173,9 @@ all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batc
 from model import *
 device = 'cuda'
 model = get_model(args.mode, logger, device)
+model.load_state_dict(torch.load('/home/jovyan/torsional/tankbind/result/2023_02_11_14_47_35/models/epoch_310.pt'),strict=False)
 if args.restart:
-    model.load_state_dict(torch.load(args.restart))
+    model.load_state_dict(torch.load(args.restart), strict=False)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr) #TODO 原始0.0001
 # model.train()
 if args.pred_dis:
@@ -271,8 +272,8 @@ for epoch in range(100000):
                 data_new_pos_batched_list[i].append(next_candicate_conf_pos_batched[i].detach().cpu().numpy().tolist())
         # print(data.y.sum(), y_pred.sum())
         # print(data_new.is_equivalent_native_pocket, rmsd_list[2].shape) 训练时出现晶体构象不是is_equivalent_native_pocket情况，暂时无法打印rmsd_list
-        for i in range(len(data_new_pos_batched_list)): #记录每个样本的后面recycling构象更新情况，第0个构象是原始构象 全口袋时删除  TODO
-            train_result_list.append([data.pdb[i], data_new_pos_batched_list[i], affinity_pred_A[i].detach().cpu().numpy(), affinity_pred_B_list[-1][i].detach().cpu().numpy() , prmsd_list[-1][i].detach().cpu().numpy()])
+        # for i in range(len(data_new_pos_batched_list)): #记录每个样本的后面recycling构象更新情况，第0个构象是原始构象 全口袋时删除  TODO
+        #     train_result_list.append([data.pdb[i], data_new_pos_batched_list[i], affinity_pred_A[i].detach().cpu().numpy(), affinity_pred_B_list[-1][i].detach().cpu().numpy() , prmsd_list[-1][i].detach().cpu().numpy()])
 
         # RMSD loss
         #dis_map
@@ -333,6 +334,7 @@ for epoch in range(100000):
                     if opt_torsion is not None:
                         tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion)
                     tmp_cnt += 1
+                    train_result_list.append([data.pdb[i], tr_pred[i], rot_pred[i], torsion_pred_batched[i], opt_tr.detach().cpu().numpy(), opt_rotate.detach().cpu().numpy(), opt_torsion.detach().cpu().numpy()])
 
             tr_loss=tr_loss/tmp_cnt
             rot_loss=rot_loss/tmp_cnt
@@ -477,7 +479,7 @@ for epoch in range(100000):
         global_steps_train+=1
         global_samples_train+=len(data)
 
-    train_result = pd.DataFrame(train_result_list, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'prmsd_pred'])
+    train_result = pd.DataFrame(train_result_list, columns=['compound_name', 'tr_pred', 'rot_pred', 'tor_pred', 'opt_tr', 'opt_rot', 'opt_tor'])
     save_path = f"{pre}/results/train_result_{epoch}.csv"
     train_result.to_csv(save_path)
     y = torch.cat(y_list)
@@ -538,7 +540,7 @@ for epoch in range(100000):
     writer.add_scalar('epochLoss.tor/train', epoch_tor_loss / len(RMSD_pred), epoch)
 
 
-    #continue
+    continue
     #===================validation========================================
 
 
