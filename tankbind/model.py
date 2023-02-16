@@ -635,10 +635,10 @@ class IaBNet_with_affinity(torch.nn.Module):
             global_pred = self.final_conv(compound_out_new, center_edge_index, center_edge_attr, center_edge_sh, out_nodes=data.num_graphs)
             tr_pred = global_pred[:, :3] + global_pred[:, 6:9]
             rot_pred = global_pred[:, 3:6] + global_pred[:, 9:]
-            # tr_norm = torch.linalg.vector_norm(tr_pred, dim=1).unsqueeze(1)
-            # tr_pred = tr_pred / tr_norm * self.tr_final_layer(tr_norm)
-            # rot_norm = torch.linalg.vector_norm(rot_pred, dim=1).unsqueeze(1)
-            # rot_pred = rot_pred / rot_norm * self.rot_final_layer(rot_norm)
+            tr_norm = torch.linalg.vector_norm(tr_pred, dim=1).unsqueeze(1)
+            tr_pred = tr_pred / tr_norm * self.tr_final_layer(tr_norm)
+            rot_norm = torch.linalg.vector_norm(rot_pred, dim=1).unsqueeze(1)
+            rot_pred = rot_pred / rot_norm * self.rot_final_layer(rot_norm)
             # torsional components
 
             tor_bonds, tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_bond_conv_graph(data,current_candicate_conf_pos)

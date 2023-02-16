@@ -538,7 +538,7 @@ for epoch in range(100000):
     writer.add_scalar('epochLoss.tor/train', epoch_tor_loss / len(RMSD_pred), epoch)
 
 
-    continue
+    #continue #TODO
     #===================validation========================================
 
 
