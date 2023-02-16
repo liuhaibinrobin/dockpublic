@@ -403,7 +403,7 @@ class MultiHeadAttention_dis_bias(nn.Module):
 
 
         z_mask_repeat = z_mask.repeat(z_channel, 1, 1).view([batch_size, -1, ligand_len, pocket_len])
-        z = z.masked_fill(z_mask_repeat, 1e-9)
+        z = z.masked_fill(~z_mask_repeat, 1e-9)
         pair_energy = (self.gate_linear(z.transpose(3,1)).sigmoid() * self.linear_energy(z.transpose(3,1))).squeeze(-1) * z_mask
         affinity_pred = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
         pair_energy_prmsd = (self.gate_linear_prmsd(z.transpose(3,1)).sigmoid() * self.linear_energy_prmsd(z.transpose(3,1))).squeeze(-1) * z_mask
@@ -617,8 +617,6 @@ class IaBNet_with_affinity(torch.nn.Module):
                     self.unbatch(current_candicate_dis_matrix, data.candicate_dis_matrix_batch)[i].view(compound_num_batch[i], protein_num_batch[i]) #让candicate_dis_matrix的维度与z一致
             #self.logging.info("3 z.shape:%s,protein_out_batched.shape:%s,  candicate_dis_matrix_batched.shape:%s "%(z.shape,protein_out_batched.shape,  candicate_dis_matrix_batched.shape))
             compound_out_batched_new, affinity_pred_B, prmsd_pred = self.MultiHeadAttention_dis_bias(z, z_mask, protein_out_batched, candicate_dis_matrix_batched) #获得包含protein和compound交互信息的compound single representation
-
-
 
             affinity_pred_B = affinity_pred_B.sigmoid() * 15
             prmsd_pred = prmsd_pred.sigmoid() * 20
