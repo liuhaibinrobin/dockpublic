@@ -102,6 +102,7 @@ class TankBindDataSet_prototype(Dataset):
         data.sample_id = line['sample_id']
         data.split_tag = split_tag
         data.session_au = line['session_au']
+        data.session_ap= line['session_ap']
         data.value = line['value']
         ### use_coumpound_com 对于非 native pocket 均为 False
         data.real_affinity_mask = torch.tensor([False], dtype=torch.bool)
