@@ -165,7 +165,7 @@ def main(args):
     print("Processing train_sampler and train_dataloader...", end="")
     if train_flag:
         train_sampler = SessionBatchSampler(train_dataset, n=args.sampler_batch_size, seed=0, name=timestamp,
-                                            index_save_path=f"{pre}/train/batch_split_info")
+                                            index_save_path=f"{pre}/train/batch_split_info",session_type=args.session_type)
         train_dataloader = DataLoader(train_dataset,
                                     follow_batch=['x', 'compound_pair'],
                                     batch_sampler=train_sampler,
@@ -437,6 +437,8 @@ if __name__ == "__main__":
     parser.add_argument("--num_epochs", type=int, default=50,
                         help="define the model will be trained for how many epochs")
 
+    parser.add_argument("--session_type", type=str, default="session_au",
+                        help="session_au/session_ap  assay_uniprot as session or assay_pdb as session ")
     args = parser.parse_args()
     main(args)
 
