@@ -8,8 +8,13 @@ from torch_cluster import radius, radius_graph
 from torch_scatter import scatter
 import numpy as np
 from e3nn.nn import BatchNorm
+from torch_geometric.utils import degree
 #import diffusion.torus as torus
 
+import time
+import logging
+
+logger=logger = logging.getLogger()
 
 class TensorProductConvLayer(torch.nn.Module):
     def __init__(self, in_irreps, sh_irreps, out_irreps, n_edge_features, residual=True, batch_norm=True):
@@ -151,7 +156,7 @@ class TensorProductScoreModel(torch.nn.Module):
 
         bonds, edge_index, edge_attr, edge_sh = self.build_bond_conv_graph(data, node_attr)
 
-        bond_vec = data.pos[bonds[1]] - data.pos[bonds[0]]
+        bond_vec = data.candicate_conf_pos[bonds[1]] - data.candicate_conf_pos[bonds[0]]
         bond_attr = node_attr[bonds[0]] + node_attr[bonds[1]]
 
         bonds_sh = o3.spherical_harmonics("2e", bond_vec, normalize=True, normalization='component')
@@ -162,23 +167,50 @@ class TensorProductScoreModel(torch.nn.Module):
 
         out = self.final_linear(out)
 
-        data.edge_pred = out.squeeze()
+        tor_pred = out.squeeze()
         #data.edge_sigma = data.node_sigma[data.edge_index[0]][data.edge_mask]
 
         # if self.scale_by_sigma:
         #     score_norm = torus.score_norm(data.edge_sigma.cpu().numpy())
         #     score_norm = torch.tensor(score_norm, device=data.x.device)
         #     data.edge_pred = data.edge_pred * torch.sqrt(score_norm)
-        return data
+
+        torsion_pred_batched = tor_pred.split(data["compound"].rotate_bond_num.detach().cpu().numpy().tolist())
+
+        pred_result_list=[]
+        tr_pred=torch.Tensor(len(data.pdb,3)).to(device=tor_pred.device)
+        rot_pred=torch.Tensor(len(data.pdb,3)).to(device=tor_pred.device)
+        next_candicate_conf_pos_batched = self.unbatch(data.candicate_conf_pos, data['compound'].batch)
+        next_candicate_dis_matrix=_
+        current_candicate_conf_pos_batched=self.unbatch(data.candicate_conf_pos,data['compound'].batch)
+        affinity_pred_A=_
+        affinity_pred_B_list=_
+        prmsd_list=_
+        pred_result_list.append((tr_pred, rot_pred, torsion_pred_batched, next_candicate_conf_pos_batched,
+                                 next_candicate_dis_matrix, current_candicate_conf_pos_batched))
+
+        return affinity_pred_A, affinity_pred_B_list, prmsd_list, pred_result_list
+
 
     def build_bond_conv_graph(self, data, node_attr):
+        """
 
-        bonds = data.edge_index[:, data.edge_mask].long()
-        bond_pos = (data.pos[bonds[0]] + data.pos[bonds[1]]) / 2
-        bond_batch = data.batch[bonds[0]]
-        edge_index = radius(data.pos, bond_pos, self.max_radius, batch_x=data.batch, batch_y=bond_batch)
+        :param data:
+        .pos : data.candicate_conf_pos
+        .batch:data['compound'].batch
+        .edge_index:data['compound', 'compound'].edge_index
+        .edge_attr  :data[("compound", "c2c", "compound")].edge_attr
+        .x  :data['compound'].x
+        .edge_mask:data['compound'].edge_mask
+        :return:
+        """
 
-        edge_vec = data.pos[edge_index[1]] - bond_pos[edge_index[0]]
+        bonds = data['compound', 'compound'].edge_index[:, data['compound'].edge_mask].long()
+        bond_pos = ( data.candicate_conf_pos[bonds[0]] +  data.candicate_conf_pos[bonds[1]]) / 2
+        bond_batch =data['compound'].batch[bonds[0]]
+        edge_index = radius(data.candicate_conf_pos, bond_pos, self.max_radius, batch_x=data['compound'].batch, batch_y=bond_batch)
+
+        edge_vec = data.candicate_conf_pos[edge_index[1]] - bond_pos[edge_index[0]]
         edge_attr = self.distance_expansion(edge_vec.norm(dim=-1))
 
         edge_attr = self.final_edge_embedding(edge_attr)
@@ -186,6 +218,11 @@ class TensorProductScoreModel(torch.nn.Module):
         edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
 
         return bonds, edge_index, edge_attr, edge_sh
+
+    def unbatch(self, src, batch):
+        #将聚为一体的data根据batch split
+        sizes = degree(batch, dtype=torch.long).tolist()
+        return src.split(sizes)
 
     def build_conv_graph(self, data):
         """
@@ -251,3 +288,10 @@ def get_timestep_embedding(timesteps, embedding_dim, max_positions=10000):
         emb = F.pad(emb, (0, 1), mode='constant')
     assert emb.shape == (timesteps.shape[0], embedding_dim)
     return emb
+
+def get_model(mode, logging, device):
+
+    logging.info("TensorProductScoreModel")
+    model=TensorProductScoreModel().to(device)
+    return model
+

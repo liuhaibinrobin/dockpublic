@@ -110,6 +110,7 @@ parser.add_argument("--use_weighted_rmsd_loss", type=bool, default=False,
 parser.add_argument("--use_opt_torsion_dict", type=bool, default=True,
                     help="whether to use prepared optimal torsional dict")
 parser.add_argument("--lr", type=float, default=0.0001, help="learning rate")
+parser.add_argument("--model_structure", type=str, default="IaBNet_with_affinity", help="IaBNet_with_affinity/TensorProductScoreModel")
 args = parser.parse_args()
 
 
@@ -170,9 +171,15 @@ test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'c
 all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=4)
 all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=4)
 # import model is put here due to an error related to torch.utils.data.ConcatDataset after importing torchdrug.
-from model import *
+
 device = 'cuda'
-model = get_model(args.mode, logger, device)
+if args.model_structure=="TensorProductScoreModel":
+    from torsional_diffusion_score_model import get_model
+    model = get_model(args.mode, logger, device)
+else:
+    from model import *
+    model = get_model(args.mode, logger, device)
+
 if args.restart:
     model.load_state_dict(torch.load(args.restart))
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr) #TODO 原始0.0001
