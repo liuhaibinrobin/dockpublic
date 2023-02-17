@@ -425,7 +425,8 @@ for epoch in range(100000):
 
         #total loss
         if args.use_contact_loss == 0:
-            loss = tr_loss  + rot_loss + tor_loss #TODO:debug阶段
+            # loss = tr_loss  + rot_loss + tor_loss #TODO:debug阶段
+            loss = tor_loss #TODO:debug阶段
             #loss = prmsd_loss.double() + rmsd_loss.double() + affinity_loss_A + affinity_loss_B
         else:
             loss = contact_loss.float()
@@ -538,104 +539,104 @@ for epoch in range(100000):
     writer.add_scalar('epochLoss.tor/train', epoch_tor_loss / len(RMSD_pred), epoch)
 
 
-    continue #TODO
+    # continue #TODO
     #===================validation========================================
 
 
-    y = None
-    y_pred = None
-    # torch.cuda.empty_cache()
-    model.eval()
-    use_y_mask = args.use_equivalent_native_y_mask or args.use_y_mask
-    # saveFileName = f"{pre}/results/single_valid_epoch_{epoch}.pt"
-    saveFileName = f"{pre}/results/valid_epoch_{epoch}.pt"
-    info_va_only_compound = info_va.query("use_compound_com and group =='valid' and c_length < 100 and native_num_contact > 5")
-    metrics, info_va_save, opt_torsion_dict = evaluate_with_affinity(valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
-    valid_result = pd.DataFrame(info_va_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
-    save_path = f"{pre}/results/valid_result_{epoch}.csv"
-    valid_result.to_csv(save_path)
-    # metrics = evaluate_with_affinity(all_pocket_valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va, saveFileName=saveFileName) #TODO
-    #if metrics["auroc"] <= best_auroc and metrics['f1_1'] <= best_f1_1:
-    #    # not improving. (both metrics say there is no improving)
-    #    epoch_not_improving += 1
-    #    ending_message = f" No improvement +{epoch_not_improving}"
-    #else:
-    #    epoch_not_improving = 0
-    #    if metrics["auroc"] > best_auroc:
-    #        best_auroc = metrics['auroc']
-    #    if metrics['f1_1'] > best_f1_1:
-    #        best_f1_1 = metrics['f1_1']
-    #    ending_message = " "
-    valid_metrics_list.append(metrics)
-    #logging.info(f"epoch {epoch:<4d}, single_valid, " + print_metrics(metrics) + ending_message)
+    # y = None
+    # y_pred = None
+    # # torch.cuda.empty_cache()
+    # model.eval()
+    # use_y_mask = args.use_equivalent_native_y_mask or args.use_y_mask
+    # # saveFileName = f"{pre}/results/single_valid_epoch_{epoch}.pt"
+    # saveFileName = f"{pre}/results/valid_epoch_{epoch}.pt"
+    # info_va_only_compound = info_va.query("use_compound_com and group =='valid' and c_length < 100 and native_num_contact > 5")
+    # metrics, info_va_save, opt_torsion_dict = evaluate_with_affinity(valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
+    # valid_result = pd.DataFrame(info_va_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
+    # save_path = f"{pre}/results/valid_result_{epoch}.csv"
+    # valid_result.to_csv(save_path)
+    # # metrics = evaluate_with_affinity(all_pocket_valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va, saveFileName=saveFileName) #TODO
+    # #if metrics["auroc"] <= best_auroc and metrics['f1_1'] <= best_f1_1:
+    # #    # not improving. (both metrics say there is no improving)
+    # #    epoch_not_improving += 1
+    # #    ending_message = f" No improvement +{epoch_not_improving}"
+    # #else:
+    # #    epoch_not_improving = 0
+    # #    if metrics["auroc"] > best_auroc:
+    # #        best_auroc = metrics['auroc']
+    # #    if metrics['f1_1'] > best_f1_1:
+    # #        best_f1_1 = metrics['f1_1']
+    # #    ending_message = " "
+    # valid_metrics_list.append(metrics)
+    # #logging.info(f"epoch {epoch:<4d}, single_valid, " + print_metrics(metrics) + ending_message)
 
-    writer.add_scalar('epochLoss.Total/validation', metrics["loss"], epoch)
-    writer.add_scalar('epochLoss.Contact/validation', metrics["loss_contact"], epoch)
-    writer.add_scalar('epochLoss.Contact_5A/validation', metrics["loss_contact_5A"], epoch)
-    writer.add_scalar('epochLoss.Contact_10A/validation', metrics["loss_contact_10A"], epoch)
-    writer.add_scalar('epochLoss.Affinity_A/validation', metrics["loss_affinity_A"], epoch)
-    writer.add_scalar('epochLoss.Affinity_B/validation', metrics["loss_affinity_B"], epoch)
-    writer.add_scalar('epochLoss.RMSD/validation', metrics["loss_rmsd"], epoch)
-    writer.add_scalar('epochLoss.PRMSD/validation', metrics["loss_prmsd"], epoch)
-    writer.add_scalar('epochMetric.RMSE_A/validation', metrics["RMSE_A"], epoch)
-    writer.add_scalar('epochMetric.Pearson_A/validation', metrics["Pearson_A"], epoch)
-    writer.add_scalar('epochMetric.RMSE_B/validation', metrics["RMSE_B"], epoch)
-    writer.add_scalar('epochMetric.Pearson_B/validation', metrics["Pearson_B"], epoch)
-    writer.add_scalar('epochMetric.epoch_tr_loss/validation', metrics["epoch_tr_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_rot_loss/validation', metrics["epoch_rot_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_tor_loss/validation', metrics["epoch_tor_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/validation', metrics["epoch_rmsd_recycling_0_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/validation', metrics["epoch_rmsd_recycling_1_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/validation', metrics["epoch_rmsd_recycling_9_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/validation', metrics["epoch_rmsd_recycling_19_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/validation', metrics["epoch_rmsd_recycling_39_loss"],epoch)
-    # writer.add_scalar('epochMetric.NativeAUROC/validation', metrics["native_auroc"], epoch)
-    # writer.add_scalar('epochMetric.SelectedAUROC/validation', metrics["selected_auroc"], epoch)
-    #====================test============================================================
+    # writer.add_scalar('epochLoss.Total/validation', metrics["loss"], epoch)
+    # writer.add_scalar('epochLoss.Contact/validation', metrics["loss_contact"], epoch)
+    # writer.add_scalar('epochLoss.Contact_5A/validation', metrics["loss_contact_5A"], epoch)
+    # writer.add_scalar('epochLoss.Contact_10A/validation', metrics["loss_contact_10A"], epoch)
+    # writer.add_scalar('epochLoss.Affinity_A/validation', metrics["loss_affinity_A"], epoch)
+    # writer.add_scalar('epochLoss.Affinity_B/validation', metrics["loss_affinity_B"], epoch)
+    # writer.add_scalar('epochLoss.RMSD/validation', metrics["loss_rmsd"], epoch)
+    # writer.add_scalar('epochLoss.PRMSD/validation', metrics["loss_prmsd"], epoch)
+    # writer.add_scalar('epochMetric.RMSE_A/validation', metrics["RMSE_A"], epoch)
+    # writer.add_scalar('epochMetric.Pearson_A/validation', metrics["Pearson_A"], epoch)
+    # writer.add_scalar('epochMetric.RMSE_B/validation', metrics["RMSE_B"], epoch)
+    # writer.add_scalar('epochMetric.Pearson_B/validation', metrics["Pearson_B"], epoch)
+    # writer.add_scalar('epochMetric.epoch_tr_loss/validation', metrics["epoch_tr_loss"], epoch)
+    # writer.add_scalar('epochMetric.epoch_rot_loss/validation', metrics["epoch_rot_loss"], epoch)
+    # writer.add_scalar('epochMetric.epoch_tor_loss/validation', metrics["epoch_tor_loss"], epoch)
+    # writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/validation', metrics["epoch_rmsd_recycling_0_loss"], epoch)
+    # writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/validation', metrics["epoch_rmsd_recycling_1_loss"],epoch)
+    # writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/validation', metrics["epoch_rmsd_recycling_9_loss"],epoch)
+    # writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/validation', metrics["epoch_rmsd_recycling_19_loss"],epoch)
+    # writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/validation', metrics["epoch_rmsd_recycling_39_loss"],epoch)
+    # # writer.add_scalar('epochMetric.NativeAUROC/validation', metrics["native_auroc"], epoch)
+    # # writer.add_scalar('epochMetric.SelectedAUROC/validation', metrics["selected_auroc"], epoch)
+    # #====================test============================================================
 
 
+    # # saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
+    # # metrics = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
+    # #                                  device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
+    # # test_metrics_list.append(metrics)
+    # # logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
+
+
+    # # saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
     # saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
-    # metrics = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
-    #                                  device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
+    # info_only_compound = info.query("use_compound_com and group =='test' and c_length < 100 and native_num_contact > 5")
+    # metrics, info_save, opt_torsion_dict  = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
+    #                                  device, pred_dis=pred_dis, info=info_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
     # test_metrics_list.append(metrics)
-    # logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
+    # test_result = pd.DataFrame(info_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
+    # save_path = f"{pre}/results/test_result_{epoch}.csv"
+    # test_result.to_csv(save_path)
+    # # metrics = evaluate_with_affinity(all_pocket_test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
+    # #                                  device, pred_dis=pred_dis, info=info, saveFileName=saveFileName) #TODO
+    # logging.info(f"epoch {epoch:<4d}, test," + print_metrics(metrics))
+    # writer.add_scalar('epochLoss.Total/test', metrics["loss"], epoch)
+    # writer.add_scalar('epochLoss.Contact/test', metrics["loss_contact"], epoch)
+    # writer.add_scalar('epochLoss.Contact_5A/test', metrics["loss_contact_5A"], epoch)
+    # writer.add_scalar('epochLoss.Contact_10A/test', metrics["loss_contact_10A"], epoch)
+    # writer.add_scalar('epochLoss.Affinity_A/test', metrics["loss_affinity_A"], epoch)
+    # writer.add_scalar('epochLoss.Affinity_B/test', metrics["loss_affinity_B"], epoch)
+    # writer.add_scalar('epochLoss.RMSD/test', metrics["loss_rmsd"], epoch)
+    # writer.add_scalar('epochLoss.PRMSD/test', metrics["loss_prmsd"], epoch)
+    # writer.add_scalar('epochMetric.RMSE_A/test', metrics["RMSE_A"], epoch)
+    # writer.add_scalar('epochMetric.Pearson_A/test', metrics["Pearson_A"], epoch)
+    # writer.add_scalar('epochMetric.RMSE_B/test', metrics["RMSE_B"], epoch)
+    # writer.add_scalar('epochMetric.Pearson_B/test', metrics["Pearson_B"], epoch)
 
-
-    # saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
-    saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
-    info_only_compound = info.query("use_compound_com and group =='test' and c_length < 100 and native_num_contact > 5")
-    metrics, info_save, opt_torsion_dict  = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
-                                     device, pred_dis=pred_dis, info=info_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
-    test_metrics_list.append(metrics)
-    test_result = pd.DataFrame(info_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
-    save_path = f"{pre}/results/test_result_{epoch}.csv"
-    test_result.to_csv(save_path)
-    # metrics = evaluate_with_affinity(all_pocket_test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
-    #                                  device, pred_dis=pred_dis, info=info, saveFileName=saveFileName) #TODO
-    logging.info(f"epoch {epoch:<4d}, test," + print_metrics(metrics))
-    writer.add_scalar('epochLoss.Total/test', metrics["loss"], epoch)
-    writer.add_scalar('epochLoss.Contact/test', metrics["loss_contact"], epoch)
-    writer.add_scalar('epochLoss.Contact_5A/test', metrics["loss_contact_5A"], epoch)
-    writer.add_scalar('epochLoss.Contact_10A/test', metrics["loss_contact_10A"], epoch)
-    writer.add_scalar('epochLoss.Affinity_A/test', metrics["loss_affinity_A"], epoch)
-    writer.add_scalar('epochLoss.Affinity_B/test', metrics["loss_affinity_B"], epoch)
-    writer.add_scalar('epochLoss.RMSD/test', metrics["loss_rmsd"], epoch)
-    writer.add_scalar('epochLoss.PRMSD/test', metrics["loss_prmsd"], epoch)
-    writer.add_scalar('epochMetric.RMSE_A/test', metrics["RMSE_A"], epoch)
-    writer.add_scalar('epochMetric.Pearson_A/test', metrics["Pearson_A"], epoch)
-    writer.add_scalar('epochMetric.RMSE_B/test', metrics["RMSE_B"], epoch)
-    writer.add_scalar('epochMetric.Pearson_B/test', metrics["Pearson_B"], epoch)
-
-    writer.add_scalar('epochMetric.epoch_tr_loss/test', metrics["epoch_tr_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_rot_loss/test', metrics["epoch_rot_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_tor_loss/test', metrics["epoch_tor_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/test', metrics["epoch_rmsd_recycling_0_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/test', metrics["epoch_rmsd_recycling_1_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/test', metrics["epoch_rmsd_recycling_9_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/test', metrics["epoch_rmsd_recycling_19_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/test', metrics["epoch_rmsd_recycling_39_loss"],epoch)
-    # writer.add_scalar('epochMetric.NativeAUROC/test', metrics["native_auroc"], epoch)
-    # writer.add_scalar('epochMetric.SelectedAUROC/test', metrics["selected_auroc"], epoch)
+    # writer.add_scalar('epochMetric.epoch_tr_loss/test', metrics["epoch_tr_loss"], epoch)
+    # writer.add_scalar('epochMetric.epoch_rot_loss/test', metrics["epoch_rot_loss"], epoch)
+    # writer.add_scalar('epochMetric.epoch_tor_loss/test', metrics["epoch_tor_loss"], epoch)
+    # writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/test', metrics["epoch_rmsd_recycling_0_loss"], epoch)
+    # writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/test', metrics["epoch_rmsd_recycling_1_loss"],epoch)
+    # writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/test', metrics["epoch_rmsd_recycling_9_loss"],epoch)
+    # writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/test', metrics["epoch_rmsd_recycling_19_loss"],epoch)
+    # writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/test', metrics["epoch_rmsd_recycling_39_loss"],epoch)
+    # # writer.add_scalar('epochMetric.NativeAUROC/test', metrics["native_auroc"], epoch)
+    # # writer.add_scalar('epochMetric.SelectedAUROC/test', metrics["selected_auroc"], epoch)
 
     if epoch % 1 == 0:
         torch.save(model.state_dict(), f"{pre}/models/epoch_{epoch}.pt")
@@ -646,6 +647,6 @@ for epoch in range(100000):
         break
     
     # torch.cuda.empty_cache()
-    os.system(f"cp {timestamp}.log {pre}/")
+    # os.system(f"cp {timestamp}.log {pre}/")
 
 torch.save((metrics_list, valid_metrics_list, test_metrics_list), f"{pre}/metrics.pt")

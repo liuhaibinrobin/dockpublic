@@ -463,6 +463,7 @@ class IaBNet_with_affinity(torch.nn.Module):
             #步骤三声明
             torch.nn.Module = module
             self.ns = ns = 24 #small score model 参数
+            self.nv = nv = 6
             dropout = 0.1
             distance_embed_dim = 32
             self.sh_irreps = o3.Irreps.spherical_harmonics(lmax=2)
@@ -472,23 +473,51 @@ class IaBNet_with_affinity(torch.nn.Module):
                 nn.Dropout(dropout),
                 nn.Linear(ns, ns)
             )
+            irrep_seq = [
+                    f'{ns}x0e',
+                    f'{ns}x0e + {nv}x1o',
+                    f'{ns}x0e + {nv}x1o + {nv}x1e',
+                    f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o'
+                ]
 
+            lig_conv_layers  = []
+            for i in range(4):
+                in_irreps = irrep_seq[min(i, len(irrep_seq) - 1)]
+                out_irreps = irrep_seq[min(i + 1, len(irrep_seq) - 1)]
+                parameters = {
+                    'in_irreps': in_irreps,
+                    'sh_irreps': self.sh_irreps,
+                    'out_irreps': out_irreps,
+                    'n_edge_features': 3 * ns,
+                    'hidden_features': 3 * ns,
+                    'residual': False,
+                    'batch_norm': True,
+                    'dropout': dropout
+                }
+
+                lig_layer = TensorProductConvLayer(**parameters)
+                lig_conv_layers.append(lig_layer)
+
+            self.lig_conv_layers = nn.ModuleList(lig_conv_layers)
+            self.lig_node_embedding = nn.Sequential(nn.Linear(128, ns),nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
+            self.lig_edge_embedding = nn.Sequential(nn.Linear(19 + distance_embed_dim, ns),nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
             self.final_conv = TensorProductConvLayer(
-                in_irreps='128x0e',
-                # in_irreps=f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o',
+                # in_irreps='128x0e',
+                in_irreps=self.lig_conv_layers[-1].out_irreps,
                 sh_irreps=self.sh_irreps,
                 out_irreps=f'2x1o + 2x1e',
-                n_edge_features=ns + 128,
+                n_edge_features=2 * ns,
                 residual=False,
                 dropout=dropout,
                 batch_norm=True
             )
             self.final_tp_tor = o3.FullTensorProduct(self.sh_irreps, "2e")
             self.tor_bond_conv = TensorProductConvLayer(
-                    in_irreps='128x0e',
+                    # in_irreps='128x0e',
+                    in_irreps=self.lig_conv_layers[-1].out_irreps,
                     sh_irreps=self.final_tp_tor.irreps_out,
                     out_irreps=f'{ns}x0o + {ns}x0e',
-                    n_edge_features=128*2 + ns,
+                    n_edge_features=3 * ns,
                     residual=False,
                     dropout=dropout,
                     batch_norm=True
@@ -622,12 +651,23 @@ class IaBNet_with_affinity(torch.nn.Module):
             prmsd_pred = prmsd_pred.sigmoid() * 20
 
 
+            _, lig_edge_index, lig_edge_attr, lig_edge_sh = self.build_lig_conv_graph(data)
+            lig_edge_attr = self.lig_edge_embedding(lig_edge_attr)
+            compound_out = self.lig_node_embedding(compound_out)  #128 -> ns
+            lig_src, lig_dst = lig_edge_index
+            for l in range(len(self.lig_conv_layers)):
+                lig_edge_attr_ = torch.cat([lig_edge_attr, compound_out[lig_src, :self.ns], compound_out[lig_dst, :self.ns]], -1)
+                lig_intra_update = self.lig_conv_layers[l](compound_out, lig_edge_index, lig_edge_attr_, lig_edge_sh)
+                compound_out = F.pad(compound_out, (0, lig_intra_update.shape[-1] - compound_out.shape[-1]))
+                compound_out = compound_out + lig_intra_update
+
             #先算true_rmsd_上一轮的，再跟上面的算 prmsd_loss
-            compound_out_new = self.rebatch(compound_out_batched_new, compound_batch)
+            # compound_out_new = self.rebatch(compound_out_batched_new, compound_batch)
+            compound_out_new = compound_out
             center_edge_index, center_edge_attr, center_edge_sh = self.build_center_conv_graph(data)
             center_edge_attr = self.center_edge_embedding(center_edge_attr)
             # lig_node_attr 和 compound_out_new 都是node embedding 有问题，compound_out_new也包含protein信息（z）
-            center_edge_attr = torch.cat([center_edge_attr, compound_out_new[center_edge_index[0], :]], -1)  #注意node_embedding初始维度为128维，只取了前24维？
+            center_edge_attr = torch.cat([center_edge_attr, compound_out_new[center_edge_index[0], :self.ns]], -1)  #注意node_embedding初始维度为128维，只取了前24维？
             # in_irreps=f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o'
             # compound_out_new = compound_out_new[:,:o3.Irreps(in_irreps).dim]  #保证node_embedding的维度是84维，但是原来是128维，需要调整的是in_irreps 
             global_pred = self.final_conv(compound_out_new, center_edge_index, center_edge_attr, center_edge_sh, out_nodes=data.num_graphs)
@@ -644,8 +684,8 @@ class IaBNet_with_affinity(torch.nn.Module):
             tor_bond_attr = compound_out_new[tor_bonds[0]] + compound_out_new[tor_bonds[1]]
             tor_bonds_sh = o3.spherical_harmonics("2e", tor_bond_vec, normalize=True, normalization='component')
             tor_edge_sh = self.final_tp_tor(tor_edge_sh, tor_bonds_sh[tor_edge_index[0]])
-            tor_edge_attr = torch.cat([tor_edge_attr, compound_out_new[tor_edge_index[1], :],  #注意node_embedding初始维度为128维，只取了前24维？TODO
-                                    tor_bond_attr[tor_edge_index[0], :]], -1)
+            tor_edge_attr = torch.cat([tor_edge_attr, compound_out_new[tor_edge_index[1], :self.ns],  #注意node_embedding初始维度为128维，只取了前24维？TODO
+                                    tor_bond_attr[tor_edge_index[0], :self.ns]], -1)
             tor_pred = self.tor_bond_conv(compound_out_new, tor_edge_index, tor_edge_attr, tor_edge_sh,
                                     out_nodes=data['compound'].edge_mask.sum(), reduce='mean')
             tor_pred = self.tor_final_layer(tor_pred).squeeze(1)
@@ -668,7 +708,28 @@ class IaBNet_with_affinity(torch.nn.Module):
 
 
 
+    def build_lig_conv_graph(self, data):   
+        # builds the compound graph edges and initial node and edge features 重构后的graph三维信息远大于拓扑信息，是否正确#TODO
 
+        # compute edges
+        radius_edges = radius_graph(data.candicate_conf_pos, self.lig_max_radius, data['compound'].batch)
+        edge_index = torch.cat([data['compound', 'compound'].edge_index, radius_edges], 1).long()
+        edge_attr = torch.cat([
+            data.compound_compound_edge_attr,
+            torch.zeros(radius_edges.shape[-1], data.compound_compound_edge_attr.shape[1], device=data['compound'].x.device)
+        ], 0)
+
+        # compute initial features
+        node_attr = data['compound'].x
+
+        src, dst = edge_index
+        edge_vec = data.candicate_conf_pos[dst.long()] - data.candicate_conf_pos[src.long()]
+        edge_length_emb = self.lig_distance_expansion(edge_vec.norm(dim=-1))
+
+        edge_attr = torch.cat([edge_attr, edge_length_emb], 1)
+        edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
+
+        return node_attr, edge_index, edge_attr, edge_sh
 
     def build_center_conv_graph(self, data):
         # builds the filter and edges for the convolution generating translational and rotational scores
