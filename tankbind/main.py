@@ -118,7 +118,7 @@ timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 
 arg_hash = str(abs(hash(str(args))))[0:10]
 
-writer = SummaryWriter(f"./logs/{timestamp}_{args.label}")
+#writer = SummaryWriter(f"./logs/{timestamp}_{args.label}")
 
 pre = f"{args.resultFolder}/{timestamp}"
 os.system(f"mkdir -p {pre}")

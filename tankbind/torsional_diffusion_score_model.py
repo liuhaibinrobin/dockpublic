@@ -52,7 +52,7 @@ class TensorProductConvLayer(torch.nn.Module):
 
 class TensorProductScoreModel(torch.nn.Module):
     def __init__(self, in_node_features=74, in_edge_features=4, sigma_embed_dim=0, sigma_min=0.01 * np.pi,
-                 sigma_max=np.pi, sh_lmax=2, ns=32, nv=8, num_conv_layers=4, max_radius=5, radius_embed_dim=50,
+                 sigma_max=np.pi, sh_lmax=2, ns=32, nv=8, num_conv_layers=4, max_radius=5, radius_embed_dim=19,
                  scale_by_sigma=True, use_second_order_repr=True, batch_norm=True, residual=True
                  ):
         super(TensorProductScoreModel, self).__init__()
@@ -239,10 +239,7 @@ class TensorProductScoreModel(torch.nn.Module):
 
         radius_edges = radius_graph(data.candicate_conf_pos, self.max_radius, data['compound'].batch)
         edge_index = torch.cat([data['compound', 'compound'].edge_index , radius_edges], 1).long()
-        edge_attr = torch.cat([
-            data[("compound", "c2c", "compound")].edge_attr,
-            torch.zeros(radius_edges.shape[-1], self.in_edge_features, device=data['compound'].x.device)
-        ], 0)
+        edge_attr=data[("compound", "c2c", "compound")].edge_attr
 
         # node_sigma = torch.log(data.node_sigma / self.sigma_min) / np.log(self.sigma_max / self.sigma_min) * 10000
         # node_sigma_emb = get_timestep_embedding(node_sigma, self.sigma_embed_dim)
@@ -250,12 +247,14 @@ class TensorProductScoreModel(torch.nn.Module):
         # edge_sigma_emb = node_sigma_emb[edge_index[0].long()]
         # edge_attr = torch.cat([edge_attr, edge_sigma_emb], 1)
         # node_attr = torch.cat([data.x, node_sigma_emb], 1)
-        node_attr=data.x
+        node_attr=data["compound"].x
 
         src, dst = edge_index
-        edge_vec = data.pos[dst.long()] - data.pos[src.long()]
+        edge_vec = data.candicate_conf_pos[dst.long()] - data.candicate_conf_pos[src.long()]
         edge_length_emb = self.distance_expansion(edge_vec.norm(dim=-1))
 
+        import pdb
+        pdb.set_trace()
         edge_attr = torch.cat([edge_attr, edge_length_emb], 1)
 
         edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
