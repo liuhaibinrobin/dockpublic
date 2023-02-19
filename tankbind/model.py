@@ -626,7 +626,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         # # return z,z_mask, protein_out_batched,compound_out_batched, compound_out, compound_batch
         # pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
         # affinity_pred_A = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
-        affinity_pred_A=torch.zeros(len(data.pdb),1).to(data.compound_pair.device)
+        affinity_pred_A=data.affinity[data.real_affinity_mask]
         #self.logging.info(f"after point A, z shape: {z.shape}, compound_out_batched shape: {compound_out_batched.shape}, protein_out_batched shape: {protein_out_batched.shape}, affinity_pred_A shape: {affinity_pred_A.shape}")
         # 步骤三：torsional 
 
