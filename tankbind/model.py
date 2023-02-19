@@ -606,8 +606,8 @@ class IaBNet_with_affinity(torch.nn.Module):
             compound_size = int(compound_size_square**0.5)
             compound_pair[i,:compound_size, :compound_size] = one[:compound_size_square].reshape(
                                                                 (compound_size, compound_size, -1))
-        protein_pair = self.protein_pair_embedding(protein_pair.float())
-        compound_pair = self.compound_pair_embedding(compound_pair.float())
+        # protein_pair = self.protein_pair_embedding(protein_pair.float())
+        # compound_pair = self.compound_pair_embedding(compound_pair.float())
         # b = torch.einsum("bik,bjk->bij", protein_out_batched, compound_out_batched).flatten()
 
         protein_out_batched = self.layernorm(protein_out_batched)
