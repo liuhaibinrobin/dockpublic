@@ -164,8 +164,8 @@ sampler = RandomSampler(train, replacement=False, num_samples=len(train)) #шонч╗
 train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler, pin_memory=False, num_workers=num_workers,drop_last=True)
 sampler2 = RandomSampler(train_after_warm_up, replacement=False, num_samples=args.sample_n)
 train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler2, pin_memory=False, num_workers=num_workers,drop_last=True)
-#valid_batch_size = test_batch_size = 4 #TODO:why
-valid_batch_size=test_batch_size=batch_size
+valid_batch_size = test_batch_size = 4 #TODO:why
+#valid_batch_size=test_batch_size=batch_size
 valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=num_workers,drop_last=True)
 test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=num_workers,drop_last=True)
 all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=4,drop_last=True)
