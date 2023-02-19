@@ -538,13 +538,13 @@ class IaBNet_with_affinity(torch.nn.Module):
                     nn.Linear(ns, ns)
                 )
 
-        if mode == 0:
-            self.protein_pair_embedding = Linear(16, c)
-            self.compound_pair_embedding = Linear(16, c)
-            self.protein_to_compound_list = []
-            self.protein_to_compound_list = nn.ModuleList([TriangleProteinToCompound_v2(embedding_channels=embedding_channels, c=c) for _ in range(n_trigonometry_module_stack)])
-            self.triangle_self_attention_list = nn.ModuleList([TriangleSelfAttentionRowWise(embedding_channels=embedding_channels) for _ in range(n_trigonometry_module_stack)])
-            self.tranistion = Transition(embedding_channels=embedding_channels, n=4)
+        # if mode == 0:
+        #     self.protein_pair_embedding = Linear(16, c)
+        #     self.compound_pair_embedding = Linear(16, c)
+        #     self.protein_to_compound_list = []
+        #     self.protein_to_compound_list = nn.ModuleList([TriangleProteinToCompound_v2(embedding_channels=embedding_channels, c=c) for _ in range(n_trigonometry_module_stack)])
+        #     self.triangle_self_attention_list = nn.ModuleList([TriangleSelfAttentionRowWise(embedding_channels=embedding_channels) for _ in range(n_trigonometry_module_stack)])
+        #     self.tranistion = Transition(embedding_channels=embedding_channels, n=4)
 
         self.linear = Linear(embedding_channels, 1)
         self.linear_energy = Linear(embedding_channels, 1)
@@ -617,15 +617,16 @@ class IaBNet_with_affinity(torch.nn.Module):
         z_mask = torch.einsum("bi,bj->bij", protein_out_mask, compound_out_mask)
         # z = z * z_mask.unsqueeze(-1)
         # print(protein_pair.shape, compound_pair.shape, b.shape)
-        if self.mode == 0:
-            for _ in range(1):
-                for i_module in range(self.n_trigonometry_module_stack):
-                    z = z + self.dropout(self.protein_to_compound_list[i_module](z, protein_pair, compound_pair, z_mask.unsqueeze(-1)))
-                    z = z + self.dropout(self.triangle_self_attention_list[i_module](z, z_mask))
-                    z = self.tranistion(z)
-        # return z,z_mask, protein_out_batched,compound_out_batched, compound_out, compound_batch
-        pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
-        affinity_pred_A = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
+        # if self.mode == 0:
+        #     for _ in range(1):
+        #         for i_module in range(self.n_trigonometry_module_stack):
+        #             z = z + self.dropout(self.protein_to_compound_list[i_module](z, protein_pair, compound_pair, z_mask.unsqueeze(-1)))
+        #             z = z + self.dropout(self.triangle_self_attention_list[i_module](z, z_mask))
+        #             z = self.tranistion(z)
+        # # return z,z_mask, protein_out_batched,compound_out_batched, compound_out, compound_batch
+        # pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
+        # affinity_pred_A = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
+        affinity_pred_A=torch.zeros(len(data.pdb),1).to(data.compound_pair.device)
         #self.logging.info(f"after point A, z shape: {z.shape}, compound_out_batched shape: {compound_out_batched.shape}, protein_out_batched shape: {protein_out_batched.shape}, affinity_pred_A shape: {affinity_pred_A.shape}")
         # 步骤三：torsional 
 
