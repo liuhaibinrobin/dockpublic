@@ -462,9 +462,9 @@ class IaBNet_with_affinity(torch.nn.Module):
                                                                            z_channel = 10,n_trigonometry_module_stack=5)
             #步骤三声明
             torch.nn.Module = module
-            self.ns = ns = 128 #small score model 参数
-            self.nv = nv = 32
-            dropout = 0.1
+            self.ns = ns = 24 #small score model 参数
+            self.nv = nv = 6
+            dropout = 0.2
             distance_embed_dim = 32
             self.sh_irreps = o3.Irreps.spherical_harmonics(lmax=2)
             self.center_edge_embedding = nn.Sequential(
@@ -480,7 +480,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                     f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o'
                 ]
 
-            lig_conv_layers, rec_conv_layers, lig_to_rec_conv_layers, rec_to_lig_conv_layers = [], [], [], []
+            lig_conv_layers = []
             for i in range(4):
                 in_irreps = irrep_seq[min(i, len(irrep_seq) - 1)]
                 out_irreps = irrep_seq[min(i + 1, len(irrep_seq) - 1)]
@@ -499,13 +499,14 @@ class IaBNet_with_affinity(torch.nn.Module):
                 lig_conv_layers.append(lig_layer)
 
             self.lig_conv_layers = nn.ModuleList(lig_conv_layers)
+            self.lig_node_embedding = nn.Sequential(nn.Linear(128, ns),nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
             self.lig_edge_embedding = nn.Sequential(nn.Linear(19 + distance_embed_dim, ns),nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
             self.final_conv = TensorProductConvLayer(
                 # in_irreps='128x0e',
                 in_irreps=self.lig_conv_layers[-1].out_irreps,
                 sh_irreps=self.sh_irreps,
                 out_irreps=f'2x1o + 2x1e',
-                n_edge_features=ns + 128,
+                n_edge_features=2 * ns,
                 residual=False,
                 dropout=dropout,
                 batch_norm=True
@@ -516,7 +517,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                     in_irreps=self.lig_conv_layers[-1].out_irreps,
                     sh_irreps=self.final_tp_tor.irreps_out,
                     out_irreps=f'{ns}x0o + {ns}x0e',
-                    n_edge_features=128*2 + ns,
+                    n_edge_features=3 * ns,
                     residual=False,
                     dropout=dropout,
                     batch_norm=True
@@ -653,6 +654,7 @@ class IaBNet_with_affinity(torch.nn.Module):
 
             _, lig_edge_index, lig_edge_attr, lig_edge_sh = self.build_lig_conv_graph(data)
             lig_edge_attr = self.lig_edge_embedding(lig_edge_attr)
+            compound_out = self.lig_node_embedding(compound_out)  #128 -> ns
             lig_src, lig_dst = lig_edge_index
             for l in range(len(self.lig_conv_layers)):
                 lig_edge_attr_ = torch.cat([lig_edge_attr, compound_out[lig_src, :self.ns], compound_out[lig_dst, :self.ns]], -1)
