@@ -267,6 +267,10 @@ def run_train(pre, args, dataloader,
     sample_id_list = []
     loss_list = []
     recto_rate_list = []
+
+    total_loss=0
+    total_recto_rate=0
+    length=0
     # 更新 batch 分割方式。
     dataloader.batch_sampler.prepare_batches_for_epoch(epoch=epoch)
     for data in tqdm(dataloader):
@@ -306,7 +310,22 @@ def run_train(pre, args, dataloader,
             writer.add_scalar(f'recto_rate.by_step/train', recto_rate.item(), num_steps_train)
             writer.add_scalar(f'recto_rate.by_sample/train', recto_rate.item(), num_samples_train)
         # end of sample scope
-        
+
+        if not args.use_mse_loss:
+            if num_pairs >= 1:
+                length += np.sqrt(num_pairs)
+                total_loss += loss * np.sqrt(num_pairs)
+                total_recto_rate += recto_rate * np.sqrt(num_pairs)
+
+            # save result to tensorboard
+            total_loss /= length
+            total_recto_rate /= length
+            writer.add_scalar(f'rank_loss.by_epoch/train', total_loss, epoch)
+            writer.add_scalar(f'recto_rate.by_epoch/train', total_recto_rate, epoch)
+            logging.info(f"epoch {epoch} train | rank_loss {total_loss}, averaged_recto_rate {total_recto_rate}")
+
+
+
     if save_train_result:
         affinity_true = torch.cat(affinity_true_list)
         affinity_pred = torch.cat(affinity_pred_list)
