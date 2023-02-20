@@ -145,7 +145,7 @@ def main(args):
     else:
         train_dataset = iid_dataset = ood_dataset = test_dataset = None
     if internal_flag:
-        internal_dataset = get_internal_dataset(input_path)
+        internal_dataset = get_internal_dataset(input_path,session_type=args.session_type)
     else:
         internal_dataset = None
     print("fin!")

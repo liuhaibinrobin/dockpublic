@@ -149,27 +149,27 @@ def get_full_data_prototype(pre, data_mode, random_state=0, addNoise=None,sessio
     if data_mode == "small":
         add_noise_to_com = None
         
-        train_dataset = TankBindDataSet_prototype(root=f"{pre}/small_train", add_noise_to_com=None)
+        train_dataset = TankBindDataSet_prototype(root=f"{pre}/small_train", add_noise_to_com=None,session_type=session_type)
         train_dataset.data = train_dataset.data.query("c_length < 100").reset_index(drop=True)
         if session_type=="session_au":
             train_dataset.data = train_dataset.data.groupby("session_aus").sample(n=1).reset_index(drop=True)
 
         
-        iid_dataset = TankBindDataSet_prototype(root=f"{pre}/small_val", add_noise_to_com=None)
+        iid_dataset = TankBindDataSet_prototype(root=f"{pre}/small_val", add_noise_to_com=None,session_type=session_type)
         iid_index = iid_dataset.data.query("split_tag =='iid_val'").index.values
         if len(iid_index>0):
             iid_dataset.data = iid_dataset.data.iloc[iid_index].reset_index(drop=True) 
         else:
             iid_dataset = None
         
-        ood_dataset = TankBindDataSet_prototype(root=f"{pre}/small_val", add_noise_to_com=None)
+        ood_dataset = TankBindDataSet_prototype(root=f"{pre}/small_val", add_noise_to_com=None,session_type=session_type)
         ood_index = ood_dataset.data.query("split_tag =='ood_val'").index.values
         if len(ood_index>0):
             ood_dataset.data = ood_dataset.data.iloc[ood_index].reset_index(drop=True)
         else:
             ood_dataset = None
         
-        test_dataset = TankBindDataSet_prototype(root=f"{pre}/small_val", add_noise_to_com=None)
+        test_dataset = TankBindDataSet_prototype(root=f"{pre}/small_val", add_noise_to_com=None,session_type=session_type)
         test_index = test_dataset.data.query("split_tag =='test'").index.values
         if len(test_index>0):
             test_dataset.data = test_dataset.data.iloc[test_index].reset_index(drop=True)
@@ -179,27 +179,27 @@ def get_full_data_prototype(pre, data_mode, random_state=0, addNoise=None,sessio
     elif data_mode == "full":
         add_noise_to_com = None
         
-        train_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None)
+        train_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None,session_type=session_type)
         train_dataset.data = train_dataset.data.query("split_tag =='train' and c_length < 100").reset_index(drop=True)
         if session_type == "session_au":
             train_dataset.data = train_dataset.data.groupby("session_aus").sample(n=1, random_state=random_state).reset_index(drop=True)
         
         # Replaced with 0130 reduced dataset: one session, one smiles => unique pdb
-        iid_dataset = TankBindDataSet_prototype(root=f"{pre}/extra_val_test_reduced_0130", add_noise_to_com=None)
+        iid_dataset = TankBindDataSet_prototype(root=f"{pre}/extra_val_test_reduced_0130", add_noise_to_com=None,session_type=session_type)
         iid_index = iid_dataset.data.query("split_tag =='iid_val'").index.values
         if len(iid_index>0):
             iid_dataset.data = iid_dataset.data.iloc[iid_index].reset_index(drop=True) 
         else:
             iid_dataset = None
         
-        ood_dataset = TankBindDataSet_prototype(root=f"{pre}/extra_val_test_reduced_0130", add_noise_to_com=None)
+        ood_dataset = TankBindDataSet_prototype(root=f"{pre}/extra_val_test_reduced_0130", add_noise_to_com=None,session_type=session_type)
         ood_index = ood_dataset.data.query("split_tag =='ood_val'").index.values
         if len(ood_index>0):
             ood_dataset.data = ood_dataset.data.iloc[ood_index].reset_index(drop=True)
         else:
             ood_dataset = None
         
-        test_dataset = TankBindDataSet_prototype(root=f"{pre}/extra_val_test_reduced_0130", add_noise_to_com=None)
+        test_dataset = TankBindDataSet_prototype(root=f"{pre}/extra_val_test_reduced_0130", add_noise_to_com=None,session_type=session_type)
         test_index = test_dataset.data.query("split_tag =='test'").index.values
         if len(test_index>0):
             test_dataset.data = test_dataset.data.iloc[test_index].reset_index(drop=True)
@@ -209,27 +209,27 @@ def get_full_data_prototype(pre, data_mode, random_state=0, addNoise=None,sessio
     elif data_mode == "duplicated":
         add_noise_to_com = None
         
-        train_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None)
+        train_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None,session_type=session_type)
         train_dataset.data = train_dataset.data.query("split_tag =='train' and c_length < 100").reset_index(drop=True)
         if session_type == "session_au":
             train_dataset.data = train_dataset.data.groupby("session_aus").sample(n=1).reset_index(drop=True)
         
         # Replaced with 0130 reduced dataset: one session, one smiles => unique pdb
-        iid_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None)
+        iid_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None,session_type=session_type)
         iid_index = iid_dataset.data.query("split_tag =='iid_val'").index.values
         if len(iid_index>0):
             iid_dataset.data = iid_dataset.data.iloc[iid_index].reset_index(drop=True) 
         else:
             iid_dataset = None
         
-        ood_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None)
+        ood_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None,session_type=session_type)
         ood_index = ood_dataset.data.query("split_tag =='ood_val'").index.values
         if len(ood_index>0):
             ood_dataset.data = ood_dataset.data.iloc[ood_index].reset_index(drop=True)
         else:
             ood_dataset = None
         
-        test_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None)
+        test_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None,session_type=session_type)
         test_index = test_dataset.data.query("split_tag =='test'").index.values
         if len(test_index>0):
             test_dataset.data = test_dataset.data.iloc[test_index].reset_index(drop=True)
@@ -238,8 +238,10 @@ def get_full_data_prototype(pre, data_mode, random_state=0, addNoise=None,sessio
     
     return train_dataset, iid_dataset, ood_dataset, test_dataset
         
-def get_internal_dataset(pre, addNoise=None):
-    internal_dataset = TankBindDataSet_prototype(root=f"{pre}/internal", add_noise_to_com=None)
+def get_internal_dataset(pre, addNoise=None,session_type=None):
+    if session_type==None:
+        raise Exception
+    internal_dataset = TankBindDataSet_prototype(root=f"{pre}/internal", add_noise_to_com=None,session_type=session_type)
     return internal_dataset
 
 
