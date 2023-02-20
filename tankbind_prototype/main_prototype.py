@@ -363,7 +363,9 @@ def run_validation(pre, dataset, dataloader,
             recto_rate = recto_rate.detach().cpu().item()
             session_len = len(df)
 
-            if num_pairs >= 2:
+            #20230220日改（殷实秋）：num_pairs=1依然可以计算正序率，sample数=1才不可以计算
+            #if num_pairs >= 2:
+            if num_pairs >= 1:
                 length += np.sqrt(num_pairs)
                 total_loss += loss * np.sqrt(num_pairs)
                 total_recto_rate += recto_rate * np.sqrt(num_pairs)
@@ -380,7 +382,7 @@ def run_validation(pre, dataset, dataloader,
     print(f"VALTEST: {label} | Save info of epoch {epoch} to {pre}/results/{label}_info_{epoch}.csv.")
 
     # save result to tensorboard
-    loss /= length
+    total_loss /= length
     total_recto_rate /= length
     writer.add_scalar(f'rank_loss.by_epoch/{label}', total_loss, epoch)
     writer.add_scalar(f'recto_rate.by_epoch/{label}', total_recto_rate, epoch)
