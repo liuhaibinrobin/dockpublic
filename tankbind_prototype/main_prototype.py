@@ -110,8 +110,8 @@ def data_split(split_mode):
 def main(args):
     timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     w_label = "_" + args.label if args.label != "" else ""
-    #writer = SummaryWriter(f"./tensorboard/{timestamp}{w_label}")
-    writer = SummaryWriter(f"./tensorboard/tmp") #todo
+    writer = SummaryWriter(f"./tensorboard/{timestamp}{w_label}")
+    #writer = SummaryWriter(f"./tensorboard/tmp")
 
     train_flag = True if "train" in args.run_mode else False
     iid_flag = True if "iid" in args.run_mode else False
