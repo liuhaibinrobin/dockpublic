@@ -27,7 +27,8 @@ class TankBindDataSet_prototype(Dataset):
                 contactCutoff=8.0, 
                 predDis=True,               
                 shake_nodes=None,
-                transform=None, pre_transform=None, pre_filter=None):
+                transform=None, pre_transform=None,
+                 pre_filter=None,session_type=None):
         self.data = data
         self.protein_dict = protein_dict
         self.compound_dict = compound_dict
@@ -43,6 +44,12 @@ class TankBindDataSet_prototype(Dataset):
         self.contactCutoff = contactCutoff
         self.predDis = predDis
         self.shake_nodes = shake_nodes
+        self.session_type=session_type
+        if self.session_type=="session_au":
+            self.data["session"]=self.data["session_au"]
+        elif  self.session_type=="session_ap":
+            self.data["session"]=self.data["session_ap"]
+
     @property
     def processed_file_names(self):
         return ['data.pt', 'protein.pt', 'compound.pt']
@@ -56,6 +63,9 @@ class TankBindDataSet_prototype(Dataset):
         return len(self.data)
 
     def get(self, idx):
+        if self.session_type==None:
+            raise Exception
+
         line = self.data.iloc[idx]
         
         pocket_com = line['pocket_com']
@@ -101,8 +111,9 @@ class TankBindDataSet_prototype(Dataset):
         data.pdb_id = line['pdb_id']
         data.sample_id = line['sample_id']
         data.split_tag = split_tag
-        data.session_au = line['session_au']
-        data.session_ap= line['session_ap']
+
+        data.session = line['session']
+
         data.value = line['value']
         ### use_coumpound_com 对于非 native pocket 均为 False
         data.real_affinity_mask = torch.tensor([False], dtype=torch.bool)
@@ -122,7 +133,10 @@ def get_data_prototype(pre, data_mode, addNoise=None):
 
 
 
-def get_full_data_prototype(pre, data_mode, random_state=0, addNoise=None):
+def get_full_data_prototype(pre, data_mode, random_state=0, addNoise=None,session_type=None):
+    if session_type ==None :
+        raise Exception
+
     if data_mode not in ['small', 'full', 'duplicated']:
         raise ValueError("data_mode should be chosen from ['small' and 'full']， or `duplicated` in rare cases.")
     
@@ -132,7 +146,9 @@ def get_full_data_prototype(pre, data_mode, random_state=0, addNoise=None):
         
         train_dataset = TankBindDataSet_prototype(root=f"{pre}/small_train", add_noise_to_com=None)
         train_dataset.data = train_dataset.data.query("c_length < 100").reset_index(drop=True)
-        train_dataset.data = train_dataset.data.groupby("session_aus").sample(n=1).reset_index(drop=True)
+        if session_type=="session_au":
+            train_dataset.data = train_dataset.data.groupby("session_aus").sample(n=1).reset_index(drop=True)
+
         
         iid_dataset = TankBindDataSet_prototype(root=f"{pre}/small_val", add_noise_to_com=None)
         iid_index = iid_dataset.data.query("split_tag =='iid_val'").index.values
@@ -160,7 +176,8 @@ def get_full_data_prototype(pre, data_mode, random_state=0, addNoise=None):
         
         train_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None)
         train_dataset.data = train_dataset.data.query("split_tag =='train' and c_length < 100").reset_index(drop=True)
-        train_dataset.data = train_dataset.data.groupby("session_aus").sample(n=1, random_state=random_state).reset_index(drop=True)
+        if session_type == "session_au":
+            train_dataset.data = train_dataset.data.groupby("session_aus").sample(n=1, random_state=random_state).reset_index(drop=True)
         
         # Replaced with 0130 reduced dataset: one session, one smiles => unique pdb
         iid_dataset = TankBindDataSet_prototype(root=f"{pre}/extra_val_test_reduced_0130", add_noise_to_com=None)
@@ -189,7 +206,8 @@ def get_full_data_prototype(pre, data_mode, random_state=0, addNoise=None):
         
         train_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None)
         train_dataset.data = train_dataset.data.query("split_tag =='train' and c_length < 100").reset_index(drop=True)
-        train_dataset.data = train_dataset.data.groupby("session_aus").sample(n=1).reset_index(drop=True)
+        if session_type == "session_au":
+            train_dataset.data = train_dataset.data.groupby("session_aus").sample(n=1).reset_index(drop=True)
         
         # Replaced with 0130 reduced dataset: one session, one smiles => unique pdb
         iid_dataset = TankBindDataSet_prototype(root=f"{pre}/full", add_noise_to_com=None)

@@ -263,7 +263,7 @@ def run_train(pre, args, dataloader,
     for data in tqdm(dataloader):
         num_steps_train += 1
         num_samples_train += len(data)
-        session_list.append(data.session_au)
+        session_list.append(data.session)
         sample_id_list.append(data.sample_id)
         data = data.to(device)
         optimizer.zero_grad()
@@ -283,7 +283,7 @@ def run_train(pre, args, dataloader,
             optimizer.step()
         else:
             logging.info(
-                f"--loss error | epoch {epoch}, session {list(data.session_au)[0]}, sample_id {str(data.sample_id)}, pred {[str(_) for _ in affinity_pred]}, true {[str(_) for _ in affinity_true]}")
+                f"--loss error | epoch {epoch}, session {list(data.session)[0]}, sample_id {str(data.sample_id)}, pred {[str(_) for _ in affinity_pred]}, true {[str(_) for _ in affinity_true]}")
 
         affinity_true_list.append(affinity_true.detach().cpu())
         affinity_pred_list.append(affinity_pred.detach().cpu())
@@ -348,8 +348,8 @@ def run_validation(pre, dataset, dataloader,
         info["affinity_pred"] = torch.cat(affinity_pred_list).tolist()
 
         print(f"---- Compute loss and recto_ratio ---------")
-        for session in info.session_au.unique():
-            df = info[info.session_au == session]
+        for session in info.session.unique():
+            df = info[info.session == session]
             affinity_true = torch.tensor(df.value.values).to(device)
             affinity_pred = torch.tensor(df.affinity_pred.values).to(device)
             
