@@ -158,14 +158,57 @@ def main(args):
     else:
         internal_dataset = None
     print("fin!")
-    logging.info(
-        f"train: sample num:  {(len(train_dataset.data) if train_dataset is not None else 0)}  session_num:{len(train_dataset.data.session.unique())}\n" 
-        f"iid_val:sample num:  {(len(iid_dataset.data) if iid_dataset is not None and iid_dataset.data is not None else 0)}    session_num:{len(iid_dataset.data.session.unique())}\n" 
-        f"ood_val:sample num: {(len(ood_dataset.data) if ood_dataset is not None and ood_dataset.data is not None  else 0)}      session_num:{len(ood_dataset.data.session.unique())}\n" 
-        f"test: sample num: {(len(test_dataset.data) if test_dataset is not None and test_dataset.data is not None else 0)}      session_num:{len(test_dataset.data.session.unique())}\n" 
-        f"internal:sample num:  {(len(internal_dataset.data) if internal_dataset is not None and internal_dataset.data is not None else 0)}    session_num:{len(internal_dataset.data.session.unique())}\n"
-        f"=================================================================\n"
-    )
+    try:
+        train_sample_num=len(train_dataset.data)
+    except:
+        train_sample_num=0
+    try:
+        train_session_num=len(train_dataset.data.session.unique())
+    except:
+        train_session_num=0
+    logging.info("train_sample_num:%s train_session_num:%s"%(train_sample_num,train_session_num))
+
+    try:
+        iid_sample_num=len(iid_dataset.data)
+    except:
+        iid_sample_num=0
+    try:
+        iid_session_num=len(iid_dataset.data.session.unique())
+    except:
+        iid_session_num=0
+    logging.info("iid_sample_num:%s iid_session_num:%s"%(iid_sample_num,iid_session_num))
+
+    try:
+        ood_sample_num=len(ood_dataset.data)
+    except:
+        ood_sample_num=0
+    try:
+        ood_session_num=len(ood_dataset.data.session.unique())
+    except:
+        ood_session_num=0
+    logging.info("ood_sample_num:%s ood_session_num:%s"%(ood_sample_num,ood_session_num))
+
+    try:
+        test_sample_num=len(test_dataset.data)
+    except:
+        test_sample_num=0
+    try:
+        test_session_num=len(test_dataset.data.session.unique())
+    except:
+        test_session_num=0
+    logging.info("test_sample_num:%s test_session_num:%s"%(test_sample_num,test_session_num))
+
+    try:
+        internal_sample_num=len(internal_dataset.data)
+    except:
+        internal_sample_num=0
+    try:
+        internal_session_num=len(internal_dataset.data.session.unique())
+    except:
+        internal_session_num=0
+    logging.info("internal_sample_num:%s internal_session_num:%s"%(internal_sample_num,internal_session_num))
+
+
 
     num_workers = 10
 
