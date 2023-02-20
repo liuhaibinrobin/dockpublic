@@ -160,10 +160,10 @@ def main(args):
     print("fin!")
     logging.info(
         f"train: sample num:  {(len(train_dataset.data) if train_dataset is not None else 0)}  session_num:{len(train_dataset.data.session.unique())}\n" 
-        f"iid_val:sample num:  {(len(iid_dataset.data) if iid_dataset is not None and iid_dataset.data is not None else 0)}    session_num:{len(iid_dataset.data.unique())}\n" 
-        f"ood_val:sample num: {(len(ood_dataset.data) if ood_dataset is not None and ood_dataset.data is not None  else 0)}      session_num:{len(ood_dataset.data.unique())}\n" 
-        f"test: sample num: {(len(test_dataset.data) if test_dataset is not None and test_dataset.data is not None else 0)}      session_num:{len(test_dataset.data.unique())}\n" 
-        f"internal:sample num:  {(len(internal_dataset.data) if internal_dataset is not None and internal_dataset.data is not None else 0)}    session_num:{len(internal_dataset.data.unique())}\n"
+        f"iid_val:sample num:  {(len(iid_dataset.data) if iid_dataset is not None and iid_dataset.data is not None else 0)}    session_num:{len(iid_dataset.data.session.unique())}\n" 
+        f"ood_val:sample num: {(len(ood_dataset.data) if ood_dataset is not None and ood_dataset.data is not None  else 0)}      session_num:{len(ood_dataset.data.session.unique())}\n" 
+        f"test: sample num: {(len(test_dataset.data) if test_dataset is not None and test_dataset.data is not None else 0)}      session_num:{len(test_dataset.data.session.unique())}\n" 
+        f"internal:sample num:  {(len(internal_dataset.data) if internal_dataset is not None and internal_dataset.data is not None else 0)}    session_num:{len(internal_dataset.data.session.unique())}\n"
         f"=================================================================\n"
     )
 
