@@ -141,11 +141,11 @@ def main(args):
     input_path = "/home/jovyan/main_tankbind/dataset_prototype"
     print(f"Getting datasets from {input_path}...", end="")
     if train_flag or iid_flag or ood_flag or test_flag:
-        train_dataset, iid_dataset, ood_dataset, test_dataset = get_full_data_prototype(input_path, random_state=args.trainset_seed, data_mode=args.data_mode,session_type=args.session_type)
+        train_dataset, iid_dataset, ood_dataset, test_dataset = get_full_data_prototype(input_path, random_state=args.trainset_seed, data_mode=args.data_mode)
     else:
         train_dataset = iid_dataset = ood_dataset = test_dataset = None
     if internal_flag:
-        internal_dataset = get_internal_dataset(input_path,session_type=args.session_type)
+        internal_dataset = get_internal_dataset(input_path)
     else:
         internal_dataset = None
     print("fin!")
@@ -302,6 +302,8 @@ def run_train(pre, args, dataloader,
         affinity_true = torch.cat(affinity_true_list)
         affinity_pred = torch.cat(affinity_pred_list)
         recto_rate = torch.cat(recto_rate_list)
+        import pdb
+        pdb.set_trace()
         loss = torch.stack(loss_list)
 
         if not args.use_mse_loss:
@@ -437,8 +439,6 @@ if __name__ == "__main__":
     parser.add_argument("--num_epochs", type=int, default=50,
                         help="define the model will be trained for how many epochs")
 
-    parser.add_argument("--session_type", type=str, default="session_au",
-                        help="session_au/session_ap  assay_uniprot as session or assay_pdb as session ")
     args = parser.parse_args()
     main(args)
 
