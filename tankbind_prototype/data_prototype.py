@@ -35,7 +35,10 @@ class TankBindDataSet_prototype(Dataset):
         super().__init__(root, transform, pre_transform, pre_filter)
         print(self.processed_paths)
         self.data = torch.load(self.processed_paths[0])
-        self.data["session_ap"] = self.data['assay_id'].astype(str) + "_" + self.data['pdb_id']
+        if "internal" in root:
+            self.data["session_ap"]=self.data["session_au"]
+        else:
+            self.data["session_ap"] = self.data['assay_id'].astype(str) + "_" + self.data['pdb_id']
 
         self.protein_dict = torch.load(self.processed_paths[1])
         self.compound_dict = torch.load(self.processed_paths[2])
