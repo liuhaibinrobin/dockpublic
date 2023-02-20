@@ -33,17 +33,7 @@ class SessionBatchSampler(torch.utils.data.sampler.Sampler):
                  n = 6,
                  seed: Optional[int] = None, 
                  name: Optional[str] = None,
-                 index_save_path: Optional[str] = None,
-                 session_type=None):
-        """
-
-        :param dataset:
-        :param n:
-        :param seed:
-        :param name:
-        :param index_save_path:
-        :param session_type:  session_au or session_ap
-        """
+                 index_save_path: Optional[str] = None):
 
         self.dataset = dataset
         self.seed_init = seed
@@ -53,7 +43,6 @@ class SessionBatchSampler(torch.utils.data.sampler.Sampler):
         self.name = name + "_" if name is not None else ""
         self.index_save_path = index_save_path
         self.batches = None
-        self.session_type=session_type
         self.prepare_batches_for_epoch(self.epoch)
         
         
@@ -61,7 +50,7 @@ class SessionBatchSampler(torch.utils.data.sampler.Sampler):
         seed = self.seed_init + epoch
         print(f"SessionBatchSampler | Refreshing batches with seed {seed} for epoch {epoch}.")
         np.random.seed(seed)
-        indices = self.dataset.data.groupby(self.session_type).indices
+        indices = self.dataset.data.groupby("session").indices
         if not self.group_info_saved:
             print(f"SessionBatchSampler | Saving all samples' group indices.")
             torch.save(indices, f"{self.index_save_path}/batch_of_all_sample.pt")

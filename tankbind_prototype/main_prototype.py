@@ -141,7 +141,7 @@ def main(args):
     input_path = "/home/jovyan/main_tankbind/dataset_prototype"
     print(f"Getting datasets from {input_path}...", end="")
     if train_flag or iid_flag or ood_flag or test_flag:
-        train_dataset, iid_dataset, ood_dataset, test_dataset = get_full_data_prototype(input_path, random_state=args.trainset_seed, data_mode=args.data_mode)
+        train_dataset, iid_dataset, ood_dataset, test_dataset = get_full_data_prototype(input_path, random_state=args.trainset_seed, data_mode=args.data_mode,session_type=args.session_type)
     else:
         train_dataset = iid_dataset = ood_dataset = test_dataset = None
     if internal_flag:
@@ -165,7 +165,7 @@ def main(args):
     print("Processing train_sampler and train_dataloader...", end="")
     if train_flag:
         train_sampler = SessionBatchSampler(train_dataset, n=args.sampler_batch_size, seed=0, name=timestamp,
-                                            index_save_path=f"{pre}/train/batch_split_info",session_type=args.session_type)
+                                            index_save_path=f"{pre}/train/batch_split_info")
         train_dataloader = DataLoader(train_dataset,
                                     follow_batch=['x', 'compound_pair'],
                                     batch_sampler=train_sampler,
