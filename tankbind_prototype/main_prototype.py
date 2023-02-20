@@ -302,7 +302,7 @@ def run_train(pre, args, dataloader,
     if save_train_result:
         affinity_true = torch.cat(affinity_true_list)
         affinity_pred = torch.cat(affinity_pred_list)
-        recto_rate = torch.cat(recto_rate_list)
+        recto_rate = torch.stack(recto_rate_list)
         loss = torch.stack(loss_list)
 
         if not args.use_mse_loss:
