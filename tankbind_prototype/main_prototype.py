@@ -37,6 +37,14 @@ from model import *
 class PairwiseLoss(nn.Module):
     def __init__(self, keep_rate=1., sigmoid_lambda=0.5,
                  ingrp_thr=2, outgrp_thr=9999, eval=False):
+        """
+
+        :param keep_rate:
+        :param sigmoid_lambda:
+        :param ingrp_thr: =2时是3倍组pair
+        :param outgrp_thr:
+        :param eval:
+        """
         super(PairwiseLoss, self).__init__()
         self.eval = eval
         self.register_buffer('keep_rate', torch.tensor(keep_rate, dtype=torch.float64))
