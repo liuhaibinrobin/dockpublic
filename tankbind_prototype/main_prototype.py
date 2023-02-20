@@ -159,11 +159,11 @@ def main(args):
         internal_dataset = None
     print("fin!")
     logging.info(
-        # f"train: {(len(train_dataset.data) if train_dataset is not None else 0)}\n" 
-        f"iid_val: {(len(iid_dataset.data) if iid_dataset is not None and iid_dataset.data is not None else 0)}\n" 
-        f"ood_val: {(len(ood_dataset.data) if ood_dataset is not None and ood_dataset.data is not None  else 0)}\n" 
-        f"test: {(len(test_dataset.data) if test_dataset is not None and test_dataset.data is not None else 0)}\n" 
-        f"internal: {(len(internal_dataset.data) if internal_dataset is not None and internal_dataset.data is not None else 0)}\n"
+        f"train: sample num:  {(len(train_dataset.data) if train_dataset is not None else 0)}  session_num:{len(train_dataset.data.session.unique())}\n" 
+        f"iid_val:sample num:  {(len(iid_dataset.data) if iid_dataset is not None and iid_dataset.data is not None else 0)}    session_num:{len(iid_dataset.data.unique())}\n" 
+        f"ood_val:sample num: {(len(ood_dataset.data) if ood_dataset is not None and ood_dataset.data is not None  else 0)}      session_num:{len(ood_dataset.data.unique())}\n" 
+        f"test: sample num: {(len(test_dataset.data) if test_dataset is not None and test_dataset.data is not None else 0)}      session_num:{len(test_dataset.data.unique())}\n" 
+        f"internal:sample num:  {(len(internal_dataset.data) if internal_dataset is not None and internal_dataset.data is not None else 0)}    session_num:{len(internal_dataset.data.unique())}\n"
         f"=================================================================\n"
     )
 
@@ -405,8 +405,9 @@ def run_validation(pre, dataset, dataloader,
     result = pd.DataFrame(result, columns=["session", "length", "num_pairs", "loss", "recto_rate", "use"])
     result.to_csv(f"{pre}/results/{label}_result_{epoch}.csv")
     info.to_csv(f"{pre}/results/{label}_info_{epoch}.csv")
-    print(f"VALTEST: {label} | Save result of epoch {epoch} to {pre}/results/{label}_result_{epoch}.csv.")
-    print(f"VALTEST: {label} | Save info of epoch {epoch} to {pre}/results/{label}_info_{epoch}.csv.")
+    session_num=len(info.session.unique())
+    print(f"VALTEST: {label} session_num:{session_num}| Save result of epoch {epoch} to {pre}/results/{label}_result_{epoch}.csv.")
+    print(f"VALTEST: {label} session_num:{session_num}| Save info of epoch {epoch} to {pre}/results/{label}_info_{epoch}.csv.")
 
     # save result to tensorboard
     total_loss /= length
@@ -467,7 +468,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_epochs", type=int, default=50,
                         help="define the model will be trained for how many epochs")
 
-    parser.add_argument("--session_type", type=str, default="session_au",
+    parser.add_argument("--session_type", type=str, default=None,
                         help="session_au/session_ap  assay_uniprot as session or assay_pdb as session ")
     args = parser.parse_args()
     main(args)
