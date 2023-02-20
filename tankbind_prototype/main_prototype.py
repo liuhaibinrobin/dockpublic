@@ -102,8 +102,9 @@ def data_split(split_mode):
 def main(args):
     timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     w_label = "_" + args.label if args.label != "" else ""
-    writer = SummaryWriter(f"./tensorboard/{timestamp}{w_label}")
-    
+    #writer = SummaryWriter(f"./tensorboard/{timestamp}{w_label}")
+    writer = SummaryWriter(f"./tensorboard/tmp") #todo
+
     train_flag = True if "train" in args.run_mode else False
     iid_flag = True if "iid" in args.run_mode else False
     ood_flag = True if "ood" in args.run_mode else False
@@ -214,7 +215,7 @@ def main(args):
             logging.info(f"Epoch {epoch} =================================================")
         # TRAIN
         if train_flag:
-            num_steps_train, num_samples_train = run_train(pre=pre, dataloader=train_dataloader, epoch=epoch,
+            num_steps_train, num_samples_train = run_train(args=args,pre=pre, dataloader=train_dataloader, epoch=epoch,
                                                         num_steps_train=num_steps_train, 
                                                         num_samples_train=num_samples_train,
                                                         model=model, optimizer=optimizer, pairwiseloss=pairwiseloss, 
