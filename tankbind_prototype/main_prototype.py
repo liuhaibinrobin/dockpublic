@@ -302,6 +302,7 @@ def run_train(pre, args, dataloader,
               num_steps_train=0, num_samples_train=0,
               device=None, writer=None, logging=None,
               save_train_result=True):
+    logger = logging.getLogger("")
     print(f"TRAIN | epoch {epoch}")
     model.train()
     affinity_true_list = []
@@ -317,6 +318,8 @@ def run_train(pre, args, dataloader,
     # 更新 batch 分割方式。
     dataloader.batch_sampler.prepare_batches_for_epoch(epoch=epoch)
     for data in tqdm(dataloader):
+        logger.info(str(data))#TODO
+        continue #TODO
         num_steps_train += 1
         num_samples_train += len(data)
         session_list.append(data.session)

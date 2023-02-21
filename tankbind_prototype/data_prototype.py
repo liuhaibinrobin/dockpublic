@@ -8,8 +8,9 @@ from torch_geometric.data import Dataset, InMemoryDataset, download_url
 from utils import construct_data_from_graph_gvp
 from feature_utils import extract_torchdrug_feature_from_mol, get_canonical_smiles
 import rdkit.Chem as Chem
+import logging
 
-
+logger = logging.getLogger("")
 
 # data
 #   compound_name: should be a smiles
@@ -84,6 +85,7 @@ class TankBindDataSet_prototype(Dataset):
         # add_noise_to_com = self.add_noise_to_com if split_tag == 'train' else None  # TODO: Need this ?
 
         PDB_id = line['pdb_id']
+        logger.info(PDB_id) #TODO
         pdb_id = PDB_id.lower()
         if self.proteinMode == 0:
             # protein embedding follow GVP protocol.
@@ -125,7 +127,7 @@ class TankBindDataSet_prototype(Dataset):
         ## data.real_y_mask = torch.ones(data.y.shape).bool() if use_compound_com else torch.zeros(data.y.shape).bool()
         data.real_y_mask = torch.zeros(data.y.shape).bool()
 
-
+        logger.info(str(data))#TODO
         return data
 
 
