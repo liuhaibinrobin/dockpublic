@@ -360,12 +360,12 @@ def run_train(pre, args, dataloader,
                 total_loss += loss * np.sqrt(num_pairs)
                 total_recto_rate += recto_rate * np.sqrt(num_pairs)
 
-            # save result to tensorboard
-            total_loss /= length
-            total_recto_rate /= length
-            writer.add_scalar(f'rank_loss.by_epoch/train', total_loss, epoch)
-            writer.add_scalar(f'recto_rate.by_epoch/train', total_recto_rate, epoch)
-            logging.info(f"epoch {epoch} train | rank_loss {total_loss}, averaged_recto_rate {total_recto_rate}")
+    # save result to tensorboard
+    total_loss /= length
+    total_recto_rate /= length
+    writer.add_scalar(f'rank_loss.by_epoch/train', total_loss, epoch)
+    writer.add_scalar(f'recto_rate.by_epoch/train', total_recto_rate, epoch)
+    logging.info(f"epoch {epoch} train | rank_loss {total_loss}, averaged_recto_rate {total_recto_rate}")
 
 
 
