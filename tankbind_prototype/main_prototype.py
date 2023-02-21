@@ -210,7 +210,7 @@ def main(args):
 
 
 
-    num_workers = 10
+    num_workers = 8
 
     os.system(f"mkdir -p {pre}/train/batch_split_info")
     os.system(f"mkdir -p {pre}/train/epoch_result")
@@ -318,8 +318,8 @@ def run_train(pre, args, dataloader,
     # 更新 batch 分割方式。
     dataloader.batch_sampler.prepare_batches_for_epoch(epoch=epoch)
     for data in tqdm(dataloader):
-        logger.info(str(data))#TODO
-        continue #TODO
+        #logger.info(str(data))
+        #continue
         num_steps_train += 1
         num_samples_train += len(data)
         session_list.append(data.session)

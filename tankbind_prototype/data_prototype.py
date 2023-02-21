@@ -85,7 +85,7 @@ class TankBindDataSet_prototype(Dataset):
         # add_noise_to_com = self.add_noise_to_com if split_tag == 'train' else None  # TODO: Need this ?
 
         PDB_id = line['pdb_id']
-        logger.info(PDB_id) #TODO
+        logger.info("pdb_id:"+PDB_id)
         pdb_id = PDB_id.lower()
         if self.proteinMode == 0:
             # protein embedding follow GVP protocol.
@@ -127,7 +127,7 @@ class TankBindDataSet_prototype(Dataset):
         ## data.real_y_mask = torch.ones(data.y.shape).bool() if use_compound_com else torch.zeros(data.y.shape).bool()
         data.real_y_mask = torch.zeros(data.y.shape).bool()
 
-        logger.info(str(data))#TODO
+        #logger.info(str(data))
         return data
 
 
