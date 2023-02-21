@@ -408,6 +408,9 @@ def evaluate_with_affinity(data_loader,
                         if opt_torsion is not None:
                             tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion)
                         tmp_cnt += 1
+                tr_loss=tr_loss/tmp_cnt
+                rot_loss=rot_loss/tmp_cnt
+                tor_loss=tor_loss/tmp_cnt
 
 
                 prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i]) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
