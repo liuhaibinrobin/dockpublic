@@ -462,9 +462,9 @@ class IaBNet_with_affinity(torch.nn.Module):
                                                                            z_channel = 10,n_trigonometry_module_stack=5)
             #步骤三声明
             torch.nn.Module = module
-            self.ns = ns = 24 #small score model 参数
-            self.nv = nv = 6
-            dropout = 0.2
+            self.ns = ns = 128 #small score model 参数
+            self.nv = nv = 32
+            dropout = 0.1
             distance_embed_dim = 32
             self.sh_irreps = o3.Irreps.spherical_harmonics(lmax=2)
             self.center_edge_embedding = nn.Sequential(
@@ -654,7 +654,7 @@ class IaBNet_with_affinity(torch.nn.Module):
 
             _, lig_edge_index, lig_edge_attr, lig_edge_sh = self.build_lig_conv_graph(data)
             lig_edge_attr = self.lig_edge_embedding(lig_edge_attr)
-            compound_out = self.lig_node_embedding(compound_out)  #128 -> ns
+            # compound_out = self.lig_node_embedding(compound_out)  #128 -> ns
             lig_src, lig_dst = lig_edge_index
             for l in range(len(self.lig_conv_layers)):
                 lig_edge_attr_ = torch.cat([lig_edge_attr, compound_out[lig_src, :self.ns], compound_out[lig_dst, :self.ns]], -1)
