@@ -300,13 +300,11 @@ for epoch in range(100000):
             tmp_cnt=0
             for pred_result in pred_result_list:
 
-                tr_pred, rot_pred, tor_pred, _, _, current_candicate_conf_pos_batched = pred_result
+                tr_pred, rot_pred, torsion_pred_batched, _, _, current_candicate_conf_pos_batched = pred_result
                 tr_pred.retain_grad()
                 rot_pred.retain_grad()
-                tor_pred.retain_grad()
-                opt_tor_ = []
-                # for tmp_torsion_pred in torsion_pred_batched:
-                #     tmp_torsion_pred.retain_grad()
+                for tmp_torsion_pred in torsion_pred_batched:
+                    tmp_torsion_pred.retain_grad()
 
 
                 compound_edge_index_batched = model.unbatch(data['compound', 'compound'].edge_index.T,data.compound_compound_edge_attr_batch)
@@ -324,22 +322,19 @@ for epoch in range(100000):
                         ttt = time.time()
                         opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
                         opt_torsion_dict[data.pdb[i]] = opt_torsion
-                        if opt_torsion is not None:
-                            opt_tor_.append(opt_torsion)
                         # print(tmp_cnt, opt_rmsd,time.time()-ttt)
                     else:
                         opt_torsion = opt_torsion_dict[data.pdb[i]]
                         opt_rmsd, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.detach().cpu().numpy())
                         opt_rotate = matrix_to_axis_angle(opt_R).float()
                         opt_tr = opt_tr.T[0]
-                        if opt_torsion is not None:
-                            opt_tor_.append(opt_torsion)
 
                     tr_loss += F.mse_loss(tr_pred[i],opt_tr)
                     rot_loss += F.mse_loss(rot_pred[i],opt_rotate)
+                    if opt_torsion is not None:
+                        tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion)
                     tmp_cnt += 1
-                if opt_tor_ is not None:
-                    tor_loss += F.mse_loss(tor_pred, torch.concat(opt_tor_))
+
             tr_loss=tr_loss/tmp_cnt
             rot_loss=rot_loss/tmp_cnt
             tor_loss=tor_loss/tmp_cnt
