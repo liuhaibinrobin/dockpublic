@@ -321,13 +321,13 @@ def run_train(pre, args, dataloader,
         #logger.info(str(data))
         num_steps_train += 1
         num_samples_train += len(data)
-        continue  # TODO
+
         session_list.append(data.session)
         sample_id_list.append(data.sample_id)
         data = data.to(device)
         optimizer.zero_grad()
-        _, affinity_pred = model(data)
-        del _  # Note: for now, y is not in need.
+        _, affinity_pred =_, data.value# model(data)  TODO
+        # del _  # Note: for now, y is not in need.
         affinity_true = data.value
 
 
@@ -338,8 +338,10 @@ def run_train(pre, args, dataloader,
             loss = mseloss(affinity_pred.float(), torch.log10(affinity_true).float())
 
         if not (abs(loss.item()) > 100000):
-            loss.backward()
-            optimizer.step()
+            pass
+            #TODO
+            # loss.backward()
+            # optimizer.step()
         else:
             logging.info(
                 f"--loss error | epoch {epoch}, session {list(data.session)[0]}, sample_id {str(data.sample_id)}, pred {[str(_) for _ in affinity_pred]}, true {[str(_) for _ in affinity_true]}")
@@ -364,29 +366,29 @@ def run_train(pre, args, dataloader,
                 total_recto_rate += recto_rate * np.sqrt(num_pairs)
 
     # save result to tensorboard
-    #TODO
-    # total_loss /= length
-    # total_recto_rate /= length
-    # writer.add_scalar(f'rank_loss.by_epoch/train', total_loss, epoch)
-    # writer.add_scalar(f'recto_rate.by_epoch/train', total_recto_rate, epoch)
-    # logging.info(f"epoch {epoch} train | rank_loss {total_loss}, averaged_recto_rate {total_recto_rate}")
-    # if save_train_result:
-    #     affinity_true = torch.cat(affinity_true_list)
-    #     affinity_pred = torch.cat(affinity_pred_list)
-    #     recto_rate = torch.stack(recto_rate_list)
-    #     loss = torch.stack(loss_list)
-    #     if not args.use_mse_loss:
-    #         torch.save(
-    #             {"affinity_true": affinity_true, "affinity_pred": affinity_pred, "loss": loss,
-    #              "recto_rate": recto_rate, "session_list": session_list, "sample_id_list": sample_id_list},
-    #             f"{pre}/train/epoch_result/epoch_{epoch}.pt")
-    #     else:
-    #         torch.save(
-    #             {"affinity_true": affinity_true, "affinity_pred": affinity_pred, "loss": loss,
-    #              "session_list": session_list, "sample_id_list": sample_id_list},
-    #             f"{pre}/train/epoch_result/epoch_{epoch}.pt")
-    #     print(f"-- Save result of epoch {epoch} to {pre}/train/epoch_result/epoch_{epoch}.pt.")
-    #
+
+    total_loss /= length
+    total_recto_rate /= length
+    writer.add_scalar(f'rank_loss.by_epoch/train', total_loss, epoch)
+    writer.add_scalar(f'recto_rate.by_epoch/train', total_recto_rate, epoch)
+    logging.info(f"epoch {epoch} train | rank_loss {total_loss}, averaged_recto_rate {total_recto_rate}")
+    if save_train_result:
+        affinity_true = torch.cat(affinity_true_list)
+        affinity_pred = torch.cat(affinity_pred_list)
+        recto_rate = torch.stack(recto_rate_list)
+        loss = torch.stack(loss_list)
+        if not args.use_mse_loss:
+            torch.save(
+                {"affinity_true": affinity_true, "affinity_pred": affinity_pred, "loss": loss,
+                 "recto_rate": recto_rate, "session_list": session_list, "sample_id_list": sample_id_list},
+                f"{pre}/train/epoch_result/epoch_{epoch}.pt")
+        else:
+            torch.save(
+                {"affinity_true": affinity_true, "affinity_pred": affinity_pred, "loss": loss,
+                 "session_list": session_list, "sample_id_list": sample_id_list},
+                f"{pre}/train/epoch_result/epoch_{epoch}.pt")
+        print(f"-- Save result of epoch {epoch} to {pre}/train/epoch_result/epoch_{epoch}.pt.")
+
     return num_steps_train, num_samples_train
 
 def run_validation(pre, dataset, dataloader,
