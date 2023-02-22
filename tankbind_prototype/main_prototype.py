@@ -319,9 +319,9 @@ def run_train(pre, args, dataloader,
     dataloader.batch_sampler.prepare_batches_for_epoch(epoch=epoch)
     for data in tqdm(dataloader):
         #logger.info(str(data))
-        #continue
         num_steps_train += 1
         num_samples_train += len(data)
+        continue  # TODO
         session_list.append(data.session)
         sample_id_list.append(data.sample_id)
         data = data.to(device)
@@ -364,32 +364,29 @@ def run_train(pre, args, dataloader,
                 total_recto_rate += recto_rate * np.sqrt(num_pairs)
 
     # save result to tensorboard
-    total_loss /= length
-    total_recto_rate /= length
-    writer.add_scalar(f'rank_loss.by_epoch/train', total_loss, epoch)
-    writer.add_scalar(f'recto_rate.by_epoch/train', total_recto_rate, epoch)
-    logging.info(f"epoch {epoch} train | rank_loss {total_loss}, averaged_recto_rate {total_recto_rate}")
-
-
-
-    if save_train_result:
-        affinity_true = torch.cat(affinity_true_list)
-        affinity_pred = torch.cat(affinity_pred_list)
-        recto_rate = torch.stack(recto_rate_list)
-        loss = torch.stack(loss_list)
-
-        if not args.use_mse_loss:
-            torch.save(
-                {"affinity_true": affinity_true, "affinity_pred": affinity_pred, "loss": loss,
-                 "recto_rate": recto_rate, "session_list": session_list, "sample_id_list": sample_id_list},
-                f"{pre}/train/epoch_result/epoch_{epoch}.pt")
-        else:
-            torch.save(
-                {"affinity_true": affinity_true, "affinity_pred": affinity_pred, "loss": loss,
-                 "session_list": session_list, "sample_id_list": sample_id_list},
-                f"{pre}/train/epoch_result/epoch_{epoch}.pt")
-        print(f"-- Save result of epoch {epoch} to {pre}/train/epoch_result/epoch_{epoch}.pt.")
-        
+    #TODO
+    # total_loss /= length
+    # total_recto_rate /= length
+    # writer.add_scalar(f'rank_loss.by_epoch/train', total_loss, epoch)
+    # writer.add_scalar(f'recto_rate.by_epoch/train', total_recto_rate, epoch)
+    # logging.info(f"epoch {epoch} train | rank_loss {total_loss}, averaged_recto_rate {total_recto_rate}")
+    # if save_train_result:
+    #     affinity_true = torch.cat(affinity_true_list)
+    #     affinity_pred = torch.cat(affinity_pred_list)
+    #     recto_rate = torch.stack(recto_rate_list)
+    #     loss = torch.stack(loss_list)
+    #     if not args.use_mse_loss:
+    #         torch.save(
+    #             {"affinity_true": affinity_true, "affinity_pred": affinity_pred, "loss": loss,
+    #              "recto_rate": recto_rate, "session_list": session_list, "sample_id_list": sample_id_list},
+    #             f"{pre}/train/epoch_result/epoch_{epoch}.pt")
+    #     else:
+    #         torch.save(
+    #             {"affinity_true": affinity_true, "affinity_pred": affinity_pred, "loss": loss,
+    #              "session_list": session_list, "sample_id_list": sample_id_list},
+    #             f"{pre}/train/epoch_result/epoch_{epoch}.pt")
+    #     print(f"-- Save result of epoch {epoch} to {pre}/train/epoch_result/epoch_{epoch}.pt.")
+    #
     return num_steps_train, num_samples_train
 
 def run_validation(pre, dataset, dataloader,
@@ -428,8 +425,8 @@ def run_validation(pre, dataset, dataloader,
             affinity_pred = torch.tensor(df.affinity_pred.values).to(device)
             
             
-            torch.save(affinity_pred.cpu(), f"session_{session}_pred.pt")
-            torch.save(affinity_pred.cpu(), f"session_{session}_true.pt")
+            # torch.save(affinity_pred.cpu(), f"session_{session}_pred.pt")
+            # torch.save(affinity_pred.cpu(), f"session_{session}_true.pt")
             
             loss, recto_rate, num_pairs = pairwiseloss(pred=affinity_pred, true=affinity_true)
             loss = loss.detach().cpu().item()
