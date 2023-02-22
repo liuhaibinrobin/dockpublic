@@ -85,7 +85,7 @@ class TankBindDataSet_prototype(Dataset):
         # add_noise_to_com = self.add_noise_to_com if split_tag == 'train' else None  # TODO: Need this ?
 
         PDB_id = line['pdb_id']
-        logger.info("pdb_id:"+PDB_id)
+        #logger.info("pdb_id:"+PDB_id)
         pdb_id = PDB_id.lower()
         if self.proteinMode == 0:
             # protein embedding follow GVP protocol.
