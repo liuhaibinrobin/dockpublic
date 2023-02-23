@@ -326,9 +326,9 @@ def run_train(pre, args, dataloader,
         sample_id_list.append(data.sample_id)
         data = data.to(device)
         optimizer.zero_grad()
-        #_, affinity_pred =model(data) # TODO
-        # del _  # Note: for now, y is not in need.
-        affinity_pred=data.value
+        _, affinity_pred =model(data) # TODO
+        del _  # Note: for now, y is not in need.
+
 
         affinity_true = data.value
 
@@ -340,10 +340,9 @@ def run_train(pre, args, dataloader,
             loss = mseloss(affinity_pred.float(), torch.log10(affinity_true).float())
 
         if not (abs(loss.item()) > 100000):
-            pass
-            #TODO
-            # loss.backward()
-            # optimizer.step()
+
+            loss.backward()
+            optimizer.step()
         else:
             logging.info(
                 f"--loss error | epoch {epoch}, session {list(data.session)[0]}, sample_id {str(data.sample_id)}, pred {[str(_) for _ in affinity_pred]}, true {[str(_) for _ in affinity_true]}")

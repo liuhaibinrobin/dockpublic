@@ -12,6 +12,7 @@ from torch_scatter import scatter_mean
 from GATv2 import GAT
 from GINv2 import GIN
 
+
 class GNN(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels):
         super().__init__()
@@ -24,19 +25,18 @@ class GNN(torch.nn.Module):
         return x
 
 
-
 class GVP_embedding(nn.Module):
     '''
     Modified based on https://github.com/drorlab/gvp-pytorch/blob/main/gvp/models.py
     GVP-GNN for Model Quality Assessment as described in manuscript.
-    
-    Takes in protein structure graphs of type `torch_geometric.data.Data` 
+
+    Takes in protein structure graphs of type `torch_geometric.data.Data`
     or `torch_geometric.data.Batch` and returns a scalar score for
     each graph in the batch in a `torch.Tensor` of shape [n_nodes]
-    
+
     Should be used with `gvp.data.ProteinGraphDataset`, or with generators
     of `torch_geometric.data.Batch` objects with the same attributes.
-    
+
     :param node_in_dim: node dimensions in input graph, should be
                         (6, 3) if using original features
     :param node_h_dim: node dimensions to use in GVP-GNN layers
@@ -50,16 +50,17 @@ class GVP_embedding(nn.Module):
     :param num_layers: number of GVP-GNN layers
     :param drop_rate: rate to use in all dropout layers
     '''
-    def __init__(self, node_in_dim, node_h_dim, 
+
+    def __init__(self, node_in_dim, node_h_dim,
                  edge_in_dim, edge_h_dim,
                  seq_in=False, num_layers=3, drop_rate=0.1):
 
         super(GVP_embedding, self).__init__()
-        
+
         if seq_in:
             self.W_s = nn.Embedding(20, 20)
             node_in_dim = (node_in_dim[0] + 20, node_in_dim[1])
-        
+
         self.W_v = nn.Sequential(
             LayerNorm(node_in_dim),
             GVP(node_in_dim, node_h_dim, activations=(None, None))
@@ -70,15 +71,15 @@ class GVP_embedding(nn.Module):
         )
 
         self.layers = nn.ModuleList(
-                GVPConvLayer(node_h_dim, edge_h_dim, drop_rate=drop_rate) 
+            GVPConvLayer(node_h_dim, edge_h_dim, drop_rate=drop_rate)
             for _ in range(num_layers))
-        
+
         ns, _ = node_h_dim
         self.W_out = nn.Sequential(
             LayerNorm(node_h_dim),
             GVP(node_h_dim, (ns, 0)))
 
-    def forward(self, h_V, edge_index, h_E, seq):      
+    def forward(self, h_V, edge_index, h_E, seq):
         '''
         :param h_V: tuple (s, V) of node embeddings
         :param edge_index: `torch.Tensor` of shape [2, num_edges]
@@ -100,10 +101,11 @@ class GVP_embedding(nn.Module):
 def get_pair_dis_one_hot(d, bin_size=2, bin_min=-1, bin_max=30):
     # without compute_mode='donot_use_mm_for_euclid_dist' could lead to wrong result.
     pair_dis = torch.cdist(d, d, compute_mode='donot_use_mm_for_euclid_dist')
-    pair_dis[pair_dis>bin_max] = bin_max
+    pair_dis[pair_dis > bin_max] = bin_max
     pair_dis_bin_index = torch.div(pair_dis - bin_min, bin_size, rounding_mode='floor').long()
     pair_dis_one_hot = torch.nn.functional.one_hot(pair_dis_bin_index, num_classes=16)
     return pair_dis_one_hot
+
 
 class TriangleProteinToCompound(torch.nn.Module):
     def __init__(self, embedding_channels=256, c=128, hasgate=True):
@@ -116,6 +118,7 @@ class TriangleProteinToCompound(torch.nn.Module):
         self.linear = Linear(embedding_channels, c)
         self.ending_gate_linear = Linear(embedding_channels, embedding_channels)
         self.linear_after_sum = Linear(c, embedding_channels)
+
     def forward(self, z, protein_pair, compound_pair, z_mask):
         # z of shape b, i, j, embedding_channels, where i is protein dim, j is compound dim.
         # z_mask of shape b, i, j, 1
@@ -127,8 +130,9 @@ class TriangleProteinToCompound(torch.nn.Module):
         g = self.ending_gate_linear(z).sigmoid()
         block1 = torch.einsum("bikc,bkjc->bijc", protein_pair, ab)
         block2 = torch.einsum("bikc,bjkc->bijc", ab, compound_pair)
-        z = g * self.linear_after_sum(self.layernorm_c(block1+block2)) * z_mask
+        z = g * self.linear_after_sum(self.layernorm_c(block1 + block2)) * z_mask
         return z
+
 
 class TriangleProteinToCompound_v2(torch.nn.Module):
     # separate left/right edges (block1/block2).
@@ -145,12 +149,13 @@ class TriangleProteinToCompound_v2(torch.nn.Module):
 
         self.ending_gate_linear = Linear(embedding_channels, embedding_channels)
         self.linear_after_sum = Linear(c, embedding_channels)
+
     def forward(self, z, protein_pair, compound_pair, z_mask):
         # z of shape b, i, j, embedding_channels, where i is protein dim, j is compound dim.
         z = self.layernorm(z)
         protein_pair = self.layernorm(protein_pair)
         compound_pair = self.layernorm(compound_pair)
- 
+
         ab1 = self.gate_linear1(z).sigmoid() * self.linear1(z) * z_mask
         ab2 = self.gate_linear2(z).sigmoid() * self.linear2(z) * z_mask
         protein_pair = self.gate_linear2(protein_pair).sigmoid() * self.linear2(protein_pair)
@@ -160,11 +165,12 @@ class TriangleProteinToCompound_v2(torch.nn.Module):
         block1 = torch.einsum("bikc,bkjc->bijc", protein_pair, ab1)
         block2 = torch.einsum("bikc,bjkc->bijc", ab2, compound_pair)
         # print(g.shape, block1.shape, block2.shape)
-        z = g * self.linear_after_sum(self.layernorm_c(block1+block2)) * z_mask
+        z = g * self.linear_after_sum(self.layernorm_c(block1 + block2)) * z_mask
         return z
 
+
 class Self_Attention(nn.Module):
-    def __init__(self, hidden_size,num_attention_heads=8,drop_rate=0.5):
+    def __init__(self, hidden_size, num_attention_heads=8, drop_rate=0.5):
         super().__init__()
         self.num_attention_heads = num_attention_heads
         self.attention_head_size = int(hidden_size / num_attention_heads)
@@ -177,7 +183,7 @@ class Self_Attention(nn.Module):
         x = x.view(*new_x_shape)
         return x.permute(0, 2, 1, 3)
 
-    def forward(self,q,k,v,attention_mask=None,attention_weight=None):
+    def forward(self, q, k, v, attention_mask=None, attention_weight=None):
         q = self.transpose_for_scores(q)
         k = self.transpose_for_scores(k)
         v = self.transpose_for_scores(v)
@@ -186,14 +192,14 @@ class Self_Attention(nn.Module):
         attention_probs = nn.Softmax(dim=-1)(attention_scores)
         # attention_probs = self.dp(attention_probs)
         if attention_weight is not None:
-            attention_weight_sorted_sorted = torch.argsort(torch.argsort(-attention_weight,axis=-1),axis=-1)
+            attention_weight_sorted_sorted = torch.argsort(torch.argsort(-attention_weight, axis=-1), axis=-1)
             # if self.training:
             #     top_mask = (attention_weight_sorted_sorted<np.random.randint(28,45))
             # else:
-            top_mask = (attention_weight_sorted_sorted<32)
+            top_mask = (attention_weight_sorted_sorted < 32)
             attention_probs = attention_probs * top_mask
             # attention_probs = attention_probs * attention_weight
-            attention_probs = attention_probs / (torch.sum(attention_probs,dim=-1,keepdim=True) + 1e-5)
+            attention_probs = attention_probs / (torch.sum(attention_probs, dim=-1, keepdim=True) + 1e-5)
         # print(attention_probs.shape,v.shape)
         # attention_probs = self.dp(attention_probs)
         outputs = torch.matmul(attention_probs, v)
@@ -203,6 +209,7 @@ class Self_Attention(nn.Module):
         outputs = outputs.view(*new_output_shape)
         outputs = self.ln(outputs)
         return outputs
+
 
 class TriangleSelfAttentionRowWise(torch.nn.Module):
     # use the protein-compound matrix only.
@@ -240,7 +247,7 @@ class TriangleSelfAttentionRowWise(torch.nn.Module):
         z_mask_i = z_mask.view((batch_n, p_length, 1, 1, -1))
         attention_mask_i = (1e9 * (z_mask_i.float() - 1.))
         # q, k, v of shape b, j, h, c
-        q = self.reshape_last_dim(self.linear_q(z_i)) #  * (self.attention_head_size**(-0.5))
+        q = self.reshape_last_dim(self.linear_q(z_i))  # * (self.attention_head_size**(-0.5))
         k = self.reshape_last_dim(self.linear_k(z_i))
         v = self.reshape_last_dim(self.linear_v(z_i))
         logits = torch.einsum('biqhc,bikhc->bihqk', q, k) + attention_mask_i
@@ -265,8 +272,9 @@ class Transition(torch.nn.Module):
     def __init__(self, embedding_channels=256, n=4):
         super().__init__()
         self.layernorm = torch.nn.LayerNorm(embedding_channels)
-        self.linear1 = Linear(embedding_channels, n*embedding_channels)
-        self.linear2 = Linear(n*embedding_channels, embedding_channels)
+        self.linear1 = Linear(embedding_channels, n * embedding_channels)
+        self.linear2 = Linear(n * embedding_channels, embedding_channels)
+
     def forward(self, z):
         # z of shape b, i, j, embedding_channels, where i is protein dim, j is compound dim.
         z = self.layernorm(z)
@@ -274,9 +282,10 @@ class Transition(torch.nn.Module):
         return z
 
 
-
 class IaBNet_with_affinity(torch.nn.Module):
-    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, compound_embed_mode=1, n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2, finetune=False, output_func="no"):
+    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1,
+                 compound_embed_mode=1, n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2,
+                 finetune=False, output_func="no"):
         super().__init__()
         self.layernorm = torch.nn.LayerNorm(embedding_channels)
         self.protein_bin_max = protein_bin_max
@@ -293,21 +302,25 @@ class IaBNet_with_affinity(torch.nn.Module):
             # self.conv_protein = SAGEConv((-1, -1), embedding_channels)
             # self.conv_compound = SAGEConv((-1, -1), embedding_channels)
         if protein_embed_mode == 1:
-            self.conv_protein = GVP_embedding((6, 3), (embedding_channels, 16), 
+            self.conv_protein = GVP_embedding((6, 3), (embedding_channels, 16),
                                               (32, 1), (32, 1), seq_in=True)
-            
 
         if compound_embed_mode == 0:
             self.conv_compound = GNN(hidden_channels, embedding_channels)
         elif compound_embed_mode == 1:
-            self.conv_compound = GIN(input_dim = 56, hidden_dims = [128,56,embedding_channels], edge_input_dim = 19, concat_hidden = False)
+            self.conv_compound = GIN(input_dim=56, hidden_dims=[128, 56, embedding_channels], edge_input_dim=19,
+                                     concat_hidden=False)
 
         if mode == 0:
             self.protein_pair_embedding = Linear(16, c)
             self.compound_pair_embedding = Linear(16, c)
             self.protein_to_compound_list = []
-            self.protein_to_compound_list = nn.ModuleList([TriangleProteinToCompound_v2(embedding_channels=embedding_channels, c=c) for _ in range(n_trigonometry_module_stack)])
-            self.triangle_self_attention_list = nn.ModuleList([TriangleSelfAttentionRowWise(embedding_channels=embedding_channels) for _ in range(n_trigonometry_module_stack)])
+            self.protein_to_compound_list = nn.ModuleList(
+                [TriangleProteinToCompound_v2(embedding_channels=embedding_channels, c=c) for _ in
+                 range(n_trigonometry_module_stack)])
+            self.triangle_self_attention_list = nn.ModuleList(
+                [TriangleSelfAttentionRowWise(embedding_channels=embedding_channels) for _ in
+                 range(n_trigonometry_module_stack)])
             self.tranistion = Transition(embedding_channels=embedding_channels, n=4)
 
         self.linear = Linear(embedding_channels, 1)
@@ -318,6 +331,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         self.bias = torch.nn.Parameter(torch.ones(1))
         self.leaky = torch.nn.LeakyReLU()
         self.dropout = nn.Dropout2d(p=0.25)
+
     def forward(self, data):
         if self.protein_embed_mode == 0:
             x = data['protein'].x.float()
@@ -334,7 +348,7 @@ class IaBNet_with_affinity(torch.nn.Module):
             compound_x = data['compound'].x.float()
             compound_edge_index = data[("compound", "c2c", "compound")].edge_index
             compound_batch = data['compound'].batch
-            #这种GIN 不接受小分子键信息
+            # 这种GIN 不接受小分子键信息
             compound_out = self.conv_compound(compound_x, compound_edge_index)
         elif self.compound_embed_mode == 1:
             compound_x = data['compound'].x.float()
@@ -342,13 +356,15 @@ class IaBNet_with_affinity(torch.nn.Module):
             compound_edge_feature = data[("compound", "c2c", "compound")].edge_attr
             edge_weight = data[("compound", "c2c", "compound")].edge_weight
             compound_batch = data['compound'].batch
-            #GIN 包含了小分子键的信息
-            compound_out = self.conv_compound(compound_edge_index,edge_weight,compound_edge_feature,compound_x.shape[0],compound_x)['node_feature']
+            # GIN 包含了小分子键的信息
+            compound_out = \
+            self.conv_compound(compound_edge_index, edge_weight, compound_edge_feature, compound_x.shape[0],
+                               compound_x)['node_feature']
 
         # protein_batch version could further process b matrix. better than for loop.
         # protein_out_batched of shape b, n, c
         protein_out_batched, protein_out_mask = to_dense_batch(protein_out, protein_batch)
-        compound_out_batched, compound_out_mask = to_dense_batch(compound_out, compound_batch)  #转换为batch pad形式
+        compound_out_batched, compound_out_mask = to_dense_batch(compound_out, compound_batch)  # 转换为batch pad形式
 
         node_xyz = data.node_xyz
 
@@ -360,15 +376,15 @@ class IaBNet_with_affinity(torch.nn.Module):
         compound_pair_batched, compound_pair_batched_mask = to_dense_batch(data.compound_pair, data.compound_pair_batch)
         batch_n = compound_pair_batched.shape[0]
         max_compound_size_square = compound_pair_batched.shape[1]
-        max_compound_size = int(max_compound_size_square**0.5)
-        assert (max_compound_size**2 - max_compound_size_square)**2 < 1e-4
+        max_compound_size = int(max_compound_size_square ** 0.5)
+        assert (max_compound_size ** 2 - max_compound_size_square) ** 2 < 1e-4
         compound_pair = torch.zeros((batch_n, max_compound_size, max_compound_size, 16)).to(data.compound_pair.device)
         for i in range(batch_n):
             one = compound_pair_batched[i]
             compound_size_square = (data.compound_pair_batch == i).sum()
-            compound_size = int(compound_size_square**0.5)
-            compound_pair[i,:compound_size, :compound_size] = one[:compound_size_square].reshape(
-                                                                (compound_size, compound_size, -1))
+            compound_size = int(compound_size_square ** 0.5)
+            compound_pair[i, :compound_size, :compound_size] = one[:compound_size_square].reshape(
+                (compound_size, compound_size, -1))
         protein_pair = self.protein_pair_embedding(protein_pair.float())
         compound_pair = self.compound_pair_embedding(compound_pair.float())
         # b = torch.einsum("bik,bjk->bij", protein_out_batched, compound_out_batched).flatten()
@@ -383,12 +399,13 @@ class IaBNet_with_affinity(torch.nn.Module):
         if self.mode == 0:
             for _ in range(1):
                 for i_module in range(self.n_trigonometry_module_stack):
-                    z = z + self.dropout(self.protein_to_compound_list[i_module](z, protein_pair, compound_pair, z_mask.unsqueeze(-1)))
+                    z = z + self.dropout(
+                        self.protein_to_compound_list[i_module](z, protein_pair, compound_pair, z_mask.unsqueeze(-1)))
                     z = z + self.dropout(self.triangle_self_attention_list[i_module](z, z_mask))
                     z = self.tranistion(z)
         # batch_dim = z.shape[0]
 
-        #z_mask  dim:batch_num*max(protain_num)*max(ligand_num)
+        # z_mask  dim:batch_num*max(protain_num)*max(ligand_num)
         b = self.linear(z).squeeze(-1)
         ### y_pred = b[z_mask] #y_pred dim: 一维向量，排列方式：batch_num,protain_num,ligand_num;用 to_dense_batch 和y_batch 进行分割，再每个用 protain_num,ligand_num还原为矩阵
         ### y_pred = y_pred.sigmoid() * 10   # normalize to 0 to 10.
@@ -409,6 +426,7 @@ class IaBNet_with_affinity(torch.nn.Module):
             return None, affinity_pred.sigmoid() * 10
         elif self.output_func == "sig10-5":
             return None, affinity_pred.sigmoid() * 10 - 5
+
 
 def get_model(mode, logging, device, readout_mode=1, output_func="no"):
     if mode == 0:
