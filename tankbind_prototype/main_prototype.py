@@ -33,8 +33,8 @@ from data_prototype import get_full_data_prototype, get_internal_dataset
 from sampler_prototype import SessionBatchSampler
 from model import *
 
-from pympler import tracker
-tr = tracker.SummaryTracker()
+# from pympler import tracker
+# tr = tracker.SummaryTracker()
 
 class PairwiseLoss(nn.Module):
     def __init__(self, keep_rate=1., sigmoid_lambda=0.5,
@@ -321,8 +321,8 @@ def run_train(pre, args, dataloader,
     dataloader.batch_sampler.prepare_batches_for_epoch(epoch=epoch)
     for data in tqdm(dataloader):
         #logger.info(str(data))
-        if num_steps_train%5000==0:
-            tr.print_diff()
+        # if num_steps_train%5000==0:
+        #     tr.print_diff()
         num_steps_train += 1
         num_samples_train += len(data)
 
@@ -344,9 +344,9 @@ def run_train(pre, args, dataloader,
             loss = mseloss(affinity_pred.float(), torch.log10(affinity_true).float())
 
         if not (abs(loss.item()) > 100000):
-
-            loss.backward()
-            optimizer.step()
+            pass
+            # loss.backward()
+            # optimizer.step()
         else:
             logging.info(
                 f"--loss error | epoch {epoch}, session {list(data.session)[0]}, sample_id {str(data.sample_id)}, pred {[str(_) for _ in affinity_pred]}, true {[str(_) for _ in affinity_true]}")
