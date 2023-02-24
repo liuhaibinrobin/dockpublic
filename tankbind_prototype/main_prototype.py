@@ -345,9 +345,8 @@ def run_train(pre, args, dataloader,
             loss = mseloss(affinity_pred.float(), torch.log10(affinity_true).float())
 
         if not (abs(loss.item()) > 100000):
-            pass
-            # loss.backward()
-            # optimizer.step()
+            loss.backward()
+            optimizer.step()
         else:
             logging.info(
                 f"--loss error | epoch {epoch}, session {list(data.session)[0]}, sample_id {str(data.sample_id)}, pred {[str(_) for _ in affinity_pred]}, true {[str(_) for _ in affinity_true]}")
@@ -363,13 +362,11 @@ def run_train(pre, args, dataloader,
             recto_rate_list.append(recto_rate.detach().cpu())
             writer.add_scalar(f'recto_rate.by_step/train', recto_rate.item(), num_steps_train)
             writer.add_scalar(f'recto_rate.by_sample/train', recto_rate.item(), num_samples_train)
-        # end of sample scope
 
-        if not args.use_mse_loss:
             if num_pairs >= 1:
                 length += np.sqrt(num_pairs)
-                total_loss += loss * np.sqrt(num_pairs)
-                total_recto_rate += recto_rate * np.sqrt(num_pairs)
+                total_loss += loss.item() * np.sqrt(num_pairs)
+                total_recto_rate +=recto_rate.item() * np.sqrt(num_pairs)
 
     # save result to tensorboard
 
@@ -379,10 +376,10 @@ def run_train(pre, args, dataloader,
     writer.add_scalar(f'recto_rate.by_epoch/train', total_recto_rate, epoch)
     logging.info(f"epoch {epoch} train | rank_loss {total_loss}, averaged_recto_rate {total_recto_rate}")
     if save_train_result:
-        affinity_true = torch.cat(affinity_true_list)
-        affinity_pred = torch.cat(affinity_pred_list)
-        recto_rate = torch.stack(recto_rate_list)
-        loss = torch.stack(loss_list)
+        affinity_true = torch.cat(affinity_true_list).detach().cpu()
+        affinity_pred = torch.cat(affinity_pred_list).detach().cpu()
+        recto_rate = torch.stack(recto_rate_list).detach().cpu()
+        loss = torch.stack(loss_list).detach().cpu()
         if not args.use_mse_loss:
             torch.save(
                 {"affinity_true": affinity_true, "affinity_pred": affinity_pred, "loss": loss,
