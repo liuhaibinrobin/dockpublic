@@ -190,7 +190,8 @@ class TankBindDataSet_torsion(Dataset):
         use_compound_com = line['use_compound_com']
         use_whole_protein = line['use_whole_protein'] if "use_whole_protein" in line.index else False
         group = line['group'] if "group" in line.index else 'train'
-        add_noise_to_com = self.add_noise_to_com if group == 'train' else None
+        # add_noise_to_com = self.add_noise_to_com if group == 'train' else None
+        add_noise_to_com = self.add_noise_to_com 
 
         protein_name = line['protein_name']
         if self.proteinMode == 0:

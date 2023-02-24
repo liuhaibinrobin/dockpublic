@@ -345,20 +345,22 @@ class MultiHeadAttention_dis_bias(nn.Module):
         self.leaky_prmsd = torch.nn.LeakyReLU()
         self.bias_prmsd = torch.nn.Parameter(torch.ones(1))
 
-        self.linear_v = nn.Linear(embedding_channels,embedding_channels)
-        self.g = Linear(embedding_channels,embedding_channels)
+        self.linear_v_p = nn.Linear(embedding_channels,embedding_channels)
+        self.linear_v_l = nn.Linear(embedding_channels,embedding_channels)
+        self.gate_linear_node = Linear(embedding_channels,embedding_channels)
+        self.linear_node = Linear(embedding_channels,embedding_channels)
 
-    def forward(self, z, z_mask, pocket_rep, compound_out_batched_previous):
+    def forward(self, z, z_mask, protein_out_batched_previous, compound_out_batched_previous):
         #z shape: [b, pocket_len, ligand_len, embedding_channels]
         #z_mask:[b,pocket_len, ligand_len]
-        #pocket_rep shape : [b, pocket_len, embedding_channels]
+        #protein_out_batched_previous shape : [b, pocket_len, embedding_channels]
         #candicate_dis_matrix_batched shape: [b, ligand_len, pocket_len]
         #edge_type_matrix shape: [b, pocket_len, ligand_len,edge_type_pair_channels]
         
         
         # z = self.linear(z).transpose(3,1)  #z shape :[b, z_channel, ligand_len, pocket_len]
         ligand_len, pocket_len = z.shape[2], z.shape[1]
-        embedding_channels = pocket_rep.shape[-1]
+        embedding_channels = protein_out_batched_previous.shape[-1]
         batch_size = z.shape[0]
         head_size=1
         z_channel = z.shape[-1]
@@ -386,16 +388,17 @@ class MultiHeadAttention_dis_bias(nn.Module):
         pair_energy_prmsd = (self.gate_linear_prmsd(z).sigmoid() * self.linear_energy_prmsd(z)).squeeze(-1) * z_mask
         prmsd_pred = self.leaky_prmsd(self.bias_prmsd + ((pair_energy_prmsd).sum(axis=(-1, -2))))
 
-        ligand_rep = torch.einsum('bjic,bjc->bic', weights, self.linear_v(pocket_rep))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(pocket_rep) :  b*pocket_len,?
-
+        ligand_rep = torch.einsum('bjic,bjc->bic', weights, self.linear_v_p(protein_out_batched_previous))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
+        protein_rep = torch.einsum('bjic,bic->bjc', weights, self.linear_v_l(compound_out_batched_previous))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
         # z_ = z.view([batch_size,-1,z.shape[-1]])  #z_ shape :[b, z_channel*ligand_len, pocket_len]
-        # ligand_rep = torch.bmm(z_, pocket_rep).view([batch_size, head_size, -1, embedding_channels])  #[b, z_channel, ligand_len, embedding_channels]
+        # ligand_rep = torch.bmm(z_, protein_out_batched_previous).view([batch_size, head_size, -1, embedding_channels])  #[b, z_channel, ligand_len, embedding_channels]
         # ligand_rep = ligand_rep.transpose(1, 2).contiguous()  # [b, ligand_len, z_channel, embedding_channels]
         # ligand_rep = ligand_rep.view(batch_size, -1, head_size * embedding_channels) # [b, ligand_len, z_channel * embedding_channels]
         #ligand_rep = self.output_layer(ligand_rep)
-
-        new_ligand_rep=ligand_rep*self.g(compound_out_batched_previous).sigmoid() + compound_out_batched_previous
-        return new_ligand_rep, affinity_pred, prmsd_pred, z
+        new_ligand_rep = ligand_rep * self.gate_linear_node(compound_out_batched_previous).sigmoid() + compound_out_batched_previous
+        new_protein_rep = protein_rep * self.gate_linear_node(protein_out_batched_previous).sigmoid() + protein_out_batched_previous
+        # new_ligand_rep = self.linear_node(ligand_rep) * self.gate_linear_node(ligand_rep).sigmoid() + compound_out_batched_previous
+        return new_ligand_rep, new_protein_rep, affinity_pred, prmsd_pred, z
 
 class GaussianSmearing(torch.nn.Module):
     # used to embed the edge distances
@@ -443,8 +446,8 @@ class IaBNet_with_affinity(torch.nn.Module):
             self.MultiHeadAttention_dis_bias = MultiHeadAttention_dis_bias(embedding_channels = 128, attention_dropout_rate = 0.1, z_channel = 128)
             #步骤三声明
             torch.nn.Module = module
-            self.ns = ns = 128 #small score model 参数
-            self.nv = nv = 32
+            self.ns = ns = 64 #small score model 参数
+            self.nv = nv = 16
             dropout = 0.1
             distance_embed_dim = 32
             self.sh_irreps = o3.Irreps.spherical_harmonics(lmax=2)
@@ -461,7 +464,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                     f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o'
                 ]
 
-            lig_conv_layers = []
+            lig_conv_layers, rec_conv_layers, lig_to_rec_conv_layers, rec_to_lig_conv_layers = [], [], [], []
             for i in range(4):
                 in_irreps = irrep_seq[min(i, len(irrep_seq) - 1)]
                 out_irreps = irrep_seq[min(i + 1, len(irrep_seq) - 1)]
@@ -478,10 +481,22 @@ class IaBNet_with_affinity(torch.nn.Module):
 
                 lig_layer = TensorProductConvLayer(**parameters)
                 lig_conv_layers.append(lig_layer)
+                rec_to_lig_layer = TensorProductConvLayer(**parameters)
+                rec_to_lig_conv_layers.append(rec_to_lig_layer)
+                rec_layer = TensorProductConvLayer(**parameters)
+                rec_conv_layers.append(rec_layer)
+                # lig_to_rec_layer = TensorProductConvLayer(**parameters)
+                # lig_to_rec_conv_layers.append(lig_to_rec_layer)
 
             self.lig_conv_layers = nn.ModuleList(lig_conv_layers)
+            self.rec_to_lig_conv_layers = nn.ModuleList(rec_to_lig_conv_layers)
+            # self.lig_to_rec_conv_layers = nn.ModuleList(lig_to_rec_conv_layers)
+            self.rec_conv_layers = nn.ModuleList(rec_conv_layers)
             self.lig_node_embedding = nn.Sequential(nn.Linear(128, ns),nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
+            self.rec_node_embedding = nn.Sequential(nn.Linear(128, ns),nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
             self.lig_edge_embedding = nn.Sequential(nn.Linear(19 + distance_embed_dim, ns),nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
+            self.rec_edge_embedding = nn.Sequential(nn.Linear(distance_embed_dim, ns), nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
+            self.cross_edge_embedding = nn.Sequential(nn.Linear(distance_embed_dim, ns), nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
             self.final_conv = TensorProductConvLayer(
                 # in_irreps='128x0e',
                 in_irreps=self.lig_conv_layers[-1].out_irreps,
@@ -512,7 +527,9 @@ class IaBNet_with_affinity(torch.nn.Module):
             self.tr_final_layer = nn.Sequential(nn.Linear(1, ns),nn.Dropout(dropout), nn.ReLU(), nn.Linear(ns, 1)) #去除sigma_embed_dim维度的影响
             self.rot_final_layer = nn.Sequential(nn.Linear(1, ns),nn.Dropout(dropout), nn.ReLU(), nn.Linear(ns, 1)) #去除sigma_embed_dim维度的影响
             self.lig_distance_expansion = GaussianSmearing(0.0, 5, distance_embed_dim)
+            self.rec_distance_expansion = GaussianSmearing(0.0, 30, distance_embed_dim)
             self.center_distance_expansion = GaussianSmearing(0.0, 30, distance_embed_dim)
+            self.cross_distance_expansion = GaussianSmearing(0.0, 250, distance_embed_dim)
             self.final_edge_embedding = nn.Sequential(
                     nn.Linear(distance_embed_dim, ns),
                     nn.ReLU(),
@@ -626,21 +643,40 @@ class IaBNet_with_affinity(torch.nn.Module):
                 candicate_dis_matrix_batched[i, :compound_num_batch[i], :protein_num_batch[i]] = \
                     self.unbatch(current_candicate_dis_matrix, data.candicate_dis_matrix_batch)[i].view(compound_num_batch[i], protein_num_batch[i]) #让candicate_dis_matrix的维度与z一致
             #self.logging.info("3 z.shape:%s,protein_out_batched.shape:%s,  candicate_dis_matrix_batched.shape:%s "%(z.shape,protein_out_batched.shape,  candicate_dis_matrix_batched.shape))
-            compound_out_batched_new, affinity_pred_B, prmsd_pred,_ = self.MultiHeadAttention_dis_bias(z, z_mask, protein_out_batched,compound_out_batched) #获得包含protein和compound交互信息的compound single representation
+            compound_out_batched_new, protein_out_batched_new, affinity_pred_B, prmsd_pred,_ = self.MultiHeadAttention_dis_bias(z, z_mask, protein_out_batched,compound_out_batched) #获得包含protein和compound交互信息的compound single representation
 
             affinity_pred_B = affinity_pred_B.sigmoid() * 15
             prmsd_pred = prmsd_pred.sigmoid() * 20
 
             compound_out = self.rebatch(compound_out_batched_new, compound_batch)
+            protein_out = self.rebatch(protein_out_batched_new, protein_batch)
             _, lig_edge_index, lig_edge_attr, lig_edge_sh = self.build_lig_conv_graph(data)
             lig_edge_attr = self.lig_edge_embedding(lig_edge_attr)
-            # compound_out = self.lig_node_embedding(compound_out)  #128 -> ns
+            rec_edge_index, rec_edge_attr, rec_edge_sh = self.build_rec_conv_graph(data)
+            rec_src, rec_dst = rec_edge_index
+            rec_edge_attr = self.rec_edge_embedding(rec_edge_attr)
+            compound_out = self.lig_node_embedding(compound_out)  #128 -> ns
+            protein_out = self.rec_node_embedding(protein_out)
             lig_src, lig_dst = lig_edge_index
+            cross_edge_index, cross_edge_attr, cross_edge_sh = self.build_cross_conv_graph(data)
+            cross_lig, cross_rec = cross_edge_index
+            cross_edge_attr = self.cross_edge_embedding(cross_edge_attr)
             for l in range(len(self.lig_conv_layers)):
                 lig_edge_attr_ = torch.cat([lig_edge_attr, compound_out[lig_src, :self.ns], compound_out[lig_dst, :self.ns]], -1)
                 lig_intra_update = self.lig_conv_layers[l](compound_out, lig_edge_index, lig_edge_attr_, lig_edge_sh)
+                rec_to_lig_edge_attr_ = torch.cat([cross_edge_attr, compound_out[cross_lig, :self.ns], protein_out[cross_rec, :self.ns]], -1)
+
+                lig_inter_update = self.rec_to_lig_conv_layers[l](protein_out, cross_edge_index, rec_to_lig_edge_attr_, cross_edge_sh,
+                                                                out_nodes=compound_out.shape[0])
+                if l != len(self.lig_conv_layers) - 1:
+                    rec_edge_attr_ = torch.cat([rec_edge_attr, protein_out[rec_src, :self.ns], protein_out[rec_dst, :self.ns]], -1)
+                    rec_intra_update = self.rec_conv_layers[l](protein_out, rec_edge_index, rec_edge_attr_, rec_edge_sh)
                 compound_out = F.pad(compound_out, (0, lig_intra_update.shape[-1] - compound_out.shape[-1]))
-                compound_out = compound_out + lig_intra_update
+                compound_out = compound_out + lig_intra_update + lig_inter_update
+                if l != len(self.lig_conv_layers) - 1:
+                    protein_out = F.pad(protein_out, (0, lig_inter_update.shape[-1] - protein_out.shape[-1]))
+                    protein_out = protein_out + rec_intra_update
+
 
             #先算true_rmsd_上一轮的，再跟上面的算 prmsd_loss
             compound_out_new = compound_out
@@ -710,6 +746,31 @@ class IaBNet_with_affinity(torch.nn.Module):
         edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
 
         return node_attr, edge_index, edge_attr, edge_sh
+
+    def build_rec_conv_graph(self, data):
+        # builds the protein initial node and edge embeddings
+        # this assumes the edges were already created in preprocessing since protein's structure is fixed
+        edge_index = data['protein', 'protein'].edge_index
+        src, dst = edge_index
+        edge_vec = data.node_xyz[dst.long()] - data.node_xyz[src.long()]
+
+        edge_attr = self.rec_distance_expansion(edge_vec.norm(dim=-1))
+        edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
+
+        return edge_index, edge_attr, edge_sh
+
+    def build_cross_conv_graph(self, data, cross_distance_cutoff=100):
+        # builds the cross edges between ligand and protein
+        edge_index = radius(data.node_xyz, data.candicate_conf_pos, cross_distance_cutoff,
+                        data['protein'].batch, data['compound'].batch, max_num_neighbors=10000)
+
+        src, dst = edge_index
+        edge_vec = data.node_xyz[dst.long()] - data.candicate_conf_pos[src.long()]
+
+        edge_attr = self.cross_distance_expansion(edge_vec.norm(dim=-1))
+        edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
+
+        return edge_index, edge_attr, edge_sh
 
     def build_center_conv_graph(self, data):
         # builds the filter and edges for the convolution generating translational and rotational scores

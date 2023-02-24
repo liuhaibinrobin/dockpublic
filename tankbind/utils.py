@@ -324,7 +324,7 @@ def evaluate_with_affinity(data_loader,
         y = data.y
         dis_map = data.dis_map
         y_pred = pred_result_list[-1][4] #pred_result_list:(tr_pred, rot_pred, torsion_pred_batched,next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched)
-
+        data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
         # 记录每个样本的学习信息
         _data_new_pos_batched_list = []
         for i in range(sample_num):  # data_new_pos_batched_list=[[]]*sample_num  #这么写会有严重的bug  所有[]其实都指向了一个[]
@@ -342,7 +342,6 @@ def evaluate_with_affinity(data_loader,
         rmsd_list = []
         for pred_result in pred_result_list:
             next_candicate_conf_pos_batched = pred_result[3]
-            data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
             tmp_list = []
             for i in range(len(data_groundtruth_pos_batched)):
                 tmp_rmsd = RMSD(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
@@ -495,7 +494,7 @@ def evaluate_with_affinity(data_loader,
         "epoch_tor_loss": epoch_tor_loss / len(RMSD_pred),
 
     }
-
+    
     if info is not None:
         # print(affinity, affinity_pred)
         try:
