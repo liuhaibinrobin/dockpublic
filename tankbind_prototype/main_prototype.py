@@ -330,8 +330,9 @@ def run_train(pre, args, dataloader,
         sample_id_list.append(data.sample_id)
         data = data.to(device)
         optimizer.zero_grad()
-        _, affinity_pred =model(data) # TODO
-        del _  # Note: for now, y is not in need.
+        with torch.no_grad():
+            _, affinity_pred =model(data) # TODO
+        #del _  # Note: for now, y is not in need.
 
 
         affinity_true = data.value
