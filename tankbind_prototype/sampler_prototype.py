@@ -51,6 +51,11 @@ class SessionBatchSampler(torch.utils.data.sampler.Sampler):
         print(f"SessionBatchSampler | Refreshing batches with seed {seed} for epoch {epoch}.")
         np.random.seed(seed)
         indices = self.dataset.data.groupby("session").indices
+        _indices={}
+        for tmp_i,key in enumerate(indices): #todo
+            if tmp_i<100:
+                _indices[key]=indices[key]
+        indices=_indices
         if not self.group_info_saved:
             print(f"SessionBatchSampler | Saving all samples' group indices.")
             torch.save(indices, f"{self.index_save_path}/batch_of_all_sample.pt")
