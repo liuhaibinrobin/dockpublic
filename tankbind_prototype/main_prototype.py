@@ -513,7 +513,7 @@ if __name__ == "__main__":
                         help="continue the training from the model we saved.")
     parser.add_argument("--restart_epoch", type=int, default=-1,
                         help="continue the training from the model we saved.")
-    parser.add_argument("--num_epochs", type=int, default=50,
+    parser.add_argument("--num_epochs", type=int, default=100000,
                         help="define the model will be trained for how many epochs")
 
     parser.add_argument("--session_type", type=str, default=None,
