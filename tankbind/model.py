@@ -373,7 +373,8 @@ class MultiHeadAttention_dis_bias(nn.Module):
         z = self.att_dropout(z)
         attention_mask_i = (1e9 * (z_mask.unsqueeze(-1).float() - 1.))
         logits = z + attention_mask_i
-        weights = nn.Softmax(dim=1)(logits)
+        weights_l = nn.Softmax(dim=1)(logits) #p维度和为1，对p求和
+        weights_p = nn.Softmax(dim=2)(logits) #l维度和为1，对l求和
 
         # dis_attn_bias=get_dist_features(self,candicate_dis_matrix_batched, edge_type_matrix)
         # edge_length_embedding = soft_one_hot_linspace(candicate_dis_matrix_batched,start=0.0,end=15,number=self.bucket_num,basis='smooth_finite',cutoff=True)
@@ -388,8 +389,8 @@ class MultiHeadAttention_dis_bias(nn.Module):
         pair_energy_prmsd = (self.gate_linear_prmsd(z).sigmoid() * self.linear_energy_prmsd(z)).squeeze(-1) * z_mask
         prmsd_pred = self.leaky_prmsd(self.bias_prmsd + ((pair_energy_prmsd).sum(axis=(-1, -2))))
 
-        ligand_rep = torch.einsum('bjic,bjc->bic', weights, self.linear_v_p(protein_out_batched_previous))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
-        protein_rep = torch.einsum('bjic,bic->bjc', weights, self.linear_v_l(compound_out_batched_previous))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
+        ligand_rep = torch.einsum('bjic,bjc->bic', weights_l, self.linear_v_p(protein_out_batched_previous))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
+        protein_rep = torch.einsum('bjic,bic->bjc', weights_p, self.linear_v_l(compound_out_batched_previous))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
         # z_ = z.view([batch_size,-1,z.shape[-1]])  #z_ shape :[b, z_channel*ligand_len, pocket_len]
         # ligand_rep = torch.bmm(z_, protein_out_batched_previous).view([batch_size, head_size, -1, embedding_channels])  #[b, z_channel, ligand_len, embedding_channels]
         # ligand_rep = ligand_rep.transpose(1, 2).contiguous()  # [b, ligand_len, z_channel, embedding_channels]
@@ -478,10 +479,20 @@ class IaBNet_with_affinity(torch.nn.Module):
                     'batch_norm': True,
                     'dropout': dropout
                 }
+                parameters_iter = {
+                    'in_irreps': in_irreps,
+                    'sh_irreps': self.sh_irreps,
+                    'out_irreps': out_irreps,
+                    'n_edge_features': 3 * ns + 128,
+                    'hidden_features': 3 * ns,
+                    'residual': False,
+                    'batch_norm': True,
+                    'dropout': dropout
+                }
 
                 lig_layer = TensorProductConvLayer(**parameters)
                 lig_conv_layers.append(lig_layer)
-                rec_to_lig_layer = TensorProductConvLayer(**parameters)
+                rec_to_lig_layer = TensorProductConvLayer(**parameters_iter)
                 rec_to_lig_conv_layers.append(rec_to_lig_layer)
                 rec_layer = TensorProductConvLayer(**parameters)
                 rec_conv_layers.append(rec_layer)
@@ -664,8 +675,11 @@ class IaBNet_with_affinity(torch.nn.Module):
             for l in range(len(self.lig_conv_layers)):
                 lig_edge_attr_ = torch.cat([lig_edge_attr, compound_out[lig_src, :self.ns], compound_out[lig_dst, :self.ns]], -1)
                 lig_intra_update = self.lig_conv_layers[l](compound_out, lig_edge_index, lig_edge_attr_, lig_edge_sh)
+                cross_lig_batched = self.unbatch(cross_lig, data.candicate_dis_matrix_batch)
+                cross_rec_batched = self.unbatch(cross_rec, data.candicate_dis_matrix_batch)
                 rec_to_lig_edge_attr_ = torch.cat([cross_edge_attr, compound_out[cross_lig, :self.ns], protein_out[cross_rec, :self.ns]], -1)
-
+                z_attr_ = torch.concat([z[i, cross_rec_batched[i] - sum(protein_num_batch[:i]), cross_lig_batched[i] - sum(compound_num_batch[:i]), :] for i in range(batch_size)])
+                rec_to_lig_edge_attr_ = torch.cat([rec_to_lig_edge_attr_, z_attr_], -1)
                 lig_inter_update = self.rec_to_lig_conv_layers[l](protein_out, cross_edge_index, rec_to_lig_edge_attr_, cross_edge_sh,
                                                                 out_nodes=compound_out.shape[0])
                 if l != len(self.lig_conv_layers) - 1:
