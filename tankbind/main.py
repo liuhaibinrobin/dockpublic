@@ -23,10 +23,27 @@ import argparse
 from torch.utils.data import RandomSampler
 from torch.utils.data import WeightedRandomSampler
 import random
-
+import torch.distributed as dist
+import pickle
+import time
 from torch.utils.tensorboard import SummaryWriter
+from torch.multiprocessing import Process
 
-writer = SummaryWriter("./logs")
+
+def init_distributed_mode(args):
+    '''initilize DDP
+    '''
+    args.rank = int(os.environ["RANK"])
+    args.world_size = int(os.environ["WORLD_SIZE"])
+    args.gpu = 0  # 默认worker都使用0号卡
+
+    args.distributed = True
+
+    torch.cuda.set_device(args.gpu)
+    args.dist_backend = "nccl"
+    
+    dist.init_process_group(
+        backend=args.dist_backend, init_method=args.dist_url, world_size=args.world_size, rank=args.rank)
 
 def Seed_everything(seed=42):
     random.seed(seed)
@@ -89,15 +106,38 @@ parser.add_argument("--resultFolder", type=str, default="./result/",
                     help="information you want to keep a record.")
 parser.add_argument("--label", type=str, default="",
                     help="information you want to keep a record.")
-
+parser.add_argument('--distributed', type=bool, default=False)
+parser.add_argument('--local_rank', type=int, help='local rank, will be passed by ddp')
+parser.add_argument("--world_size", default=1, type=int, help="number of distributed processes")
+parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
+parser.add_argument("--max_node", type=int, default=500)
+parser.add_argument('--dyn_num_steps', type=int, default=None)
+parser.add_argument("--gpu", type=int, default=0)
+parser.add_argument("--max_epoch", type=int, default=200, help="number of epochs.")
 args = parser.parse_args()
 
+# DDP MODIFIED
+if args.distributed:
+    init_distributed_mode(args)
+    device = torch.device("cuda")
+else:
+    device = 'cuda'
+
+output_path = f"/home/jovyan/base_ddp/tankbind/logs/"
+if args.distributed:
+    dirname = "rank-" + str(args.rank)+"-"+time.strftime("%y-%m-%d_%H%M%S")
+else:
+    dirname = time.strftime("%y-%m-%d_%H%M%S")
+main_path = f"{output_path}{dirname}/"
+if os.path.exists(main_path):
+        os.system(f"rm -r {main_path}")
+os.system(f"mkdir -p {main_path}")
 
 timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("")
-handler = logging.FileHandler(f'{timestamp}.log')
+handler = logging.FileHandler(f'{main_path}{timestamp}.log')
 handler.setFormatter(logging.Formatter('%(message)s', ""))
 logger.addHandler(handler)
 
@@ -107,14 +147,14 @@ logging.info(f'''\
 {args.label}
 --------------------------------
 ''')
-pre = f"{args.resultFolder}/{timestamp}"
+pre = f"{main_path}{args.resultFolder}/{timestamp}"
 os.system(f"mkdir -p {pre}/models")
 os.system(f"mkdir -p {pre}/results")
 os.system(f"mkdir -p {pre}/src")
 os.system(f"cp *.py {pre}/src/")
 os.system(f"cp -r gvp {pre}/src/")
 
-
+writer = SummaryWriter(f"{main_path}")
 torch.set_num_threads(1)
 # # ----------without this, I could get 'RuntimeError: received 0 items of ancdata'-----------
 torch.multiprocessing.set_sharing_strategy('file_system')
@@ -125,11 +165,24 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 train, train_after_warm_up, valid, test, all_pocket_test, info = get_data(args.data, logging, addNoise=args.addNoise)
 logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
 
+from sx_sampler import DistributedDynamicBatchSampler, InstanceDynamicBatchSampler  #, OldDistributedDynamicBatchSampler
+with open("dyn_sample_info/dyn_sample_info_0.pkl", "rb") as f:
+    dyn_sample_info = pickle.load(f)
+
 num_workers = 10
 sampler = RandomSampler(train, replacement=True, num_samples=args.sample_n)
 train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair'], sampler=sampler, pin_memory=False, num_workers=num_workers)
-sampler2 = RandomSampler(train_after_warm_up, replacement=True, num_samples=args.sample_n)
-train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair'], sampler=sampler2, pin_memory=False, num_workers=num_workers)
+if args.distributed:
+    train_after_warm_up_loader = DataLoader(train_after_warm_up,batch_sampler = DistributedDynamicBatchSampler(
+                                        dataset=train_after_warm_up, dyn_max_num=args.max_node, #dyn_mode="node",
+                                        num_replicas=args.world_size, rank=args.rank, shuffle=True,
+                                        seed = 42, dyn_num_steps=args.dyn_num_steps, dyn_sample_info=dyn_sample_info), 
+                                    follow_batch=['x', 'y', 'compound_pair'], 
+                                    num_workers=num_workers)
+else:
+    sampler2 = RandomSampler(train_after_warm_up, replacement=True, num_samples=args.sample_n)
+    train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair'], sampler=sampler2, pin_memory=False, num_workers=num_workers)  
+
 valid_batch_size = test_batch_size = 4
 valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair'], shuffle=False, pin_memory=False, num_workers=num_workers)
 test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair'], shuffle=False, pin_memory=False, num_workers=num_workers)
@@ -137,8 +190,9 @@ all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=
 
 # import model is put here due to an error related to torch.utils.data.ConcatDataset after importing torchdrug.
 from model import *
-device = 'cuda'
 model = get_model(args.mode, logging, device)
+if args.distributed:    
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True, broadcast_buffers=False)
 
 if args.restart:
     model.load_state_dict(torch.load(args.restart))
@@ -171,7 +225,7 @@ global_steps_test = 0
 global_samples_train = 0
 global_samples_val = 0
 global_samples_test = 0
-for epoch in range(200):
+for epoch in range(args.max_epoch):
     model.train()
     y_list = []
     y_pred_list = []
@@ -278,66 +332,131 @@ for epoch in range(200):
 
     #===================validation========================================
 
+    if args.distributed:
+        if dist.get_rank() == 0:
+            y = None
+            y_pred = None
+            # torch.cuda.empty_cache()
+            model.eval()
+            use_y_mask = args.use_equivalent_native_y_mask or args.use_y_mask
+            metrics = evaulate_with_affinity(valid_loader, model, criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, use_y_mask=use_y_mask)
+            if metrics["auroc"] <= best_auroc and metrics['f1_1'] <= best_f1_1:
+                # not improving. (both metrics say there is no improving)
+                epoch_not_improving += 1
+                ending_message = f" No improvement +{epoch_not_improving}"
+            else:
+                epoch_not_improving = 0
+                if metrics["auroc"] > best_auroc:
+                    best_auroc = metrics['auroc']
+                if metrics['f1_1'] > best_f1_1:
+                    best_f1_1 = metrics['f1_1']
+                ending_message = " "
+            valid_metrics_list.append(metrics)
+            logging.info(f"epoch {epoch:<4d}, valid, " + print_metrics(metrics) + ending_message)
+
+            # writer.add_scalar('Loss/validation_loss', metrics["loss"], epoch)
+            # writer.add_scalar('Loss/validation_y_loss', metrics["y loss"], epoch)
+            # writer.add_scalar('Loss/validation_affinity_loss', metrics["affinity loss"], epoch)
+            # writer.add_scalar('RMSE/validation', metrics["RMSE"], epoch)
+            # writer.add_scalar('Pearson/validation', metrics["Pearson"], epoch)
+            # writer.add_scalar('native_auroc/validation', metrics["native_auroc"], epoch)
+            # writer.add_scalar('selected_auroc/validation', metrics["selected_auroc"], epoch)
+            #====================test============================================================
 
 
-    y = None
-    y_pred = None
-    # torch.cuda.empty_cache()
-    model.eval()
-    use_y_mask = args.use_equivalent_native_y_mask or args.use_y_mask
-    metrics = evaulate_with_affinity(valid_loader, model, criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, use_y_mask=use_y_mask)
-    if metrics["auroc"] <= best_auroc and metrics['f1_1'] <= best_f1_1:
-        # not improving. (both metrics say there is no improving)
-        epoch_not_improving += 1
-        ending_message = f" No improvement +{epoch_not_improving}"
+            saveFileName = f"{pre}/results/epoch_{epoch}.pt"
+            metrics = evaulate_with_affinity(test_loader, model, criterion, affinity_criterion, args.relative_k,
+                                                device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
+            test_metrics_list.append(metrics)
+            logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
+
+
+            saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
+            metrics = evaulate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
+                                                device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
+            logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
+            writer.add_scalar('Loss/test', metrics["loss"], epoch)
+            writer.add_scalar('Loss/test_y_loss', metrics["y loss"], epoch)
+            writer.add_scalar('Loss/test_affinity_loss', metrics["affinity loss"], epoch)
+            writer.add_scalar('RMSE/test', metrics["RMSE"], epoch)
+            writer.add_scalar('Pearson/test', metrics["Pearson"], epoch)
+            writer.add_scalar('native_auroc/test', metrics["native_auroc"], epoch)
+            writer.add_scalar('selected_auroc/test', metrics["selected_auroc"], epoch)
+            # DDP MODIFIED
+            if args.rank == 0:
+                if epoch % 1 == 0:
+                    torch.save(model.state_dict(), f"{pre}/models/epoch_{epoch}.pt")
+            # torch.save((y, y_pred), f"{pre}/results/epoch_{epoch}.pt")
+            if epoch_not_improving > 100:
+                # early stop.
+                print("early stop")
+                break
+            
+            # torch.cuda.empty_cache()
+            if args.rank == 0:
+                os.system(f"cp {main_path}{timestamp}.log {pre}/")
     else:
-        epoch_not_improving = 0
-        if metrics["auroc"] > best_auroc:
-            best_auroc = metrics['auroc']
-        if metrics['f1_1'] > best_f1_1:
-            best_f1_1 = metrics['f1_1']
-        ending_message = " "
-    valid_metrics_list.append(metrics)
-    logging.info(f"epoch {epoch:<4d}, valid, " + print_metrics(metrics) + ending_message)
+        y = None
+        y_pred = None
+        # torch.cuda.empty_cache()
+        model.eval()
+        use_y_mask = args.use_equivalent_native_y_mask or args.use_y_mask
+        metrics = evaulate_with_affinity(valid_loader, model, criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, use_y_mask=use_y_mask)
+        if metrics["auroc"] <= best_auroc and metrics['f1_1'] <= best_f1_1:
+            # not improving. (both metrics say there is no improving)
+            epoch_not_improving += 1
+            ending_message = f" No improvement +{epoch_not_improving}"
+        else:
+            epoch_not_improving = 0
+            if metrics["auroc"] > best_auroc:
+                best_auroc = metrics['auroc']
+            if metrics['f1_1'] > best_f1_1:
+                best_f1_1 = metrics['f1_1']
+            ending_message = " "
+        valid_metrics_list.append(metrics)
+        logging.info(f"epoch {epoch:<4d}, valid, " + print_metrics(metrics) + ending_message)
 
-    # writer.add_scalar('Loss/validation_loss', metrics["loss"], epoch)
-    # writer.add_scalar('Loss/validation_y_loss', metrics["y loss"], epoch)
-    # writer.add_scalar('Loss/validation_affinity_loss', metrics["affinity loss"], epoch)
-    # writer.add_scalar('RMSE/validation', metrics["RMSE"], epoch)
-    # writer.add_scalar('Pearson/validation', metrics["Pearson"], epoch)
-    # writer.add_scalar('native_auroc/validation', metrics["native_auroc"], epoch)
-    # writer.add_scalar('selected_auroc/validation', metrics["selected_auroc"], epoch)
-    #====================test============================================================
+        # writer.add_scalar('Loss/validation_loss', metrics["loss"], epoch)
+        # writer.add_scalar('Loss/validation_y_loss', metrics["y loss"], epoch)
+        # writer.add_scalar('Loss/validation_affinity_loss', metrics["affinity loss"], epoch)
+        # writer.add_scalar('RMSE/validation', metrics["RMSE"], epoch)
+        # writer.add_scalar('Pearson/validation', metrics["Pearson"], epoch)
+        # writer.add_scalar('native_auroc/validation', metrics["native_auroc"], epoch)
+        # writer.add_scalar('selected_auroc/validation', metrics["selected_auroc"], epoch)
+        #====================test============================================================
 
 
-    saveFileName = f"{pre}/results/epoch_{epoch}.pt"
-    metrics = evaulate_with_affinity(test_loader, model, criterion, affinity_criterion, args.relative_k,
-                                        device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
-    test_metrics_list.append(metrics)
-    logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
+        saveFileName = f"{pre}/results/epoch_{epoch}.pt"
+        metrics = evaulate_with_affinity(test_loader, model, criterion, affinity_criterion, args.relative_k,
+                                            device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
+        test_metrics_list.append(metrics)
+        logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
 
 
-    saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
-    metrics = evaulate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
-                                        device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
-    logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
-    writer.add_scalar('Loss/test', metrics["loss"], epoch)
-    writer.add_scalar('Loss/test_y_loss', metrics["y loss"], epoch)
-    writer.add_scalar('Loss/test_affinity_loss', metrics["affinity loss"], epoch)
-    writer.add_scalar('RMSE/test', metrics["RMSE"], epoch)
-    writer.add_scalar('Pearson/test', metrics["Pearson"], epoch)
-    writer.add_scalar('native_auroc/test', metrics["native_auroc"], epoch)
-    writer.add_scalar('selected_auroc/test', metrics["selected_auroc"], epoch)
+        saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
+        metrics = evaulate_with_affinity(all_pocket_test_loader, model, criterion, affinity_criterion, args.relative_k,
+                                            device, pred_dis=pred_dis, info=info, saveFileName=saveFileName)
+        logging.info(f"epoch {epoch:<4d}, single," + print_metrics(metrics))
+        writer.add_scalar('Loss/test', metrics["loss"], epoch)
+        writer.add_scalar('Loss/test_y_loss', metrics["y loss"], epoch)
+        writer.add_scalar('Loss/test_affinity_loss', metrics["affinity loss"], epoch)
+        writer.add_scalar('RMSE/test', metrics["RMSE"], epoch)
+        writer.add_scalar('Pearson/test', metrics["Pearson"], epoch)
+        writer.add_scalar('native_auroc/test', metrics["native_auroc"], epoch)
+        writer.add_scalar('selected_auroc/test', metrics["selected_auroc"], epoch)
 
-    if epoch % 1 == 0:
-        torch.save(model.state_dict(), f"{pre}/models/epoch_{epoch}.pt")
-    # torch.save((y, y_pred), f"{pre}/results/epoch_{epoch}.pt")
-    if epoch_not_improving > 100:
-        # early stop.
-        print("early stop")
-        break
-    
-    # torch.cuda.empty_cache()
-    os.system(f"cp {timestamp}.log {pre}/")
-
-torch.save((metrics_list, valid_metrics_list, test_metrics_list), f"{pre}/metrics.pt")
+        if epoch % 1 == 0:
+            torch.save(model.state_dict(), f"{pre}/models/epoch_{epoch}.pt")
+        # torch.save((y, y_pred), f"{pre}/results/epoch_{epoch}.pt")
+        if epoch_not_improving > 100:
+            # early stop.
+            print("early stop")
+            break
+        
+        # torch.cuda.empty_cache()
+        os.system(f"cp {main_path}{timestamp}.log {pre}/")
+if args.distributed:
+    if args.rank == 0:
+        torch.save((metrics_list, valid_metrics_list, test_metrics_list), f"{pre}/metrics.pt")
+else:    
+    torch.save((metrics_list, valid_metrics_list, test_metrics_list), f"{pre}/metrics.pt")
