@@ -426,7 +426,7 @@ for epoch in range(100000):
 
         #total loss
         if args.use_contact_loss == 0:
-            loss = tr_loss  + rot_loss + tor_loss + affinity_loss_A #TODO:debug阶段
+            loss = tr_loss  + rot_loss + tor_loss #TODO:debug阶段
             #loss = tor_loss #TODO:debug阶段
             #loss = prmsd_loss.double() + rmsd_loss.double() + affinity_loss_A + affinity_loss_B
         else:

@@ -21,7 +21,8 @@ from torch.distributions import Categorical
 from torch_scatter import scatter_mean
 from GATv2 import GAT
 from GINv2 import GIN
-
+from components.TrioformerModule import TrioformerBlock
+from components.ModelUtils import RBFDistanceModule
 
 import time
 import logging
@@ -327,14 +328,10 @@ class TensorProductConvLayer(torch.nn.Module):
         return out
 
 class MultiHeadAttention_dis_bias(nn.Module):
-    def __init__(self, embedding_channels, attention_dropout_rate, z_channel):
+    def __init__(self, embedding_channels, attention_dropout_rate, z_channel, channel_size=16):
         super(MultiHeadAttention_dis_bias, self).__init__()
 
         self.att_dropout = nn.Dropout(attention_dropout_rate)
-        self.linear = nn.Linear(embedding_channels, z_channel) #z:[b, pocket_len, ligand_len, 128] -> [b, pocket_len, ligand_len, z_channel]
-        self.output_layer = nn.Linear(embedding_channels * z_channel, embedding_channels)
-        self.bucket_num = 20
-        self.dis_attn_linear=nn.Linear(self.bucket_num, z_channel)
         self.linear_energy = nn.Linear(z_channel, 1)
         self.gate_linear = Linear(z_channel, 1)
         self.leaky = torch.nn.LeakyReLU()
@@ -344,9 +341,23 @@ class MultiHeadAttention_dis_bias(nn.Module):
         self.gate_linear_prmsd = Linear(z_channel, 1)
         self.leaky_prmsd = torch.nn.LeakyReLU()
         self.bias_prmsd = torch.nn.Parameter(torch.ones(1))
-
-        self.linear_v_p = nn.Linear(embedding_channels,embedding_channels)
-        self.linear_v_l = nn.Linear(embedding_channels,embedding_channels)
+        self.head_size = 128
+        self.channel_size = channel_size
+        self.linear_z = nn.Linear(embedding_channels, self.head_size)
+        self.linear_v_p = nn.Linear(embedding_channels, self.head_size * self.channel_size)
+        self.linear_v_l = nn.Linear(embedding_channels, self.head_size * self.channel_size)
+        self.linear_v2l_attr = nn.Sequential(
+                nn.Linear(self.head_size * self.channel_size, embedding_channels), #去除sigma_embed_dim维度的影响
+                nn.ReLU(),
+                nn.Dropout(attention_dropout_rate),
+                nn.Linear(embedding_channels, embedding_channels)
+            )
+        self.linear_v2p_attr = nn.Sequential(
+                nn.Linear(self.head_size * self.channel_size, embedding_channels), #去除sigma_embed_dim维度的影响
+                nn.ReLU(),
+                nn.Dropout(attention_dropout_rate),
+                nn.Linear(embedding_channels, embedding_channels)
+            )
         self.gate_linear_node = Linear(embedding_channels,embedding_channels)
         self.linear_node = Linear(embedding_channels,embedding_channels)
 
@@ -356,48 +367,27 @@ class MultiHeadAttention_dis_bias(nn.Module):
         #protein_out_batched_previous shape : [b, pocket_len, embedding_channels]
         #candicate_dis_matrix_batched shape: [b, ligand_len, pocket_len]
         #edge_type_matrix shape: [b, pocket_len, ligand_len,edge_type_pair_channels]
+
         
-        
-        # z = self.linear(z).transpose(3,1)  #z shape :[b, z_channel, ligand_len, pocket_len]
-        ligand_len, pocket_len = z.shape[2], z.shape[1]
-        embedding_channels = protein_out_batched_previous.shape[-1]
-        batch_size = z.shape[0]
-        head_size=1
-        z_channel = z.shape[-1]
-
-        #z=z*self.scale
-        # if attn_bias is not None:
-        #     z = z + attn_bias
-
-
         z = self.att_dropout(z)
         attention_mask_i = (1e9 * (z_mask.unsqueeze(-1).float() - 1.))
         logits = z + attention_mask_i
         weights_l = nn.Softmax(dim=1)(logits) #p维度和为1，对p求和
         weights_p = nn.Softmax(dim=2)(logits) #l维度和为1，对l求和
 
-        # dis_attn_bias=get_dist_features(self,candicate_dis_matrix_batched, edge_type_matrix)
-        # edge_length_embedding = soft_one_hot_linspace(candicate_dis_matrix_batched,start=0.0,end=15,number=self.bucket_num,basis='smooth_finite',cutoff=True)
-        # z += self.dis_attn_linear(edge_length_embedding).view(batch_size, z_channel, ligand_len, pocket_len)
-        # if z_previous is not None:
-        #     z += z_previous
-        # z_mask_repeat = z_mask.repeat(z_channel, 1, 1).view([batch_size, -1, ligand_len, pocket_len])
-        # z = z.masked_fill(~z_mask_repeat, 1e-9)
 
         pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
         affinity_pred = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
         pair_energy_prmsd = (self.gate_linear_prmsd(z).sigmoid() * self.linear_energy_prmsd(z)).squeeze(-1) * z_mask
         prmsd_pred = self.leaky_prmsd(self.bias_prmsd + ((pair_energy_prmsd).sum(axis=(-1, -2))))
 
-        ligand_rep = torch.einsum('bjic,bjc->bic', weights_l, self.linear_v_p(protein_out_batched_previous))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
-        protein_rep = torch.einsum('bjic,bic->bjc', weights_p, self.linear_v_l(compound_out_batched_previous))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
-        # z_ = z.view([batch_size,-1,z.shape[-1]])  #z_ shape :[b, z_channel*ligand_len, pocket_len]
-        # ligand_rep = torch.bmm(z_, protein_out_batched_previous).view([batch_size, head_size, -1, embedding_channels])  #[b, z_channel, ligand_len, embedding_channels]
-        # ligand_rep = ligand_rep.transpose(1, 2).contiguous()  # [b, ligand_len, z_channel, embedding_channels]
-        # ligand_rep = ligand_rep.view(batch_size, -1, head_size * embedding_channels) # [b, ligand_len, z_channel * embedding_channels]
-        #ligand_rep = self.output_layer(ligand_rep)
-        new_ligand_rep = ligand_rep * self.gate_linear_node(compound_out_batched_previous).sigmoid() + compound_out_batched_previous
-        new_protein_rep = protein_rep * self.gate_linear_node(protein_out_batched_previous).sigmoid() + protein_out_batched_previous
+        ligand_rep_v = torch.einsum('bjic,bjc->bic', weights_l, self.linear_v_p(protein_out_batched_previous))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
+        protein_rep_v = torch.einsum('bjic,bic->bjc', weights_p, self.linear_v_l(compound_out_batched_previous))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
+        ligand_rep = self.linear_v2l_attr(ligand_rep_v)
+        protein_rep = self.linear_v2p_attr(protein_rep_v)
+
+        new_ligand_rep = ligand_rep * self.gate_linear_node(ligand_rep).sigmoid() + compound_out_batched_previous
+        new_protein_rep = protein_rep * self.gate_linear_node(protein_rep).sigmoid() + protein_out_batched_previous
         # new_ligand_rep = self.linear_node(ligand_rep) * self.gate_linear_node(ligand_rep).sigmoid() + compound_out_batched_previous
         return new_ligand_rep, new_protein_rep, affinity_pred, prmsd_pred, z
 
@@ -421,7 +411,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         super().__init__()
         self.layernorm = torch.nn.LayerNorm(embedding_channels)
         self.protein_bin_max = protein_bin_max
-        self.mode = mode
+        self.mode = 1
         self.protein_embed_mode = protein_embed_mode
         self.compound_embed_mode = compound_embed_mode
         self.n_trigonometry_module_stack = n_trigonometry_module_stack
@@ -492,7 +482,7 @@ class IaBNet_with_affinity(torch.nn.Module):
 
                 lig_layer = TensorProductConvLayer(**parameters)
                 lig_conv_layers.append(lig_layer)
-                rec_to_lig_layer = TensorProductConvLayer(**parameters_iter)
+                rec_to_lig_layer = TensorProductConvLayer(**parameters)
                 rec_to_lig_conv_layers.append(rec_to_lig_layer)
                 rec_layer = TensorProductConvLayer(**parameters)
                 rec_conv_layers.append(rec_layer)
@@ -548,14 +538,21 @@ class IaBNet_with_affinity(torch.nn.Module):
                     nn.Linear(ns, ns)
                 )
 
-        if mode == 0:
+        if self.mode == 0:
             self.protein_pair_embedding = Linear(16, c)
             self.compound_pair_embedding = Linear(16, c)
             self.protein_to_compound_list = []
             self.protein_to_compound_list = nn.ModuleList([TriangleProteinToCompound_v2(embedding_channels=embedding_channels, c=c) for _ in range(n_trigonometry_module_stack)])
             self.triangle_self_attention_list = nn.ModuleList([TriangleSelfAttentionRowWise(embedding_channels=embedding_channels) for _ in range(n_trigonometry_module_stack)])
             self.tranistion = Transition(embedding_channels=embedding_channels, n=4)
-
+        elif self.mode ==1:
+            self.protein_pair_embedding = Linear(16, c)
+            self.compound_pair_embedding = Linear(16, c)
+            self.normalize_coord = lambda x: x / 5
+            f = self.normalize_coord
+            self.trioformer_blocks = nn.ModuleList([TrioformerBlock(embedding_channels, embedding_channels, embedding_channels) for _ in range(n_trigonometry_module_stack)])
+            self.p_p_dist_layer = RBFDistanceModule(rbf_stop=f(32), distance_hidden_dim=embedding_channels, num_gaussian=32)
+            self.c_c_dist_layer = RBFDistanceModule(rbf_stop=f(16), distance_hidden_dim=embedding_channels, num_gaussian=32)
         self.linear = Linear(embedding_channels, 1)
         self.linear_energy = Linear(embedding_channels, 1)
         if readout_mode == 2:
@@ -633,31 +630,48 @@ class IaBNet_with_affinity(torch.nn.Module):
                     z = z + self.dropout(self.protein_to_compound_list[i_module](z, protein_pair, compound_pair, z_mask.unsqueeze(-1)))
                     z = z + self.dropout(self.triangle_self_attention_list[i_module](z, z_mask))
                     z = self.tranistion(z)
+            compound_out_batched, protein_out_batched, affinity_pred_B, prmsd_pred,_ = self.MultiHeadAttention_dis_bias(z, z_mask, protein_out_batched,compound_out_batched) #获得包含protein和compound交互信息的compound single representation #TODO
+        elif self.mode == 1:
+            p_coord_batched, p_coord_mask = to_dense_batch(data.node_xyz, data['protein'].batch)
+            c_coord_batched, c_coord_mask = to_dense_batch(data.candicate_conf_pos, data['compound'].batch)
+            p_p_dist = torch.cdist(p_coord_batched, p_coord_batched, compute_mode='donot_use_mm_for_euclid_dist')
+            c_c_dist = torch.cdist(c_coord_batched, c_coord_batched, compute_mode='donot_use_mm_for_euclid_dist')
+            p_p_dist_mask = torch.einsum("...i, ...j->...ij", p_coord_mask, p_coord_mask)
+            c_c_dist_mask = torch.diag_embed(c_coord_mask)  # (B, Nc, Nc)
+            p_p_dist[~p_p_dist_mask] = 1e6
+            c_c_dist[~c_c_dist_mask] = 1e6
+            p_p_dist_embed = self.p_p_dist_layer(p_p_dist)
+            c_c_dist_embed = self.c_c_dist_layer(c_c_dist)
+            for i_block in self.trioformer_blocks:
+                protein_out_batched, compound_out_batched, z = i_block(
+                    protein_out_batched, protein_out_mask,
+                    compound_out_batched, compound_out_mask,
+                    z, z_mask,
+                    p_p_dist_embed, c_c_dist_embed)
         # return z,z_mask, protein_out_batched,compound_out_batched, compound_out, compound_batch
         pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
         affinity_pred_A = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
         #self.logging.info(f"after point A, z shape: {z.shape}, compound_out_batched shape: {compound_out_batched.shape}, protein_out_batched shape: {protein_out_batched.shape}, affinity_pred_A shape: {affinity_pred_A.shape}")
-        # 步骤三：torsional 
 
         pred_result_list=[]
         affinity_pred_B_list=[]
         prmsd_list=[]
-
+        # 步骤三：torsional 
         current_candicate_dis_matrix= data.candicate_dis_matrix
         current_candicate_conf_pos=data.candicate_conf_pos
         for _ in range(self.recycling_num):
             protein_num_batch = degree(data['protein'].batch, dtype=torch.long).tolist()
             compound_num_batch = degree(data['compound'].batch, dtype=torch.long).tolist()
             batch_size, ligand_len, pocket_len = z.shape[0], z.shape[2], z.shape[1]
-            candicate_dis_matrix_batched = data.candicate_dis_matrix.new_full([batch_size, ligand_len, pocket_len], 0.)
-            for i in range(batch_size):
-                candicate_dis_matrix_batched[i, :compound_num_batch[i], :protein_num_batch[i]] = \
-                    self.unbatch(current_candicate_dis_matrix, data.candicate_dis_matrix_batch)[i].view(compound_num_batch[i], protein_num_batch[i]) #让candicate_dis_matrix的维度与z一致
+            # candicate_dis_matrix_batched = data.candicate_dis_matrix.new_full([batch_size, ligand_len, pocket_len], 0.)
+            # for i in range(batch_size):
+            #     candicate_dis_matrix_batched[i, :compound_num_batch[i], :protein_num_batch[i]] = \
+            #         self.unbatch(current_candicate_dis_matrix, data.candicate_dis_matrix_batch)[i].view(compound_num_batch[i], protein_num_batch[i]) #让candicate_dis_matrix的维度与z一致
             #self.logging.info("3 z.shape:%s,protein_out_batched.shape:%s,  candicate_dis_matrix_batched.shape:%s "%(z.shape,protein_out_batched.shape,  candicate_dis_matrix_batched.shape))
-            compound_out_batched_new, protein_out_batched_new, affinity_pred_B, prmsd_pred,_ = self.MultiHeadAttention_dis_bias(z, z_mask, protein_out_batched,compound_out_batched) #获得包含protein和compound交互信息的compound single representation
-
-            affinity_pred_B = affinity_pred_B.sigmoid() * 15
-            prmsd_pred = prmsd_pred.sigmoid() * 20
+            compound_out_batched_new, protein_out_batched_new = compound_out_batched, protein_out_batched
+            affinity_pred_B = prmsd_pred = torch.zeros(affinity_pred_A.shape).to(affinity_pred_A.device)
+            # affinity_pred_B = affinity_pred_B.sigmoid() * 15 #TODO
+            # prmsd_pred = prmsd_pred.sigmoid() * 20 #TODO
 
             compound_out = self.rebatch(compound_out_batched_new, compound_batch)
             protein_out = self.rebatch(protein_out_batched_new, protein_batch)
@@ -679,7 +693,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                 cross_rec_batched = self.unbatch(cross_rec, data.candicate_dis_matrix_batch)
                 rec_to_lig_edge_attr_ = torch.cat([cross_edge_attr, compound_out[cross_lig, :self.ns], protein_out[cross_rec, :self.ns]], -1)
                 z_attr_ = torch.concat([z[i, cross_rec_batched[i] - sum(protein_num_batch[:i]), cross_lig_batched[i] - sum(compound_num_batch[:i]), :] for i in range(batch_size)])
-                rec_to_lig_edge_attr_ = torch.cat([rec_to_lig_edge_attr_, z_attr_], -1)
+                # rec_to_lig_edge_attr_ = torch.cat([rec_to_lig_edge_attr_, z_attr_], -1)
                 lig_inter_update = self.rec_to_lig_conv_layers[l](protein_out, cross_edge_index, rec_to_lig_edge_attr_, cross_edge_sh,
                                                                 out_nodes=compound_out.shape[0])
                 if l != len(self.lig_conv_layers) - 1:
