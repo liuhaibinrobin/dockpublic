@@ -336,7 +336,7 @@ class MultiHeadAttention_dis_bias(nn.Module):
         self.gate_linear = Linear(z_channel, 1)
         self.leaky = torch.nn.LeakyReLU()
         self.bias = torch.nn.Parameter(torch.ones(1))
-        
+
         self.linear_energy_prmsd = nn.Linear(z_channel, 1)
         self.gate_linear_prmsd = Linear(z_channel, 1)
         self.leaky_prmsd = torch.nn.LeakyReLU()
@@ -361,6 +361,10 @@ class MultiHeadAttention_dis_bias(nn.Module):
         self.gate_linear_node = Linear(embedding_channels,embedding_channels)
         self.linear_node = Linear(embedding_channels,embedding_channels)
 
+    def reshape_last_dim(self, x):
+        new_x_shape = x.size()[:-1] + (self.head_size, self.channel_size)
+        x = x.view(*new_x_shape)
+        return x
     def forward(self, z, z_mask, protein_out_batched_previous, compound_out_batched_previous):
         #z shape: [b, pocket_len, ligand_len, embedding_channels]
         #z_mask:[b,pocket_len, ligand_len]
@@ -369,7 +373,7 @@ class MultiHeadAttention_dis_bias(nn.Module):
         #edge_type_matrix shape: [b, pocket_len, ligand_len,edge_type_pair_channels]
 
         
-        z = self.att_dropout(z)
+        z = self.linear_z(z)
         attention_mask_i = (1e9 * (z_mask.unsqueeze(-1).float() - 1.))
         logits = z + attention_mask_i
         weights_l = nn.Softmax(dim=1)(logits) #p维度和为1，对p求和
@@ -381,8 +385,12 @@ class MultiHeadAttention_dis_bias(nn.Module):
         pair_energy_prmsd = (self.gate_linear_prmsd(z).sigmoid() * self.linear_energy_prmsd(z)).squeeze(-1) * z_mask
         prmsd_pred = self.leaky_prmsd(self.bias_prmsd + ((pair_energy_prmsd).sum(axis=(-1, -2))))
 
-        ligand_rep_v = torch.einsum('bjic,bjc->bic', weights_l, self.linear_v_p(protein_out_batched_previous))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
-        protein_rep_v = torch.einsum('bjic,bic->bjc', weights_p, self.linear_v_l(compound_out_batched_previous))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
+        ligand_rep_v = torch.einsum('bjih,bjhd->bihd', weights_l, self.reshape_last_dim(self.linear_v_p(protein_out_batched_previous)))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
+        protein_rep_v = torch.einsum('bjih,bihd->bjhd', weights_p, self.reshape_last_dim(self.linear_v_l(compound_out_batched_previous)))  #  z:b,pocket_len, ligand_len, embedding_channels |self.linear_v(protein_out_batched_previous) :  b*pocket_len,b*pocket_len
+        new_output_shape_l = ligand_rep_v.size()[:-2] + (self.head_size * self.channel_size,)
+        ligand_rep_v = ligand_rep_v.contiguous().view(*new_output_shape_l)
+        new_output_shape_p = protein_rep_v.size()[:-2] + (self.head_size * self.channel_size,)
+        protein_rep_v = protein_rep_v.contiguous().view(*new_output_shape_p)
         ligand_rep = self.linear_v2l_attr(ligand_rep_v)
         protein_rep = self.linear_v2p_attr(protein_rep_v)
 
@@ -405,13 +413,13 @@ class GaussianSmearing(torch.nn.Module):
 
 
 class IaBNet_with_affinity(torch.nn.Module):
-    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1, compound_embed_mode=1,
+    def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=1, protein_embed_mode=1, compound_embed_mode=1,
                  n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2, finetune=False, recycling_num=1,
                  logging=None): #TODO: recycling_num=1
         super().__init__()
         self.layernorm = torch.nn.LayerNorm(embedding_channels)
         self.protein_bin_max = protein_bin_max
-        self.mode = 1
+        self.mode = mode
         self.protein_embed_mode = protein_embed_mode
         self.compound_embed_mode = compound_embed_mode
         self.n_trigonometry_module_stack = n_trigonometry_module_stack
@@ -955,8 +963,8 @@ class IaBNet_with_affinity(torch.nn.Module):
 def get_model(mode, logging, device):
     if mode == 0:
         logging.info("5 stack, readout2, pred dis map add self attention and GVP embed, compound model GIN")
-        model = IaBNet_with_affinity(logging=logging).to(device)
+        model = IaBNet_with_affinity(mode=mode, logging=logging).to(device)
     elif mode == 1:
-        print("5 stack, readout2, pred dis map add self attention and GVP embed, compound model GIN, use fragmentation and return z")
-        model = IaBNet_with_affinity(logging=logging, finetune=True).to(device)
+        logging.info("5 stack, readout2, pred dis map add e3bind attention and GVP embed, compound model GIN")
+        model = IaBNet_with_affinity(mode=mode, logging=logging).to(device)
     return model
