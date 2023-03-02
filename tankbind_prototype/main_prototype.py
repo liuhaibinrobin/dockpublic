@@ -248,7 +248,6 @@ def main(args):
 
 
     num_workers = 8
-    DistributedSessionBatchSampler
 
 
     os.system(f"mkdir -p {pre}/train/batch_split_info")
@@ -581,9 +580,8 @@ if __name__ == "__main__":
     parser.add_argument("--world_size", default=1, type=int, help="number of distributed processes")
     parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
     parser.add_argument("--max_node", type=int, default=500)
-    parser.add_argument('--dyn_num_steps', type=int, default=None)
     parser.add_argument("--gpu", type=int, default=0)
-    parser.add_argument("--max_epoch", type=int, default=200, help="number of epochs.")
+
     args = parser.parse_args()
     main(args)
 
