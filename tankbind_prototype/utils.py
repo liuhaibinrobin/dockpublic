@@ -107,6 +107,7 @@ def construct_data_from_graph_gvp(protein_node_xyz, protein_seq, protein_node_s,
     data['protein', 'p2p', 'protein'].edge_index = input_edge_idx
     data['protein', 'p2p', 'protein'].edge_s = input_protein_edge_s
     data['protein', 'p2p', 'protein'].edge_v = input_protein_edge_v
+    data.protein_edge_index=data['protein', 'p2p', 'protein'].edge_index
 
     if compoundMode == 0:
         data['compound'].x = torch.tensor(compound_node_features, dtype=torch.bool)  # [num_compound_nodes, num_compound_feature]

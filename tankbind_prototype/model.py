@@ -285,8 +285,9 @@ class Transition(torch.nn.Module):
 class IaBNet_with_affinity(torch.nn.Module):
     def __init__(self, hidden_channels=128, embedding_channels=128, c=128, mode=0, protein_embed_mode=1,
                  compound_embed_mode=1, n_trigonometry_module_stack=5, protein_bin_max=30, readout_mode=2,
-                 finetune=False, output_func="no"):
+                 finetune=False, output_func="no",session_type=None):
         super().__init__()
+        self.session_type=session_type
         self.layernorm = torch.nn.LayerNorm(embedding_channels)
         self.protein_bin_max = protein_bin_max
         self.mode = mode
@@ -339,6 +340,8 @@ class IaBNet_with_affinity(torch.nn.Module):
             protein_batch = data['protein'].batch
             protein_out = self.conv_protein(x, edge_index)
         if self.protein_embed_mode == 1:
+            if self.session_type=="session_ap":
+
             nodes = (data['protein']['node_s'], data['protein']['node_v'])
             edges = (data[("protein", "p2p", "protein")]["edge_s"], data[("protein", "p2p", "protein")]["edge_v"])
             protein_batch = data['protein'].batch
@@ -428,8 +431,10 @@ class IaBNet_with_affinity(torch.nn.Module):
             return None, affinity_pred.sigmoid() * 10 - 5
 
 
-def get_model(mode, logging, device, readout_mode=1, output_func="no"):
+def get_model(mode, logging, device, readout_mode=1, output_func="no",session_type=None):
+    if session_type is None:
+        logging.warning("session_type is None, witout session_ap model structure opt")
     if mode == 0:
         logging.info("5 stack, readout2, pred dis map add self attention and GVP embed, compound model GIN")
-        model = IaBNet_with_affinity(readout_mode=readout_mode, output_func=output_func).to(device)
+        model = IaBNet_with_affinity(readout_mode=readout_mode, output_func=output_func,session_type=session_type).to(device)
     return model

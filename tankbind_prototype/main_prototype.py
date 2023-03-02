@@ -30,11 +30,33 @@ import random
 import math
 from torch.utils.tensorboard import SummaryWriter
 from data_prototype import get_full_data_prototype, get_internal_dataset
-from sampler_prototype import SessionBatchSampler
+from sampler_prototype import SessionBatchSampler,DistributedSessionBatchSampler
 from model import *
 
 # from pympler import tracker
 # tr = tracker.SummaryTracker()
+
+import torch.distributed as dist
+import pickle
+import time
+from torch.multiprocessing import Process
+
+
+def init_distributed_mode(args):
+    '''initilize DDP
+    '''
+    args.rank = int(os.environ["RANK"])
+    args.world_size = int(os.environ["WORLD_SIZE"])
+    args.gpu = 0  # 默认worker都使用0号卡
+
+    args.distributed = True
+
+    torch.cuda.set_device(args.gpu)
+    args.dist_backend = "nccl"
+
+    dist.init_process_group(
+        backend=args.dist_backend, init_method=args.dist_url, world_size=args.world_size, rank=args.rank)
+
 
 class PairwiseLoss(nn.Module):
     def __init__(self, keep_rate=1., sigmoid_lambda=0.5,
@@ -110,9 +132,22 @@ def data_split(split_mode):
 
 
 def main(args):
+    # DDP MODIFIED
+    if args.distributed:
+        init_distributed_mode(args)
+        device = torch.device("cuda")
+    else:
+        device = 'cuda'
+
+    if args.distributed:
+        rank_tag="rank-" + str(args.rank) + "-"
+    else:
+        rank_tag=""
+
+
     timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     w_label = "_" + args.label if args.label != "" else ""
-    writer = SummaryWriter(f"./tensorboard/{timestamp}{w_label}")
+    writer = SummaryWriter(f"./tensorboard/{rank_tag}{timestamp}{w_label}")
     #writer = SummaryWriter(f"./tensorboard/tmp")
 
     train_flag = True if "train" in args.run_mode else False
@@ -123,7 +158,7 @@ def main(args):
 
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger("")
-    handler = logging.FileHandler(f'log/{timestamp}.log')
+    handler = logging.FileHandler(f'log/{rank_tag}{timestamp}.log')
     handler.setFormatter(logging.Formatter('%(message)s', ""))
     logger.addHandler(handler)
 
@@ -131,14 +166,14 @@ def main(args):
         f"{' '.join(sys.argv)}\n" 
         f"-----------------------------------------------------------------\n" 
         f"{(args.label if args.label!='' else 'UNNAMED')}\n"
-        f" at {timestamp}\n"
+        f" at {rank_tag}{timestamp}\n"
         f" data mode: {args.data_mode}\n" 
         f" run mode: {args.run_mode}\n" 
         f"-----------------------------------------------------------------\n" 
         f"{args}\n" 
         f"-----------------------------------------------------------------\n"
     )
-    pre = f"{args.resultFolder}/{timestamp}"
+    pre = f"{args.resultFolder}/{rank_tag}{timestamp}"
     os.system(f"mkdir -p {pre}/models")
     os.system(f"mkdir -p {pre}/results")
     os.system(f"mkdir -p {pre}/src")
@@ -213,15 +248,32 @@ def main(args):
 
 
     num_workers = 8
+    DistributedSessionBatchSampler
+
 
     os.system(f"mkdir -p {pre}/train/batch_split_info")
     os.system(f"mkdir -p {pre}/train/epoch_result")
     print("Processing train_sampler and train_dataloader...", end="")
+
+
     if train_flag:
-        train_sampler = SessionBatchSampler(train_dataset, n=args.sampler_batch_size, seed=0, name=timestamp,
-                                            index_save_path=f"{pre}/train/batch_split_info")
-        train_dataloader = DataLoader(train_dataset,
-                                    follow_batch=['x', 'compound_pair'],
+        if args.distributed:
+            train_dataloader = DataLoader(
+                train_dataset,
+                batch_sampler=DistributedSessionBatchSampler(
+                    dataset=train_dataset,
+                    num_replicas=args.world_size,
+                    rank=args.rank,
+                    shuffle=True,
+                    seed=42,
+                    index_save_path=f"{pre}/train/batch_split_info"),
+                follow_batch=['x', 'y', 'compound_pair',"protein_edge_index"],
+                num_workers=num_workers)
+        else:
+            train_sampler = SessionBatchSampler(train_dataset, n=args.sampler_batch_size, seed=0, name=rank_tag+timestamp,
+                                                index_save_path=f"{pre}/train/batch_split_info")
+            train_dataloader = DataLoader(train_dataset,
+                                    follow_batch=['x', 'y','compound_pair',"protein_edge_index"],
                                     batch_sampler=train_sampler,
                                     pin_memory=False,
                                     num_workers=8)
@@ -231,25 +283,30 @@ def main(args):
 
     print("Processing val/test dataloaders...", end="")
     if iid_flag:
-        iid_dataloader = DataLoader(iid_dataset, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair'],
+        iid_dataloader = DataLoader(iid_dataset, batch_size=valid_batch_size, follow_batch=['x', 'y', 'compound_pair',"protein_edge_index"],
                                     shuffle=False, pin_memory=False, num_workers=num_workers)
     if ood_flag:
-        ood_dataloader = DataLoader(ood_dataset, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair'],
+        ood_dataloader = DataLoader(ood_dataset, batch_size=valid_batch_size, follow_batch=['x', 'y', 'compound_pair',"protein_edge_index"],
                                     shuffle=False, pin_memory=False, num_workers=num_workers)
     if test_flag:
-        test_dataloader = DataLoader(test_dataset, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair'],
+        test_dataloader = DataLoader(test_dataset, batch_size=valid_batch_size, follow_batch=['x', 'y', 'compound_pair',"protein_edge_index"],
                                     shuffle=False, pin_memory=False, num_workers=num_workers)
     if internal_flag:
-        internal_dataloader = DataLoader(internal_dataset, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair'],
+        internal_dataloader = DataLoader(internal_dataset, batch_size=valid_batch_size, follow_batch=['x', 'y', 'compound_pair',"protein_edge_index"],
                                         shuffle=False, pin_memory=False, num_workers=num_workers)
     print("fin!")
 
-    device = 'cuda:0'
+
 
     print("Loading model, creating optimizer and loss function...", end="")
-    model = get_model(0, logging, device, readout_mode=args.readout_mode, output_func=args.output_func)
+    model = get_model(0, logging, device, readout_mode=args.readout_mode, output_func=args.output_func,session_type=args.session_type)
+    if args.distributed:
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True,
+                                                          broadcast_buffers=False)
     if args.restart:
         model.load_state_dict(torch.load(args.restart))
+
+
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
     pairwiseloss = PairwiseLoss(sigmoid_lambda=args.sigmoid_lambda, ingrp_thr=args.pair_threshold-1)
@@ -518,6 +575,15 @@ if __name__ == "__main__":
 
     parser.add_argument("--session_type", type=str, default=None,
                         help="session_au/session_ap  assay_uniprot as session or assay_pdb as session ")
+
+    parser.add_argument('--distributed', type=bool, default=False)
+    parser.add_argument('--local_rank', type=int, help='local rank, will be passed by ddp')
+    parser.add_argument("--world_size", default=1, type=int, help="number of distributed processes")
+    parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
+    parser.add_argument("--max_node", type=int, default=500)
+    parser.add_argument('--dyn_num_steps', type=int, default=None)
+    parser.add_argument("--gpu", type=int, default=0)
+    parser.add_argument("--max_epoch", type=int, default=200, help="number of epochs.")
     args = parser.parse_args()
     main(args)
 
