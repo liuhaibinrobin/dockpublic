@@ -377,7 +377,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                     if tmp_idx==0:
                         protein_edge_index_t_batched.append(protein_edge_index_t)
                         continue
-                    protein_edge_index_t_batched.append(protein_edge_index_t-sample_node_num_batched[tmp_idx-1])
+                    protein_edge_index_t_batched.append(protein_edge_index_t-sum(sample_node_num_batched[:tmp_idx-1]))
 
                 protein_seq_batched=unbatch(data.seq, data["protein"].batch)
                 protein_out_list=[]
