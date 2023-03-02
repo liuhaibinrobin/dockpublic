@@ -422,7 +422,8 @@ def run_train(pre, args, dataloader,
 
         if not args.use_mse_loss:
             loss_group_list, recto_rate_group_list, num_pairs_group_list = pairwiseloss(pred_all=affinity_pred, true_all=affinity_true,group_id_list=data.pdb_id)
-            loss4bp = torch.sum(loss_group_list)
+            loss4bp = torch.sum(torch.stack(loss_group_list))
+
         else:
             loss = mseloss(affinity_pred.float(), torch.log10(affinity_true).float())
 
