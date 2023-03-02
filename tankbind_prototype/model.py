@@ -1,7 +1,7 @@
 import torch
 import torch_geometric.transforms as T
 from torch_geometric.nn import SAGEConv, to_hetero
-from torch_geometric.utils import to_dense_batch
+from torch_geometric.utils import to_dense_batch,degree
 from torch import nn
 from torch.nn import Linear
 import sys
@@ -12,6 +12,11 @@ from torch_scatter import scatter_mean
 from GATv2 import GAT
 from GINv2 import GIN
 
+
+def unbatch( src, batch):
+    # 将聚为一体的data根据batch split
+    sizes = degree(batch, dtype=torch.long).tolist()
+    return src.split(sizes)
 
 class GNN(torch.nn.Module):
     def __init__(self, hidden_channels, out_channels):
@@ -340,13 +345,17 @@ class IaBNet_with_affinity(torch.nn.Module):
             protein_batch = data['protein'].batch
             protein_out = self.conv_protein(x, edge_index)
         if self.protein_embed_mode == 1:
-            if self.session_type=="session_ap":
+            if self.session_type=="session_ap":#batch内所有样本蛋白一样
+                nodes = (unbatch(data['protein']['node_s'],data["protein"].batch)[0],unbatch(data['protein']['node_v'],data["protein"].batch)[0])
+                edges = (unbatch(data[("protein", "p2p", "protein")]["edge_s"],data.protein_edge_index_batch)[0], unbatch(data[("protein", "p2p", "protein")]["edge_v"],data.protein_edge_index_batch)[0])
+                protein_batch = data['protein'].batch
+                protein_out = self.conv_protein(nodes, unbatch(data[("protein", "p2p", "protein")]["edge_index"],data.protein_edge_index_batch)[0], edges, unbatch(data.seq,data["protein"].batch)[0]).repeat(len(data.pdb),1)
 
-            nodes = (data['protein']['node_s'], data['protein']['node_v'])
-            edges = (data[("protein", "p2p", "protein")]["edge_s"], data[("protein", "p2p", "protein")]["edge_v"])
-            protein_batch = data['protein'].batch
-            protein_out = self.conv_protein(nodes, data[("protein", "p2p", "protein")]["edge_index"], edges, data.seq)
-
+            else:
+                nodes = (data['protein']['node_s'], data['protein']['node_v'])
+                edges = (data[("protein", "p2p", "protein")]["edge_s"], data[("protein", "p2p", "protein")]["edge_v"])
+                protein_batch = data['protein'].batch
+                protein_out = self.conv_protein(nodes, data[("protein", "p2p", "protein")]["edge_index"], edges, data.seq)
         if self.compound_embed_mode == 0:
             compound_x = data['compound'].x.float()
             compound_edge_index = data[("compound", "c2c", "compound")].edge_index
