@@ -345,11 +345,11 @@ class IaBNet_with_affinity(torch.nn.Module):
             protein_batch = data['protein'].batch
             protein_out = self.conv_protein(x, edge_index)
         if self.protein_embed_mode == 1:
-            if self.session_type=="session_ap":#batch内所有样本蛋白一样
+            if self.session_type=="session_ap" and len(set(data.pdb_id))==1:#batch内所有样本蛋白一样
                 nodes = (unbatch(data['protein']['node_s'],data["protein"].batch)[0],unbatch(data['protein']['node_v'],data["protein"].batch)[0])
                 edges = (unbatch(data[("protein", "p2p", "protein")]["edge_s"],data.protein_edge_index_batch)[0], unbatch(data[("protein", "p2p", "protein")]["edge_v"],data.protein_edge_index_batch)[0])
                 protein_batch = data['protein'].batch
-                protein_out = self.conv_protein(nodes, unbatch(data[("protein", "p2p", "protein")]["edge_index"],data.protein_edge_index_batch)[0], edges, unbatch(data.seq,data["protein"].batch)[0]).repeat(len(data.pdb),1)
+                protein_out = self.conv_protein(nodes, unbatch(data[("protein", "p2p", "protein")]["edge_index"],data.protein_edge_index_batch)[0], edges, unbatch(data.seq,data["protein"].batch)[0]).repeat(len(data.pdb_id),1)
 
             else:
                 nodes = (data['protein']['node_s'], data['protein']['node_v'])
