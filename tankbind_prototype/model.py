@@ -346,13 +346,41 @@ class IaBNet_with_affinity(torch.nn.Module):
             protein_out = self.conv_protein(x, edge_index)
         if self.protein_embed_mode == 1:
             if self.session_type=="session_ap" and self.training:#batch内所有样本蛋白一样
-                if len(set(data.pdb_id)) != 1:
-                    raise Exception
-                nodes = (unbatch(data['protein']['node_s'],data["protein"].batch)[0],unbatch(data['protein']['node_v'],data["protein"].batch)[0])
-                edges = (unbatch(data[("protein", "p2p", "protein")]["edge_s"],data.protein_edge_index_batch)[0], unbatch(data[("protein", "p2p", "protein")]["edge_v"],data.protein_edge_index_batch)[0])
-                protein_batch = data['protein'].batch
-                protein_out = self.conv_protein(nodes, unbatch(data[("protein", "p2p", "protein")]["edge_index"].T,data.protein_edge_index_batch)[0].T, edges, unbatch(data.seq,data["protein"].batch)[0]).repeat(len(data.pdb_id),1)
+                group_id_tuple_list=[]
+                p_pdb_id_list=[]
+                p_pdb_id=None
+                for idx, pdb_id in enumerate(data.pdb_id):
+                    if pdb_id in p_pdb_id_list:
+                        raise Exception("samples with wrong pdb id order")
+                    if p_pdb_id==None: #初始
+                        group_id_tuple_list.append([])
+                        p_pdb_id = pdb_id
+                        group_id_tuple_list[-1].append(idx)
+                        continue
+                    if pdb_id!=p_pdb_id:#pdb 改变
+                        group_id_tuple_list.append([])
+                        p_pdb_id_list.append(p_pdb_id)
+                        p_pdb_id=pdb_id
+                        group_id_tuple_list[-1].append(idx)
+                    else: #pdb不变
+                        group_id_tuple_list[-1].append(idx)
+                p_pdb_id_list.append(p_pdb_id)#end
 
+                protein_node_s_batched=unbatch(data['protein']['node_s'], data["protein"].batch)
+                protein_node_v_batched=unbatch(data['protein']['node_v'], data["protein"].batch)
+                protein_edge_s_batched=unbatch(data[("protein", "p2p", "protein")]["edge_s"], data.protein_edge_index_batch)
+                protein_edge_v_batched=unbatch(data[("protein", "p2p", "protein")]["edge_v"], data.protein_edge_index_batch)
+                protein_edge_index_t_batched=unbatch(data[("protein", "p2p", "protein")]["edge_index"].T,data.protein_edge_index_batch)
+                protein_seq_batched=unbatch(data.seq, data["protein"].batch)
+                protein_out_list=[]
+                for pdb_idx,pdb_id in enumerate(p_pdb_id_list):
+                    idx=group_id_tuple_list[pdb_idx][0]
+                    nodes = (protein_node_s_batched[idx],protein_node_v_batched[idx])
+                    edges = (protein_edge_s_batched[idx],protein_edge_v_batched[idx])
+                    protein_out_group = self.conv_protein(nodes,protein_edge_index_t_batched[idx].T, edges,protein_seq_batched[idx]).repeat(len(group_id_tuple_list[pdb_idx]), 1)
+                    protein_out_list.append(protein_out_group)
+                protein_out=torch.cat(protein_out_list)
+                protein_batch = data['protein'].batch
             else:
                 nodes = (data['protein']['node_s'], data['protein']['node_v'])
                 edges = (data[("protein", "p2p", "protein")]["edge_s"], data[("protein", "p2p", "protein")]["edge_v"])
