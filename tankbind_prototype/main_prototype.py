@@ -130,8 +130,8 @@ class PairwiseLoss(nn.Module):
             for idx in group_id_dict[group_id]:
                 pred.append(pred_all[idx])
                 true.append(true_all[idx])
-            pred=torch.cat(pred)
-            true=torch.cat(true)
+            pred=torch.stack(pred)
+            true=torch.stack(true)
 
             loss, reverse_ntotal, ntotal=self.forward_single_group(pred,true)
             loss_list.append(loss)
@@ -519,7 +519,7 @@ def run_validation(pre, dataset, dataloader,
             # torch.save(affinity_pred.cpu(), f"session_{session}_pred.pt")
             # torch.save(affinity_pred.cpu(), f"session_{session}_true.pt")
             
-            loss, recto_rate, num_pairs = pairwiseloss(pred=affinity_pred, true=affinity_true)
+            loss, recto_rate, num_pairs = pairwiseloss.forward_single_group(pred=affinity_pred, true=affinity_true)
             loss = loss.detach().cpu().item()
             recto_rate = recto_rate.detach().cpu().item()
             session_len = len(df)
