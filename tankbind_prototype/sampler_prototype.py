@@ -83,6 +83,8 @@ class SessionBatchSampler(torch.utils.data.sampler.Sampler):
                     group_cache=[]
             else:
                 continue
+        if group_cache!=[]:
+            yield group_cache
     def __len__(self) -> int:
         return len(self.batches)
 
