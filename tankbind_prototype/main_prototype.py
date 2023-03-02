@@ -76,7 +76,8 @@ class PairwiseLoss(nn.Module):
         self.register_buffer('ingrp_thr', torch.tensor(ingrp_thr, dtype=torch.float64))
         self.register_buffer('outgrp_thr', torch.tensor(outgrp_thr, dtype=torch.float64))
 
-    def forward(self, pred, true):
+
+    def forward_single_group(self,pred, true):
         if len(pred.shape) == 1:
             pred = pred.unsqueeze(1)
         if len(true.shape) == 1:
@@ -113,6 +114,30 @@ class PairwiseLoss(nn.Module):
         num = pred_pair_valid.shape[1] + 1e-8
         loss = torch.div(loss, num)
         return loss, (reverse / ntotal), ntotal
+    def forward(self, pred_all, true_all,group_id_list=None):
+        group_id_dict={}
+        for idx,group_id in enumerate(group_id_list):
+            if group_id not in group_id_dict:
+                group_id_dict[group_id]=[]
+            group_id_dict[group_id].append(idx)
+
+        loss_list=[]
+        reverse_ntotal_list=[]
+        ntotal_list=[]
+        for group_id in group_id_dict:
+            pred = []
+            true = []
+            for idx in group_id_dict[group_id]:
+                pred.append(pred_all[idx])
+                true.append(true_all[idx])
+            pred=torch.cat(pred)
+            true=torch.cat(true)
+
+            loss, reverse_ntotal, ntotal=self.forward_single_group(pred,true)
+            loss_list.append(loss)
+            reverse_ntotal_list.append(reverse_ntotal)
+            ntotal_list.append(ntotal)
+        return loss_list, reverse_ntotal_list,ntotal_list
 
 
 def Seed_everything(seed=42):
@@ -396,12 +421,14 @@ def run_train(pre, args, dataloader,
 
 
         if not args.use_mse_loss:
-            loss, recto_rate, num_pairs = pairwiseloss(pred=affinity_pred, true=affinity_true)
+            loss_group_list, recto_rate_group_list, num_pairs_group_list = pairwiseloss(pred_all=affinity_pred, true_all=affinity_true,group_id_list=data.pdb_id)
+            loss4bp = torch.sum(loss_group_list)
         else:
             loss = mseloss(affinity_pred.float(), torch.log10(affinity_true).float())
 
-        if not (abs(loss.item()) > 100000):
-            loss.backward()
+
+        if not (abs(loss4bp.item()) > 100000):
+            loss4bp.backward()
             optimizer.step()
         else:
             logging.info(
@@ -410,19 +437,22 @@ def run_train(pre, args, dataloader,
         affinity_true_list.append(affinity_true.detach().cpu())
         affinity_pred_list.append(affinity_pred.detach().cpu())
 
-        loss_list.append(loss.detach().cpu())
-        writer.add_scalar(f'rank_loss.by_step/train', loss.item(), num_steps_train)
-        writer.add_scalar(f'rank_loss.by_sample/train', loss.item(), num_samples_train)
+
+        writer.add_scalar(f'rank_loss.by_step/train', loss4bp.item(), num_steps_train)
+        writer.add_scalar(f'rank_loss.by_sample/train', loss4bp.item(), num_samples_train)
 
         if not args.use_mse_loss:
-            recto_rate_list.append(recto_rate.detach().cpu())
-            writer.add_scalar(f'recto_rate.by_step/train', recto_rate.item(), num_steps_train)
-            writer.add_scalar(f'recto_rate.by_sample/train', recto_rate.item(), num_samples_train)
+            for tmp_loss,recto_rate,num_pairs in zip(loss_group_list, recto_rate_group_list,num_pairs_group_list):
+                recto_rate_list.append(recto_rate.detach().cpu())
+                loss_list.append(tmp_loss.detach().cpu())
+                # writer.add_scalar(f'recto_rate.by_step/train', recto_rate.item(), num_steps_train)
+                # writer.add_scalar(f'recto_rate.by_sample/train', recto_rate.item(), num_samples_train)
 
-            if num_pairs >= 1:
-                length += np.sqrt(num_pairs)
-                total_loss += loss.item() * np.sqrt(num_pairs)
-                total_recto_rate +=recto_rate.item() * np.sqrt(num_pairs)
+                if num_pairs >= 1:
+                    length += np.sqrt(num_pairs)
+                    total_recto_rate += recto_rate.item() * np.sqrt(num_pairs)
+                    total_loss += tmp_loss.item() * np.sqrt(num_pairs)
+
 
     # save result to tensorboard
 
