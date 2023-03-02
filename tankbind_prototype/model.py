@@ -370,7 +370,15 @@ class IaBNet_with_affinity(torch.nn.Module):
                 protein_node_v_batched=unbatch(data['protein']['node_v'], data["protein"].batch)
                 protein_edge_s_batched=unbatch(data[("protein", "p2p", "protein")]["edge_s"], data.protein_edge_index_batch)
                 protein_edge_v_batched=unbatch(data[("protein", "p2p", "protein")]["edge_v"], data.protein_edge_index_batch)
-                protein_edge_index_t_batched=unbatch(data[("protein", "p2p", "protein")]["edge_index"].T,data.protein_edge_index_batch)
+                protein_edge_index_t_batched_=unbatch(data[("protein", "p2p", "protein")]["edge_index"].T,data.protein_edge_index_batch)
+                sample_node_num_batched=degree(data['protein'].batch, dtype=torch.long).tolist()
+                protein_edge_index_t_batched=[]
+                for tmp_idx,protein_edge_index_t in enumerate(protein_edge_index_t_batched_):
+                    if tmp_idx==0:
+                        protein_edge_index_t_batched.append(protein_edge_index_t)
+                        continue
+                    protein_edge_index_t_batched.append(protein_edge_index_t-sample_node_num_batched[tmp_idx-1])
+
                 protein_seq_batched=unbatch(data.seq, data["protein"].batch)
                 protein_out_list=[]
                 for pdb_idx,pdb_id in enumerate(p_pdb_id_list):
