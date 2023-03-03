@@ -382,10 +382,15 @@ class IaBNet_with_affinity(torch.nn.Module):
 
                 protein_seq_batched=unbatch(data.seq, data["protein"].batch)
                 protein_out_list=[]
+                for_log_list=[]
                 for pdb_idx,pdb_id in enumerate(p_pdb_id_list):
                     idx=group_id_tuple_list[pdb_idx][0]
-                    nodes = (protein_node_s_batched[idx],protein_node_v_batched[idx])
-                    edges = (protein_edge_s_batched[idx],protein_edge_v_batched[idx])
+                    for_log_list.append(protein_node_s_batched[idx].shape[0])
+                print(for_log_list,len(data.pdb_id),len(set(data.pdb_id)))
+                for pdb_idx, pdb_id in enumerate(p_pdb_id_list):
+                    idx = group_id_tuple_list[pdb_idx][0]
+                    nodes = (protein_node_s_batched[idx], protein_node_v_batched[idx])
+                    edges = (protein_edge_s_batched[idx], protein_edge_v_batched[idx])
                     protein_out_group = self.conv_protein(nodes,protein_edge_index_t_batched[idx].T, edges,protein_seq_batched[idx]).repeat(len(group_id_tuple_list[pdb_idx]), 1)
                     protein_out_list.append(protein_out_group)
                 protein_out=torch.cat(protein_out_list)
