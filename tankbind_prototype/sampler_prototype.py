@@ -92,35 +92,78 @@ class SessionBatchSampler(torch.utils.data.sampler.Sampler):
         self.batches = indices
 
     def __iter__(self) -> Iterator[List[int]]:
-        group_cache=[]
-        indication_cache=0
-        for group in self.batches:
-            if len(group) > 1:
-                #print("group_"+str(group))
-                if self.mode == "session_ap_p_node":
-                    indication=self.dataset.data.iloc[group[0]]["p_length"]
+        if self.mode == "session_ap_p_node":
+            group_cache_pdb_id_dict = {}
+            group_cache_sample_num=0
+            indication_cache = 0
+            for group in self.batches:
+                if len(group) > 1:
+                    # print("group_"+str(group))
+                    indication = self.dataset.data.iloc[group[0]]["p_length"]
+                    group_pdb_id=self.dataset.data.iloc[group[0]]["pdb_id"]
+                    if group_cache_sample_num + len(group) <= self.max_batch_size and \
+                            indication_cache + indication <= self.max_indication_num:
+                        if group_pdb_id not in group_cache_pdb_id_dict:
+                            group_cache_pdb_id_dict[group_pdb_id]=[]
+                        group_cache_pdb_id_dict[group_pdb_id]+=group
+                        group_cache_sample_num+=len(group)
+                        indication_cache += indication
+
+                    else:
+                        # print("group_cache_a"+str(group_cache))
+                        if group_cache_pdb_id_dict == {}:
+                            raise Exception
+                        group_cache=[]
+                        for pdb_id in group_cache_pdb_id_dict:
+                            group_cache+=group_cache_pdb_id_dict[pdb_id]
+                        if group_cache == []:
+                            raise Exception
+                        yield group_cache
+                        group_cache_pdb_id_dict = {group_pdb_id: group}
+                        group_cache_sample_num = len(group)
+                        indication_cache = indication
                 else:
+                    continue
+            if group_cache_pdb_id_dict != {}:
+                # print("group_cache_b" + str(group_cache))
+                group_cache = []
+                for pdb_id in group_cache_pdb_id_dict:
+                    group_cache += group_cache_pdb_id_dict[pdb_id]
+                if group_cache==[]:
                     raise Exception
+                yield group_cache
 
-                if len(group_cache)+len(group)<=self.max_batch_size and indication_cache+indication<=self.max_indication_num:
-                    group_cache+=group
-                    indication_cache+=indication
-
-                else:
-                    #print("group_cache_a"+str(group_cache))
-                    if group_cache == []:
+        else:
+            raise Exception
+            group_cache=[]
+            indication_cache=0
+            for group in self.batches:
+                if len(group) > 1:
+                    #print("group_"+str(group))
+                    if self.mode == "session_ap_p_node":
+                        indication=self.dataset.data.iloc[group[0]]["p_length"]
+                    else:
                         raise Exception
-                    yield group_cache
-                    group_cache=[]
-                    group_cache+=group
-                    indication_cache=indication
-            else:
-                continue
-        if group_cache!=[]:
-            #print("group_cache_b" + str(group_cache))
-            if group_cache == []:
-                raise Exception
-            yield group_cache
+
+                    if len(group_cache)+len(group)<=self.max_batch_size and indication_cache+indication<=self.max_indication_num:
+                        group_cache+=group
+                        indication_cache+=indication
+
+                    else:
+                        #print("group_cache_a"+str(group_cache))
+                        if group_cache == []:
+                            raise Exception
+                        yield group_cache
+                        group_cache=[]
+                        group_cache+=group
+                        indication_cache=indication
+                else:
+                    continue
+            if group_cache!=[]:
+                #print("group_cache_b" + str(group_cache))
+                if group_cache == []:
+                    raise Exception
+                yield group_cache
 
     #dynamic sampler is without definitive length
     # def __len__(self) -> int:
