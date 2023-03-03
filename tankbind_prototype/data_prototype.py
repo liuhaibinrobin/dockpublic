@@ -29,7 +29,9 @@ class TankBindDataSet_prototype(Dataset):
                 predDis=True,               
                 shake_nodes=None,
                 transform=None, pre_transform=None,
-                 pre_filter=None,session_type=None):
+                 pre_filter=None,session_type=None,
+                 max_keep_node_num=200):
+        self.max_keep_node_num=max_keep_node_num
         self.data = data
         self.protein_dict = protein_dict
         self.compound_dict = compound_dict
@@ -73,7 +75,8 @@ class TankBindDataSet_prototype(Dataset):
             raise Exception
 
         line = self.data.iloc[idx]
-        
+
+        #TODO 20230303 this part and the definition of use_compound_com,pocket_com... is different from original TB and SWbind ，needed to change
         pocket_com = line['pocket_com']
         # use_compound_com = line['use_compound_com'] # 在原设定中，仅有 natvie_pocket 此项目为 TRUE，我们并没有 native_pocket，故注释掉。
         
@@ -107,8 +110,9 @@ class TankBindDataSet_prototype(Dataset):
                 pocket_radius=self.pocket_radius, 
                 add_noise_to_com=None, 
                 use_whole_protein=False, 
-                use_compound_com_as_pocket=False, 
-                chosen_pocket_com=pocket_com, compoundMode=self.compoundMode)
+                use_compound_com_as_pocket=False,  #TODO 20230303 this part and the definition of use_compound_com,pocket_com... is different from original TB and SWbind ，needed to change
+                chosen_pocket_com=pocket_com, compoundMode=self.compoundMode,
+                max_keep_node_num=self.max_keep_node_num)
 
         # affinity = affinity_to_native_pocket * min(1, float((data.y.numpy() > 0).sum()/(5*coords.shape[0])))
         ## affinity = float(line['affinity'])

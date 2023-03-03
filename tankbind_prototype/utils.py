@@ -43,7 +43,10 @@ def get_protein_edge_features_and_index(protein_edge_index, protein_edge_s, prot
     return input_edge_idx, input_protein_edge_s, input_protein_edge_v
 
 def get_keepNode(com, protein_node_xyz, n_node, pocket_radius, use_whole_protein, 
-                     use_compound_com_as_pocket, add_noise_to_com, chosen_pocket_com):
+                     use_compound_com_as_pocket, add_noise_to_com, chosen_pocket_com,max_keep_node_num=None):
+    # TODO 20230303 this part and the definition of use_compound_com,pocket_com... is different from original TB and SWbind ，needed to change
+    keepNode_dis= np.ones(n_node)*10000
+
     if use_whole_protein:
         keepNode = np.ones(n_node, dtype=bool)
     else:
@@ -54,17 +57,26 @@ def get_keepNode(com, protein_node_xyz, n_node, pocket_radius, use_whole_protein
                 com = com + add_noise_to_com * (2 * np.random.rand(*com.shape) - 1)
             for i, node in enumerate(protein_node_xyz):
                 dis = compute_dis_between_two_vector(node, com)
-                keepNode[i] = dis < pocket_radius
+                keepNode_dis[i]=min(dis,keepNode_dis[i])
+                #keepNode[i] = dis < pocket_radius
 
     if chosen_pocket_com is not None:
-        another_keepNode = np.zeros(n_node, dtype=bool)
+
+        #another_keepNode = np.zeros(n_node, dtype=bool)
         for a_com in chosen_pocket_com:
             if add_noise_to_com:
                 a_com = a_com + add_noise_to_com * (2 * np.random.rand(*a_com.shape) - 1)
             for i, node in enumerate(protein_node_xyz):
                 dis = compute_dis_between_two_vector(node, a_com)
-                another_keepNode[i] |= dis < pocket_radius
-        keepNode |= another_keepNode
+                keepNode_dis[i] = min(dis, keepNode_dis[i])
+                #another_keepNode[i] |= dis < pocket_radius
+
+        #keepNode |= another_keepNode
+    if max_keep_node_num != None:
+        max_keep_node_num_pocket_radius=sorted(keepNode_dis.tolist())[max_keep_node_num]
+    else:
+        max_keep_node_num_pocket_radius=10000
+    keepNode=keepNode_dis<min(pocket_radius,max_keep_node_num_pocket_radius)# both conditions are needed to be meet
     return keepNode
 
 
@@ -72,13 +84,14 @@ def construct_data_from_graph_gvp(protein_node_xyz, protein_seq, protein_node_s,
                                   protein_node_v, protein_edge_index, protein_edge_s, protein_edge_v,
                                  coords, compound_node_features, input_atom_edge_list, 
                                  input_atom_edge_attr_list, includeDisMap=True, contactCutoff=8.0, pocket_radius=20, interactionThresholdDistance=10, compoundMode=1, 
-                                 add_noise_to_com=None, use_whole_protein=False, use_compound_com_as_pocket=True, chosen_pocket_com=None):
+                                 add_noise_to_com=None, use_whole_protein=False, use_compound_com_as_pocket=True, chosen_pocket_com=None,
+                                  max_keep_node_num=None):
     n_node = protein_node_xyz.shape[0]
     n_compound_node = coords.shape[0]
     # centroid instead of com. 
     com = coords.mean(axis=0)
     keepNode = get_keepNode(com, protein_node_xyz.numpy(), n_node, pocket_radius, use_whole_protein, 
-                             use_compound_com_as_pocket, add_noise_to_com, chosen_pocket_com)
+                             use_compound_com_as_pocket, add_noise_to_com, chosen_pocket_com,max_keep_node_num=max_keep_node_num)
 
     if keepNode.sum() < 5:
         # if only include less than 5 residues, simply add first 100 residues.
