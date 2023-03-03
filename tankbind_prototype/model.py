@@ -346,6 +346,7 @@ class IaBNet_with_affinity(torch.nn.Module):
             protein_out = self.conv_protein(x, edge_index)
         if self.protein_embed_mode == 1:
             if self.session_type=="session_ap" and self.training:#batch内所有样本蛋白一样
+                #校验样本按pdbid排序
                 group_id_tuple_list=[]
                 p_pdb_id_list=[]
                 p_pdb_id=None
