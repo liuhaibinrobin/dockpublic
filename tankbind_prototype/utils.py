@@ -73,7 +73,10 @@ def get_keepNode(com, protein_node_xyz, n_node, pocket_radius, use_whole_protein
 
         #keepNode |= another_keepNode
     if max_keep_node_num != None:
-        max_keep_node_num_pocket_radius=sorted(keepNode_dis.tolist())[max_keep_node_num]
+        if max_keep_node_num<=len(keepNode_dis):
+            max_keep_node_num_pocket_radius=sorted(keepNode_dis.tolist())[max_keep_node_num]
+        else:
+            max_keep_node_num_pocket_radius=10000
     else:
         max_keep_node_num_pocket_radius=10000
     keepNode=keepNode_dis<min(pocket_radius,max_keep_node_num_pocket_radius)# both conditions are needed to be meet
