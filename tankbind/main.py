@@ -110,6 +110,9 @@ parser.add_argument("--use_weighted_rmsd_loss", type=bool, default=False,
 parser.add_argument("--use_opt_torsion_dict", type=bool, default=True,
                     help="whether to use prepared optimal torsional dict")
 parser.add_argument("--lr", type=float, default=0.0001, help="learning rate")
+parser.add_argument("--recycling_num", type=int, default=1,
+                    help="recycling number, default is not recycling")
+
 args = parser.parse_args()
 
 
@@ -173,7 +176,7 @@ all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batc
 # import model is put here due to an error related to torch.utils.data.ConcatDataset after importing torchdrug.
 from model import *
 device = 'cuda'
-model = get_model(args.mode, logger, device)
+model = get_model(args.mode, logger, device, recycling_num=args.recycling_num)
 if args.restart:
     model.load_state_dict(torch.load(args.restart))
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr) #TODO 原始0.0001
@@ -211,7 +214,7 @@ global_samples_train = 0
 global_samples_val = 0
 global_samples_test = 0
 if args.use_opt_torsion_dict:
-    opt_torsion_dict = torch.load('opt_torsion_dict.pt')
+    opt_torsion_dict = torch.load('opt_torsion_dict_maxiter50.pt')
     print('use prepared optimal torsional dict')
 else:
     opt_torsion_dict = {}
@@ -298,14 +301,16 @@ for epoch in range(100000):
             rot_loss=0
             tor_loss=0
             tmp_cnt=0
-            for pred_result in pred_result_list:
+            tor_last = []
+            for _ in range(len(data_groundtruth_pos_batched)):
+                tor_last.append([])
+            for recycling_num, pred_result in enumerate(pred_result_list):
 
                 tr_pred, rot_pred, torsion_pred_batched, _, _, current_candicate_conf_pos_batched = pred_result
                 tr_pred.retain_grad()
                 rot_pred.retain_grad()
                 for tmp_torsion_pred in torsion_pred_batched:
                     tmp_torsion_pred.retain_grad()
-
 
                 compound_edge_index_batched = model.unbatch(data['compound', 'compound'].edge_index.T,data.compound_compound_edge_attr_batch)
                 compound_rotate_edge_mask_batched = model.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
@@ -317,22 +322,30 @@ for epoch in range(100000):
                                                                rotate_edge_index=rotate_edge_index,
                                                                mask_rotate=data['compound'].mask_rotate[i])
 
-
-                    if data.pdb[i] not in opt_torsion_dict.keys():
-                        ttt = time.time()
-                        opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
-                        opt_torsion_dict[data.pdb[i]] = opt_torsion
-                        # print(tmp_cnt, opt_rmsd,time.time()-ttt)
+                    if recycling_num == 0:
+                        if data.pdb[i] not in opt_torsion_dict.keys():
+                            ttt = time.time()
+                            opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=50)
+                            opt_torsion_dict[data.pdb[i]] = opt_torsion
+                            tor_last[i] = torsion_pred_batched[i]
+                            # print(tmp_cnt, opt_rmsd,time.time()-ttt)
+                        else:
+                            opt_torsion = opt_torsion_dict[data.pdb[i]]
+                            opt_rmsd, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.numpy())
+                            opt_rotate = matrix_to_axis_angle(opt_R).float()
+                            opt_tr = opt_tr.T[0]
+                            tor_last[i] = torsion_pred_batched[i]
                     else:
                         opt_torsion = opt_torsion_dict[data.pdb[i]]
-                        opt_rmsd, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.detach().cpu().numpy())
+                        opt_torsion = opt_torsion - tor_last[i].detach().cpu() #opt_tor2 = opt_tor1 - tor_pred
+                        _, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.numpy())
                         opt_rotate = matrix_to_axis_angle(opt_R).float()
                         opt_tr = opt_tr.T[0]
-
+                        tor_last[i] = tor_last[i] + torsion_pred_batched[i] #累加tor_pred
                     tr_loss += F.mse_loss(tr_pred[i],opt_tr)
                     rot_loss += F.mse_loss(rot_pred[i],opt_rotate)
                     if opt_torsion is not None:
-                        tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion)
+                        tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
                     tmp_cnt += 1
 
             tr_loss=tr_loss/tmp_cnt
@@ -588,6 +601,7 @@ for epoch in range(100000):
     writer.add_scalar('epochMetric.epoch_tor_loss/validation', metrics["epoch_tor_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/validation', metrics["epoch_rmsd_recycling_0_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/validation', metrics["epoch_rmsd_recycling_1_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss/validation', metrics["epoch_rmsd_recycling_2_loss"],epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/validation', metrics["epoch_rmsd_recycling_9_loss"],epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/validation', metrics["epoch_rmsd_recycling_19_loss"],epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/validation', metrics["epoch_rmsd_recycling_39_loss"],epoch)
@@ -633,6 +647,7 @@ for epoch in range(100000):
     writer.add_scalar('epochMetric.epoch_tor_loss/test', metrics["epoch_tor_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/test', metrics["epoch_rmsd_recycling_0_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/test', metrics["epoch_rmsd_recycling_1_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss/test', metrics["epoch_rmsd_recycling_2_loss"],epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/test', metrics["epoch_rmsd_recycling_9_loss"],epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/test', metrics["epoch_rmsd_recycling_19_loss"],epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/test', metrics["epoch_rmsd_recycling_39_loss"],epoch)

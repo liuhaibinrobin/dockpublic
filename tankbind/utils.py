@@ -302,6 +302,7 @@ def evaluate_with_affinity(data_loader,
 
     epoch_rmsd_recycling_0_loss=0
     epoch_rmsd_recycling_1_loss=0
+    epoch_rmsd_recycling_2_loss=0
     epoch_rmsd_recycling_9_loss=0
     epoch_rmsd_recycling_19_loss=0
     epoch_rmsd_recycling_39_loss=0
@@ -356,6 +357,7 @@ def evaluate_with_affinity(data_loader,
 
         rmsd_recycling_0_loss = torch.tensor(rmsd_recycling_0_loss / len(data_groundtruth_pos_batched)).to(y_pred.device)
         rmsd_recycling_1_loss = torch.mean(rmsd_list[0]) if len(rmsd_list) >= 1 else torch.tensor([0]).to(y_pred.device)
+        rmsd_recycling_2_loss = torch.mean(rmsd_list[1]) if len(rmsd_list) >= 2 else torch.tensor([0]).to(y_pred.device)
         rmsd_recycling_9_loss = torch.mean(rmsd_list[8]) if len(rmsd_list) >= 9 else torch.tensor([0]).to(y_pred.device)
         rmsd_recycling_19_loss = torch.mean(rmsd_list[18]) if len(rmsd_list) >= 19 else torch.tensor([0]).to(y_pred.device)
         rmsd_recycling_39_loss = torch.mean(rmsd_list[38]) if len(rmsd_list) >= 39 else torch.tensor([0]).to(y_pred.device)
@@ -394,7 +396,7 @@ def evaluate_with_affinity(data_loader,
                                                                 mask_rotate=data['compound'].mask_rotate[i])
                         ttt = time.time()
                         if data.pdb[i] not in opt_torsion_dict.keys():
-                            opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=1)
+                            opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=50)
                             opt_torsion_dict[data.pdb[i]] = opt_torsion
                         else:
                             opt_torsion = opt_torsion_dict[data.pdb[i]]
@@ -442,6 +444,7 @@ def evaluate_with_affinity(data_loader,
 
         epoch_rmsd_recycling_0_loss += len(rmsd_list[0]) * rmsd_recycling_0_loss.item()
         epoch_rmsd_recycling_1_loss += len(rmsd_list[0]) * rmsd_recycling_1_loss.item()
+        epoch_rmsd_recycling_2_loss += len(rmsd_list[0]) * rmsd_recycling_2_loss.item()
         epoch_rmsd_recycling_9_loss += len(rmsd_list[0]) * rmsd_recycling_9_loss.item()
         epoch_rmsd_recycling_19_loss += len(rmsd_list[0]) * rmsd_recycling_19_loss.item()
         epoch_rmsd_recycling_39_loss += len(rmsd_list[0]) * rmsd_recycling_39_loss.item()
@@ -486,6 +489,7 @@ def evaluate_with_affinity(data_loader,
         "loss_contact_10A": epoch_loss_contact_10A / (len(y_pred) - epoch_num_nan_contact_10A),
         "epoch_rmsd_recycling_0_loss":epoch_rmsd_recycling_0_loss/len(RMSD_pred),
         "epoch_rmsd_recycling_1_loss": epoch_rmsd_recycling_1_loss / len(RMSD_pred),
+        "epoch_rmsd_recycling_2_loss": epoch_rmsd_recycling_2_loss / len(RMSD_pred),
         "epoch_rmsd_recycling_9_loss": epoch_rmsd_recycling_9_loss / len(RMSD_pred),
         "epoch_rmsd_recycling_19_loss": epoch_rmsd_recycling_19_loss / len(RMSD_pred),
         "epoch_rmsd_recycling_39_loss": epoch_rmsd_recycling_39_loss / len(RMSD_pred),
