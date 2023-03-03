@@ -41,7 +41,7 @@ import pickle
 import time
 from torch.multiprocessing import Process
 
-
+print("PYTORCH_CUDA_ALLOC_CONF:",os.environ["PYTORCH_CUDA_ALLOC_CONF"])
 def init_distributed_mode(args):
     '''initilize DDP
     '''
