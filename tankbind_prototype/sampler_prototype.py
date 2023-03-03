@@ -96,7 +96,7 @@ class SessionBatchSampler(torch.utils.data.sampler.Sampler):
         indication_cache=0
         for group in self.batches:
             if len(group) > 1:
-                #print("c"+str(group))
+                print("group"+str(group))
                 if self.mode == "session_ap_p_node":
                     indication=self.dataset.data.iloc[group[0]]["p_length"]
                 else:
@@ -107,7 +107,7 @@ class SessionBatchSampler(torch.utils.data.sampler.Sampler):
                     indication_cache+=indication
 
                 else:
-                    #print("a")
+                    print("group_cache_a"+str(group_cache))
                     yield group_cache
                     group_cache=[]
                     group_cache+=group
@@ -115,7 +115,7 @@ class SessionBatchSampler(torch.utils.data.sampler.Sampler):
             else:
                 continue
         if group_cache!=[]:
-            #print("b")
+            print("group_cache_b" + str(group_cache))
             yield group_cache
     #dynamic sampler is without definitive length
     # def __len__(self) -> int:
