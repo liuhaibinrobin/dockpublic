@@ -80,6 +80,16 @@ def get_keepNode(com, protein_node_xyz, n_node, pocket_radius, use_whole_protein
     else:
         max_keep_node_num_pocket_radius=10000
     keepNode=keepNode_dis<min(pocket_radius,max_keep_node_num_pocket_radius)# both conditions are needed to be meet
+
+    if keepNode.sum() < 5:
+        #todo 20230303 change the simply adding strategy
+        # # if only include less than 5 residues, simply add first 100 residues.
+        # keepNode[:100] = True
+        if 100<len(keepNode_dis):
+            _100_keep_node_num_pocket_radius=sorted(keepNode_dis.tolist())[100]
+        else:
+            _100_keep_node_num_pocket_radius=10000
+        keepNode=keepNode_dis<_100_keep_node_num_pocket_radius
     return keepNode
 
 
@@ -96,9 +106,7 @@ def construct_data_from_graph_gvp(protein_node_xyz, protein_seq, protein_node_s,
     keepNode = get_keepNode(com, protein_node_xyz.numpy(), n_node, pocket_radius, use_whole_protein, 
                              use_compound_com_as_pocket, add_noise_to_com, chosen_pocket_com,max_keep_node_num=max_keep_node_num)
 
-    if keepNode.sum() < 5:
-        # if only include less than 5 residues, simply add first 100 residues.
-        keepNode[:100] = True
+
     input_node_xyz = protein_node_xyz[keepNode]
     input_edge_idx, input_protein_edge_s, input_protein_edge_v = get_protein_edge_features_and_index(protein_edge_index, protein_edge_s, protein_edge_v, keepNode)
 
