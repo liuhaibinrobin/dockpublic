@@ -377,7 +377,10 @@ def evaluate_with_affinity(data_loader,
                 rot_loss = 0
                 tor_loss = 0
                 tmp_cnt = 0
-                for pred_result in pred_result_list:
+                tor_last = []
+                for _ in range(len(data_groundtruth_pos_batched)):
+                    tor_last.append([])
+                for recycling_num, pred_result in enumerate(pred_result_list):
 
                     tr_pred, rot_pred, torsion_pred_batched, _, _, current_candicate_conf_pos_batched = pred_result
 
@@ -394,20 +397,31 @@ def evaluate_with_affinity(data_loader,
                                                                 ground_truth_pos=data_groundtruth_pos_batched[i],
                                                                 rotate_edge_index=rotate_edge_index,
                                                                 mask_rotate=data['compound'].mask_rotate[i])
-                        ttt = time.time()
-                        if data.pdb[i] not in opt_torsion_dict.keys():
-                            opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=50)
-                            opt_torsion_dict[data.pdb[i]] = opt_torsion
+                        if recycling_num == 0:
+                            if data.pdb[i] not in opt_torsion_dict.keys():
+                                ttt = time.time()
+                                opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=50)
+                                opt_torsion_dict[data.pdb[i]] = opt_torsion
+                                tor_last[i] = torsion_pred_batched[i]
+                                # print(tmp_cnt, opt_rmsd,time.time()-ttt)
+                            else:
+                                opt_torsion = opt_torsion_dict[data.pdb[i]]
+                                opt_rmsd, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.detach().cpu().numpy())
+                                opt_rotate = matrix_to_axis_angle(opt_R).float()
+                                opt_tr = opt_tr.T[0]
+                                tor_last[i] = torsion_pred_batched[i]
                         else:
                             opt_torsion = opt_torsion_dict[data.pdb[i]]
-                            opt_rmsd, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.detach().cpu().numpy())
+                            if opt_torsion is not None:
+                                opt_torsion = opt_torsion - tor_last[i].detach().cpu() #opt_tor2 = opt_tor1 - tor_pred
+                            _, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.detach().cpu().numpy())
                             opt_rotate = matrix_to_axis_angle(opt_R).float()
                             opt_tr = opt_tr.T[0]
-                        # print(tmp_cnt, opt_rmsd, time.time() - ttt)
+                            tor_last[i] = tor_last[i] + torsion_pred_batched[i] #累加tor_pred
                         tr_loss += F.mse_loss(tr_pred[i], opt_tr)
                         rot_loss += F.mse_loss(rot_pred[i], opt_rotate)
                         if opt_torsion is not None:
-                            tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion)
+                            tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
                         tmp_cnt += 1
                 tr_loss=tr_loss/tmp_cnt
                 rot_loss=rot_loss/tmp_cnt
