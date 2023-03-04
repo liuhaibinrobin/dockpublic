@@ -132,7 +132,21 @@ class SessionBatchSampler(torch.utils.data.sampler.Sampler):
                 if group_cache==[]:
                     raise Exception
                 yield group_cache
+        elif self.mode=="ori":
+            group_cache = []
 
+            for group in self.batches:
+                if len(group) > 1:
+
+                    if len(group_cache) + len(group) < self.n:
+                        group_cache += group
+                    else:
+                        yield group_cache
+                        group_cache = []
+                else:
+                    continue
+            if group_cache != []:
+                yield group_cache
         else:
             raise Exception
             group_cache=[]
