@@ -405,7 +405,7 @@ def run_train(pre, args, dataloader,
         # if num_steps_train%5000==0:
         #     tr.print_diff()
         num_steps_train += 1
-        num_samples_train += len(data)
+        num_samples_train += len(data) #todo 这个是什么值 典型值为28
 
         session_list.append(data.session)
         sample_id_list.append(data.sample_id)
