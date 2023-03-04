@@ -138,7 +138,7 @@ class SessionBatchSampler(torch.utils.data.sampler.Sampler):
             for group in self.batches:
                 if len(group) > 1:
 
-                    if len(group_cache) + len(group) < self.n:
+                    if len(group_cache) + len(group) < self.max_batch_size:
                         group_cache += group
                     else:
                         yield group_cache
