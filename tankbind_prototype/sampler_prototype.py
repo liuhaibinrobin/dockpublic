@@ -239,6 +239,8 @@ class DistributedSessionBatchSampler(Sampler[T_co]):
             raise ValueError("seed must be assigned")
         self.seed = seed
 
+        self.batches = None
+        self.prepare_batches_for_epoch(self.epoch)
 
     def __iter__(self) -> Iterator[T_co]:
         # if self.shuffle:
