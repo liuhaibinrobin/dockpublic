@@ -59,6 +59,7 @@ class SessionBatchSampler(torch.utils.data.sampler.Sampler):
         
         
     def prepare_batches_for_epoch(self, epoch):
+        self.epoch=epoch
         seed = self.seed_init + epoch
         print(f"SessionBatchSampler | Refreshing batches with seed {seed} for epoch {epoch}.")
         np.random.seed(seed)

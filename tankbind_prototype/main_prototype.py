@@ -361,29 +361,38 @@ def main(args):
                                                         num_samples_train=num_samples_train,
                                                         model=model, optimizer=optimizer, pairwiseloss=pairwiseloss, 
                                                         device=device, writer=writer, logging=logging)
-        
-        # VAL/TEST
-        if iid_flag and iid_dataset is not None and iid_dataset.data is not None:
-            run_validation(pre=pre, label="iid", dataset=iid_dataset, dataloader=iid_dataloader, epoch=epoch,
-                           model=model, pairwiseloss=(mseloss if args.use_mse_loss else pairwiseloss), 
-                           device=device, writer=writer, logging=logging)
-        if ood_flag and ood_dataset is not None and ood_dataset.data is not None:
-            run_validation(pre=pre, label="ood", dataset=ood_dataset, dataloader=ood_dataloader, epoch=epoch,
-                           model=model, pairwiseloss=(mseloss if args.use_mse_loss else pairwiseloss), 
-                           device=device, writer=writer, logging=logging)
-        if internal_flag and internal_dataset is not None and internal_dataset.data is not None:
-            run_validation(pre=pre, label="internal", dataset=internal_dataset, dataloader=internal_dataloader, epoch=epoch,
-                           model=model, pairwiseloss=(mseloss if args.use_mse_loss else pairwiseloss), 
-                           device=device, writer=writer, logging=logging)
-        if test_flag and test_dataset is not None and test_dataset.data is not None:
-            run_validation(pre=pre, label="test", dataset=test_dataset, dataloader=test_dataloader, epoch=epoch,
-                           model=model, pairwiseloss=(mseloss if args.use_mse_loss else pairwiseloss), 
-                           device=device, writer=writer, logging=logging)
 
-        # save model checkpoint
-        if args.save_checkpoint:
-            torch.save(model.state_dict(), f"{pre}/models/epoch_{epoch}.pt")
-            print(f"End of epoch: save model of epoch {epoch} to {pre}/models/epoch_{epoch}.pt.")
+        validation_tag=False
+        if args.distributed :
+            # Only run validation on GPU 0 process, for simplity, so we do not run validation on multi gpu.
+            if dist.get_rank() == 0:
+                validation_tag=True
+        else:
+            validation_tag=True
+
+        if validation_tag==True:
+            # VAL/TEST
+            if iid_flag and iid_dataset is not None and iid_dataset.data is not None:
+                run_validation(pre=pre, label="iid", dataset=iid_dataset, dataloader=iid_dataloader, epoch=epoch,
+                               model=model, pairwiseloss=(mseloss if args.use_mse_loss else pairwiseloss),
+                               device=device, writer=writer, logging=logging)
+            if ood_flag and ood_dataset is not None and ood_dataset.data is not None:
+                run_validation(pre=pre, label="ood", dataset=ood_dataset, dataloader=ood_dataloader, epoch=epoch,
+                               model=model, pairwiseloss=(mseloss if args.use_mse_loss else pairwiseloss),
+                               device=device, writer=writer, logging=logging)
+            if internal_flag and internal_dataset is not None and internal_dataset.data is not None:
+                run_validation(pre=pre, label="internal", dataset=internal_dataset, dataloader=internal_dataloader, epoch=epoch,
+                               model=model, pairwiseloss=(mseloss if args.use_mse_loss else pairwiseloss),
+                               device=device, writer=writer, logging=logging)
+            if test_flag and test_dataset is not None and test_dataset.data is not None:
+                run_validation(pre=pre, label="test", dataset=test_dataset, dataloader=test_dataloader, epoch=epoch,
+                               model=model, pairwiseloss=(mseloss if args.use_mse_loss else pairwiseloss),
+                               device=device, writer=writer, logging=logging)
+
+            # save model checkpoint
+            if args.save_checkpoint:
+                torch.save(model.state_dict(), f"{pre}/models/epoch_{epoch}.pt")
+                print(f"End of epoch: save model of epoch {epoch} to {pre}/models/epoch_{epoch}.pt.")
 
 
 def run_train(pre, args, dataloader,
