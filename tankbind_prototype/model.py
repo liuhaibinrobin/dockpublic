@@ -386,7 +386,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                 for pdb_idx,pdb_id in enumerate(p_pdb_id_list):
                     idx=group_id_tuple_list[pdb_idx][0]
                     for_log_list.append((len(group_id_tuple_list[pdb_idx]),protein_node_s_batched[idx].shape[0]))
-                print(for_log_list,len(data.pdb_id),len(set(data.pdb_id)))
+                #print(for_log_list,len(data.pdb_id),len(set(data.pdb_id)))
                 for pdb_idx, pdb_id in enumerate(p_pdb_id_list):
                     idx = group_id_tuple_list[pdb_idx][0]
                     nodes = (protein_node_s_batched[idx], protein_node_v_batched[idx])
