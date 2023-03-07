@@ -195,10 +195,15 @@ class DistributedSessionBatchSampler(Sampler[T_co]):
                  shuffle: bool = True, seed: int = None,
                  index_save_path: Optional[str] = None,
                  max_batch_size=None,
-                 max_indication_num=1000
+                 max_indication_num=1000,
+                 mode="session_ap_p_node",
                 ) -> None:
 
         print("Initializing DDPS with parameters:")
+        if mode!="session_ap_p_node":
+            raise Exception
+
+
         if max_batch_size==None:
             raise Exception
         self.max_batch_size=max_batch_size

@@ -296,6 +296,7 @@ def main(args):
                     index_save_path=f"{pre}/train/batch_split_info",
                     max_batch_size=None,
                     max_indication_num=1000,
+                    mode="session_ap_p_node",
                 ),
                 follow_batch=['x', 'y', 'compound_pair',"protein_edge_index"],
                 num_workers=num_workers)
