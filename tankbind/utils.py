@@ -310,7 +310,8 @@ def evaluate_with_affinity(data_loader,
     epoch_tr_loss =0
     epoch_rot_loss =0
     epoch_tor_loss=0
-
+    epoch_tr_loss_recy_0, epoch_rot_loss_recy_0, epoch_tor_loss_recy_0 = 0, 0, 0
+    epoch_tr_loss_recy_1, epoch_rot_loss_recy_1, epoch_tor_loss_recy_1 = 0, 0, 0
     for data in tqdm(data_loader):
         protein_ptr = data['protein']['ptr']
         p_length_list += [int(protein_ptr[ptr] - protein_ptr[ptr-1]) for ptr in range(1, len(protein_ptr))]
@@ -377,6 +378,12 @@ def evaluate_with_affinity(data_loader,
                 rot_loss = 0
                 tor_loss = 0
                 tmp_cnt = 0
+                tr_loss_recy_0 = tr_loss_recy_0/len(data_groundtruth_pos_batched)
+                rot_loss_recy_0 = rot_loss_recy_0/len(data_groundtruth_pos_batched)
+                tor_loss_recy_0 = tor_loss_recy_0/len(data_groundtruth_pos_batched)
+                tr_loss_recy_1 = tr_loss_recy_1/len(data_groundtruth_pos_batched)
+                rot_loss_recy_1 = rot_loss_recy_1/len(data_groundtruth_pos_batched)
+                tor_loss_recy_1 = tor_loss_recy_1/len(data_groundtruth_pos_batched)
                 tor_last = []
                 for _ in range(len(data_groundtruth_pos_batched)):
                     tor_last.append([])
@@ -417,7 +424,17 @@ def evaluate_with_affinity(data_loader,
                             _, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.detach().cpu().numpy())
                             opt_rotate = matrix_to_axis_angle(opt_R).float()
                             opt_tr = opt_tr.T[0]
-                            tor_last[i] = tor_last[i] + torsion_pred_batched[i] #累加tor_pred
+                            tor_last[i] = tor_last[i] + torsion_pred_batched[i] % (math.pi * 2)#累加tor_pred
+                        if recycling_num == 0:
+                            tr_loss_recy_0 += F.mse_loss(tr_pred[i],opt_tr)
+                            rot_loss_recy_0 += F.mse_loss(rot_pred[i],opt_rotate)
+                            if opt_torsion is not None:
+                                tor_loss_recy_0 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
+                        elif recycling_num == 1:
+                            tr_loss_recy_1 += F.mse_loss(tr_pred[i],opt_tr)
+                            rot_loss_recy_1 += F.mse_loss(rot_pred[i],opt_rotate)
+                            if opt_torsion is not None:
+                                tor_loss_recy_1 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
                         tr_loss += F.mse_loss(tr_pred[i], opt_tr)
                         rot_loss += F.mse_loss(rot_pred[i], opt_rotate)
                         if opt_torsion is not None:
@@ -426,6 +443,12 @@ def evaluate_with_affinity(data_loader,
                 tr_loss=tr_loss/tmp_cnt
                 rot_loss=rot_loss/tmp_cnt
                 tor_loss=tor_loss/tmp_cnt
+                tr_loss_recy_0 = tr_loss_recy_0/len(data_groundtruth_pos_batched)
+                rot_loss_recy_0 = rot_loss_recy_0/len(data_groundtruth_pos_batched)
+                tor_loss_recy_0 = tor_loss_recy_0/len(data_groundtruth_pos_batched)
+                tr_loss_recy_1 = tr_loss_recy_1/len(data_groundtruth_pos_batched)
+                rot_loss_recy_1 = rot_loss_recy_1/len(data_groundtruth_pos_batched)
+                tor_loss_recy_1 = tor_loss_recy_1/len(data_groundtruth_pos_batched)
 
 
                 prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i]) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
@@ -466,7 +489,12 @@ def evaluate_with_affinity(data_loader,
         epoch_tr_loss += len(rmsd_list[0]) * tr_loss.item()
         epoch_rot_loss += len(rmsd_list[0]) * rot_loss.item()
         epoch_tor_loss += len(rmsd_list[0]) * tor_loss.item()
-
+        epoch_tr_loss_recy_0 += len(rmsd_list[0]) * tr_loss_recy_0.item()
+        epoch_rot_loss_recy_0 += len(rmsd_list[0]) * rot_loss_recy_0.item()
+        epoch_tor_loss_recy_0 += len(rmsd_list[0]) * tor_loss_recy_0.item()
+        epoch_tr_loss_recy_1 += len(rmsd_list[0]) * tr_loss_recy_1.item()
+        epoch_rot_loss_recy_1 += len(rmsd_list[0]) * rot_loss_recy_1.item()
+        epoch_tor_loss_recy_1 += len(rmsd_list[0]) * tor_loss_recy_1.item()
         y_list.append(y)
         y_pred_list.append(y_pred.detach())
         affinity_list.append(data.affinity)
@@ -510,6 +538,13 @@ def evaluate_with_affinity(data_loader,
         "epoch_tr_loss":epoch_tr_loss / len(RMSD_pred),
         "epoch_rot_loss": epoch_rot_loss / len(RMSD_pred),
         "epoch_tor_loss": epoch_tor_loss / len(RMSD_pred),
+        "epoch_tr_loss_recy_0":epoch_tr_loss_recy_0 / len(RMSD_pred),
+        "epoch_rot_loss_recy_0":epoch_rot_loss_recy_0 / len(RMSD_pred),
+        "epoch_tor_loss_recy_0":epoch_tor_loss_recy_0 / len(RMSD_pred),
+        "epoch_tr_loss_recy_1":epoch_tr_loss_recy_1 / len(RMSD_pred),
+        "epoch_rot_loss_recy_1":epoch_rot_loss_recy_1 / len(RMSD_pred),
+        "epoch_tor_loss_recy_1":epoch_tor_loss_recy_1 / len(RMSD_pred),
+        
 
     }
     
@@ -651,7 +686,6 @@ class OptimizeConformer:
         R_, t = rigid_transform_Kabsch_3D_torch(
             (new_pos-lig_center).T,
             (self.ground_truth_pos-lig_center).T)
-
 
         aligned_new_pos = torch.mm((new_pos - lig_center), R_.T) + t.T + lig_center
         #aligned_new_pos = np.dot((new_pos-lig_center) , R.T) + t.T+lig_center

@@ -248,6 +248,8 @@ for epoch in range(100000):
     epoch_tr_loss =0
     epoch_rot_loss =0
     epoch_tor_loss=0
+    epoch_tr_loss_recy_0, epoch_rot_loss_recy_0, epoch_tor_loss_recy_0 = 0, 0, 0
+    epoch_tr_loss_recy_1, epoch_rot_loss_recy_1, epoch_tor_loss_recy_1 = 0, 0, 0
     #先修改数据为只有真口袋的，验证我们的方法，后续改回全部口袋 TODO
     # if epoch < data_warmup_epochs:
     #     data_it = tqdm(train_loader)
@@ -300,7 +302,9 @@ for epoch in range(100000):
             tr_loss=0
             rot_loss=0
             tor_loss=0
-            tmp_cnt=0
+            tr_loss_recy_0, rot_loss_recy_0, tor_loss_recy_0 = 0, 0, 0
+            tr_loss_recy_1, rot_loss_recy_1, tor_loss_recy_1 = 0, 0, 0
+            tmp_cnt=0 
             tor_last = []
             for _ in range(len(data_groundtruth_pos_batched)):
                 tor_last.append([])
@@ -341,17 +345,32 @@ for epoch in range(100000):
                         _, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.numpy())
                         opt_rotate = matrix_to_axis_angle(opt_R).float()
                         opt_tr = opt_tr.T[0]
-                        tor_last[i] = tor_last[i] + torsion_pred_batched[i] #累加tor_pred
+                        tor_last[i] = (tor_last[i] + torsion_pred_batched[i]) % (math.pi * 2)#累加tor_pred，是否余2pi?TODO
+                    if recycling_num == 0:
+                        tr_loss_recy_0 += F.mse_loss(tr_pred[i],opt_tr)
+                        rot_loss_recy_0 += F.mse_loss(rot_pred[i],opt_rotate)
+                        if opt_torsion is not None:
+                            tor_loss_recy_0 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
+                    elif recycling_num == 1:
+                        tr_loss_recy_1 += F.mse_loss(tr_pred[i],opt_tr)
+                        rot_loss_recy_1 += F.mse_loss(rot_pred[i],opt_rotate)
+                        if opt_torsion is not None:
+                            tor_loss_recy_1 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
                     tr_loss += F.mse_loss(tr_pred[i],opt_tr)
                     rot_loss += F.mse_loss(rot_pred[i],opt_rotate)
                     if opt_torsion is not None:
                         tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
                     tmp_cnt += 1
 
-            tr_loss=tr_loss/tmp_cnt
-            rot_loss=rot_loss/tmp_cnt
-            tor_loss=tor_loss/tmp_cnt
-
+            tr_loss = tr_loss/tmp_cnt
+            rot_loss = rot_loss/tmp_cnt
+            tor_loss = tor_loss/tmp_cnt
+            tr_loss_recy_0 = tr_loss_recy_0/len(data_groundtruth_pos_batched)
+            rot_loss_recy_0 = rot_loss_recy_0/len(data_groundtruth_pos_batched)
+            tor_loss_recy_0 = tor_loss_recy_0/len(data_groundtruth_pos_batched)
+            tr_loss_recy_1 = tr_loss_recy_1/len(data_groundtruth_pos_batched)
+            rot_loss_recy_1 = rot_loss_recy_1/len(data_groundtruth_pos_batched)
+            tor_loss_recy_1 = tor_loss_recy_1/len(data_groundtruth_pos_batched)
 
 
             #rmsd_loss
@@ -439,7 +458,7 @@ for epoch in range(100000):
 
         #total loss
         if args.use_contact_loss == 0:
-            loss = tr_loss  + rot_loss + tor_loss #TODO:debug阶段
+            loss = tr_loss  + rot_loss + tor_loss + affinity_loss_A + affinity_loss_B #TODO:debug阶段
             #loss = tor_loss #TODO:debug阶段
             #loss = prmsd_loss.double() + rmsd_loss.double() + affinity_loss_A + affinity_loss_B
         else:
@@ -453,6 +472,12 @@ for epoch in range(100000):
         epoch_tr_loss+=len(rmsd_list[0]) * tr_loss.item()
         epoch_rot_loss += len(rmsd_list[0]) * rot_loss.item()
         epoch_tor_loss += len(rmsd_list[0]) * tor_loss.item()
+        epoch_tr_loss_recy_0 += len(rmsd_list[0]) * tr_loss_recy_0.item()
+        epoch_rot_loss_recy_0 += len(rmsd_list[0]) * rot_loss_recy_0.item()
+        epoch_tor_loss_recy_0 += len(rmsd_list[0]) * tor_loss_recy_0.item()
+        epoch_tr_loss_recy_1 += len(rmsd_list[0]) * tr_loss_recy_1.item()
+        epoch_rot_loss_recy_1 += len(rmsd_list[0]) * rot_loss_recy_1.item()
+        epoch_tor_loss_recy_1 += len(rmsd_list[0]) * tor_loss_recy_1.item()
 
 
         epoch_loss_contact += len(y_pred) * contact_loss.item()
@@ -490,7 +515,7 @@ for epoch in range(100000):
         writer.add_scalar(f'sampleLoss.RMSD/train', rmsd_loss.item(), global_samples_train)
         writer.add_scalar(f'sampleLoss.Pred_RMSD/train', prmsd_loss.item(), global_samples_train)
         global_steps_train+=1
-        global_samples_train+=len(data)
+        global_samples_train+=len(data.pdb)
 
     train_result = pd.DataFrame(train_result_list, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'prmsd_pred'])
     save_path = f"{pre}/results/train_result_{epoch}.csv"
@@ -551,6 +576,12 @@ for epoch in range(100000):
     writer.add_scalar('epochLoss.tr/train', epoch_tr_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.rot/train', epoch_rot_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.tor/train', epoch_tor_loss / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.tr_recy_0/train', epoch_tr_loss_recy_0 / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.rot_recy_0/train', epoch_rot_loss_recy_0 / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.tor_recy_0/train', epoch_tor_loss_recy_0 / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.tr_recy_1/train', epoch_tr_loss_recy_1 / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.rot_recy_1/train', epoch_rot_loss_recy_1 / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.tor_recy_1/train', epoch_tor_loss_recy_1 / len(RMSD_pred), epoch)
 
 
     #continue #TODO
@@ -599,6 +630,13 @@ for epoch in range(100000):
     writer.add_scalar('epochMetric.epoch_tr_loss/validation', metrics["epoch_tr_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rot_loss/validation', metrics["epoch_rot_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_tor_loss/validation', metrics["epoch_tor_loss"], epoch)
+    writer.add_scalar('epochMetric.epoch_tr_recy_0_loss/validation', metrics["epoch_tr_loss_recy_0"] / len(RMSD_pred), epoch)
+    writer.add_scalar('epochMetric.epoch_rot_recy_0_loss/validation', metrics["epoch_rot_loss_recy_0"] / len(RMSD_pred), epoch)
+    writer.add_scalar('epochMetric.epoch_tor_recy_0_loss/validation', metrics["epoch_tor_loss_recy_0"] / len(RMSD_pred), epoch)
+    writer.add_scalar('epochMetric.epoch_tr_recy_1_loss/validation', metrics["epoch_tr_loss_recy_1"] / len(RMSD_pred), epoch)
+    writer.add_scalar('epochMetric.epoch_rot_recy_1_loss/validation', metrics["epoch_rot_loss_recy_1"] / len(RMSD_pred), epoch)
+    writer.add_scalar('epochMetric.epoch_tor_recy_1_loss/validation', metrics["epoch_tor_loss_recy_1"] / len(RMSD_pred), epoch)
+
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/validation', metrics["epoch_rmsd_recycling_0_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/validation', metrics["epoch_rmsd_recycling_1_loss"],epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss/validation', metrics["epoch_rmsd_recycling_2_loss"],epoch)
@@ -645,6 +683,13 @@ for epoch in range(100000):
     writer.add_scalar('epochMetric.epoch_tr_loss/test', metrics["epoch_tr_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rot_loss/test', metrics["epoch_rot_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_tor_loss/test', metrics["epoch_tor_loss"], epoch)
+    writer.add_scalar('epochMetric.epoch_tr_recy_0_loss/test', metrics["epoch_tr_loss_recy_0"] / len(RMSD_pred), epoch)
+    writer.add_scalar('epochMetric.epoch_rot_recy_0_loss/test', metrics["epoch_rot_loss_recy_0"] / len(RMSD_pred), epoch)
+    writer.add_scalar('epochMetric.epoch_tor_recy_0_loss/test', metrics["epoch_tor_loss_recy_0"] / len(RMSD_pred), epoch)
+    writer.add_scalar('epochMetric.epoch_tr_recy_1_loss/test', metrics["epoch_tr_loss_recy_1"] / len(RMSD_pred), epoch)
+    writer.add_scalar('epochMetric.epoch_rot_recy_1_loss/test', metrics["epoch_rot_loss_recy_1"] / len(RMSD_pred), epoch)
+    writer.add_scalar('epochMetric.epoch_tor_recy_1_loss/test', metrics["epoch_tor_loss_recy_1"] / len(RMSD_pred), epoch)
+
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/test', metrics["epoch_rmsd_recycling_0_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/test', metrics["epoch_rmsd_recycling_1_loss"],epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss/test', metrics["epoch_rmsd_recycling_2_loss"],epoch)
