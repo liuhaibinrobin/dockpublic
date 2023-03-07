@@ -321,8 +321,26 @@ class DistributedSessionBatchSampler(Sampler[T_co]):
             torch.save(indices, f"{self.index_save_path}/batch_in_epoch_{epoch}_with_seed_{seed}.pt")
         self.batches = indices
 
-    # def __len__(self) -> int:
-    #     return len(self.batches)
+    def __len__(self) -> int:
+        # def __len__(self) -> int:
+        #     return len(self.batches)
+        self_rank=self.rank
+        num_samples_train = 0
+
+        rank_length_list=[]
+        for tmp_rank in range(self.num_replicas):
+            self.rank=tmp_rank
+            for batch_index, sample_indeices in enumerate(self):
+                #num_samples_train += len(sample_indeices)
+                # if batch_index % 100 == 0:
+                #     print(batch_index)
+                pass
+            rank_length_list.append(batch_index+1)
+            print("tmp_rank:%s length:%s"%(tmp_rank,batch_index+1))
+        total_length=min(rank_length_list)
+        print("total_length:%s"%(total_length))
+        self.rank=self_rank
+        return total_length
 
     def set_epoch(self, epoch: int) -> None:
         r"""

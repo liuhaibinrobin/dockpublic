@@ -275,7 +275,7 @@ def main(args):
 
 
 
-    num_workers = 8
+    num_workers = args.num_workers
 
 
     os.system(f"mkdir -p {pre}/train/batch_split_info")
@@ -421,7 +421,7 @@ def run_train(pre, args, dataloader,
         # if num_steps_train%5000==0:
         #     tr.print_diff()
         num_steps_train += 1
-        #num_samples_train += len(data) #todo 这个是什么值 典型值为28
+        #num_samples_train += len(data) #todo 这个是data数据项数量 典型值为28
         num_samples_train += len(data.pdb_id)
 
         session_list.append(data.session)
@@ -629,6 +629,8 @@ if __name__ == "__main__":
     parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
     parser.add_argument("--max_node", type=int, default=500)
     parser.add_argument("--gpu", type=int, default=0)
+    parser.add_argument("--num_workers", type=int, default=6)
+
 
     args = parser.parse_args()
     main(args)
