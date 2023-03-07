@@ -293,7 +293,10 @@ def main(args):
                     rank=args.rank,
                     shuffle=True,
                     seed=42,
-                    index_save_path=f"{pre}/train/batch_split_info"),
+                    index_save_path=f"{pre}/train/batch_split_info",
+                    max_batch_size=None,
+                    max_indication_num=1000,
+                ),
                 follow_batch=['x', 'y', 'compound_pair',"protein_edge_index"],
                 num_workers=num_workers)
         else:
@@ -303,7 +306,7 @@ def main(args):
                                     follow_batch=['x', 'y','compound_pair',"protein_edge_index"],
                                     batch_sampler=train_sampler,
                                     pin_memory=False,
-                                    num_workers=8)
+                                    num_workers=num_workers)
     print("fin!")
 
     valid_batch_size = 8

@@ -40,7 +40,7 @@ class SessionBatchSampler(torch.utils.data.sampler.Sampler):
                  name: Optional[str] = None,
                  index_save_path: Optional[str] = None,
                  mode=None,
-                 max_indication_num=None):#session_ap_p_node  session_au_p_node
+                 max_indication_num=1000):#session_ap_p_node  session_au_p_node
         if mode is None:
             raise Exception
         if max_indication_num is None:
@@ -189,14 +189,23 @@ class DistributedSessionBatchSampler(Sampler[T_co]):
 
     """
 
-    def protein_edge_index__init__(self,
+    def __init__(self,
                  dataset: Dataset,
                  num_replicas: Optional[int] = None, rank: Optional[int] = None,
                  shuffle: bool = True, seed: int = None,
-                 index_save_path: Optional[str] = None
+                 index_save_path: Optional[str] = None,
+                 max_batch_size=None,
+                 max_indication_num=1000
                 ) -> None:
 
         print("Initializing DDPS with parameters:")
+        if max_batch_size==None:
+            raise Exception
+        self.max_batch_size=max_batch_size
+
+        if max_indication_num == None:
+            raise Exception
+        self.max_indication_num=max_indication_num
 
         self.index_save_path=index_save_path
         self.group_info_saved = False
@@ -239,11 +248,46 @@ class DistributedSessionBatchSampler(Sampler[T_co]):
         self.num_batch = self.total_size // self.num_replicas
         # print("Batched_indices before split", batched_indices)
         batched_indices = self.batches[self.rank:self.total_size:self.num_replicas]
+
+        group_cache_pdb_id_dict = {}
+        group_cache_sample_num = 0
+        indication_cache = 0
         for group in batched_indices:
             if len(group) > 1:
-                yield group
+                # print("group_"+str(group))
+                indication = self.dataset.data.iloc[group[0]]["p_length"]
+                group_pdb_id = self.dataset.data.iloc[group[0]]["pdb_id"]
+                if group_cache_sample_num + len(group) <= self.max_batch_size and \
+                        indication_cache + indication <= self.max_indication_num:
+                    if group_pdb_id not in group_cache_pdb_id_dict:
+                        group_cache_pdb_id_dict[group_pdb_id] = []
+                    group_cache_pdb_id_dict[group_pdb_id] += group
+                    group_cache_sample_num += len(group)
+                    indication_cache += indication
+
+                else:
+                    # print("group_cache_a"+str(group_cache))
+                    if group_cache_pdb_id_dict == {}:
+                        raise Exception
+                    group_cache = []
+                    for pdb_id in group_cache_pdb_id_dict:
+                        group_cache += group_cache_pdb_id_dict[pdb_id]
+                    if group_cache == []:
+                        raise Exception
+                    yield group_cache
+                    group_cache_pdb_id_dict = {group_pdb_id: group}
+                    group_cache_sample_num = len(group)
+                    indication_cache = indication
             else:
                 continue
+        if group_cache_pdb_id_dict != {}:
+            # print("group_cache_b" + str(group_cache))
+            group_cache = []
+            for pdb_id in group_cache_pdb_id_dict:
+                group_cache += group_cache_pdb_id_dict[pdb_id]
+            if group_cache == []:
+                raise Exception
+            yield group_cache
 
     def prepare_batches_for_epoch(self, epoch):
         seed = self.seed + epoch
@@ -269,8 +313,8 @@ class DistributedSessionBatchSampler(Sampler[T_co]):
             torch.save(indices, f"{self.index_save_path}/batch_in_epoch_{epoch}_with_seed_{seed}.pt")
         self.batches = indices
 
-    def __len__(self) -> int:
-        return len(self.batches)
+    # def __len__(self) -> int:
+    #     return len(self.batches)
 
     def set_epoch(self, epoch: int) -> None:
         r"""
@@ -484,7 +528,7 @@ class DistributedDynamicBatchSampler(Sampler[T_co]):
             pickle.dump(dyn_sample_info, f)
 
         #with open(f"dyn_sample_info_{self.rank}", "rb") as f:
-        #    self.dyn_sample_info = pickle.load(f)      
+        #    self.dyn_sample_info = pickle.load(f)
         """
         print("Processed dyn_sample_info!")
 
