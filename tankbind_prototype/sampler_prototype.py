@@ -311,7 +311,7 @@ class DistributedSessionBatchSampler(Sampler[T_co]):
             print(f"SessionBatchSampler | Saving all samples' group indices.")
             torch.save(indices, f"{self.index_save_path}/batch_of_all_sample.pt")
             self.group_info_saved = True
-        all_indices = [all_random(a=indices[_], n=self.n) for _ in indices]
+        all_indices = [all_random(a=indices[_], n=self.max_batch_size) for _ in indices]
         indices = []
         for _ in all_indices:
             indices.extend(_)
