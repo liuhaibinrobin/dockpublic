@@ -175,7 +175,7 @@ def main(args):
 
     timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
     w_label = "_" + args.label if args.label != "" else ""
-    writer = SummaryWriter(f"./tensorboard/{rank_tag}{timestamp}{w_label}")
+    writer = SummaryWriter(f"./tensorboard/{timestamp}{w_label}")
     #writer = SummaryWriter(f"./tensorboard/tmp")
 
     train_flag = True if "train" in args.run_mode else False
@@ -301,7 +301,7 @@ def main(args):
                 follow_batch=['x', 'y', 'compound_pair',"protein_edge_index"],
                 num_workers=num_workers)
         else:
-            train_sampler = SessionBatchSampler(train_dataset, max_batch_size=args.sampler_batch_size, seed=0, name=rank_tag + timestamp,
+            train_sampler = SessionBatchSampler(train_dataset, max_batch_size=args.sampler_batch_size, seed=0, name=timestamp,
                                                 index_save_path=f"{pre}/train/batch_split_info",mode=args.session_type+"_p_node",max_indication_num=1000)
             train_dataloader = DataLoader(train_dataset,
                                     follow_batch=['x', 'y','compound_pair',"protein_edge_index"],
