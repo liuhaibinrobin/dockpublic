@@ -345,7 +345,7 @@ def main(args):
     model = get_model(0, logging, device, readout_mode=args.readout_mode, output_func=args.output_func,session_type=args.session_type)
     logger.info("local model end")
     if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])#, find_unused_parameters=True,broadcast_buffers=False)
+        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu],find_unused_parameters=True,broadcast_buffers=False)#
         logger.info("ddp model end")
     if args.restart:
         model.load_state_dict(torch.load(args.restart))
