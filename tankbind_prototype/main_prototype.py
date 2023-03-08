@@ -196,7 +196,11 @@ def main(args):
     logger = logging.getLogger("")
     handler = logging.FileHandler(f'log/{rank_tag}{timestamp}.log')
     handler.setFormatter(logging.Formatter('%(message)s', ""))
+
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter = logging.Formatter('%(message)s', "")  # 也可以直接给formatter赋值
     logger.addHandler(handler)
+    logger.addHandler(console_handler)
 
     logging.info(
         f"{' '.join(sys.argv)}\n" 
@@ -337,18 +341,21 @@ def main(args):
 
 
 
-    print("Loading model, creating optimizer and loss function...", end="")
+    logger.info("Loading model, creating optimizer and loss function...", end="")
     model = get_model(0, logging, device, readout_mode=args.readout_mode, output_func=args.output_func,session_type=args.session_type)
+    logger.info("local model end")
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True,
                                                           broadcast_buffers=False)
+        logger.info("ddp model end")
     if args.restart:
         model.load_state_dict(torch.load(args.restart))
 
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-
+    logger.info("optimizer end")
     pairwiseloss = PairwiseLoss(sigmoid_lambda=args.sigmoid_lambda, ingrp_thr=args.pair_threshold-1)
+    logger.info("pairwiseloss end")
     if args.use_mse_loss:
         mseloss = MSELoss()
     print("fin!")
