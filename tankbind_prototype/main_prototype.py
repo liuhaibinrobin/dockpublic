@@ -45,6 +45,14 @@ try:
     print("PYTORCH_CUDA_ALLOC_CONF:",os.environ["PYTORCH_CUDA_ALLOC_CONF"])
 except:
     pass
+
+"""
+本地调试时指定
+export MASTER_PORT=12345
+export MASTER_ADDR=localhost
+export RANK=0
+export WORLD_SIZE=1
+"""
 def init_distributed_mode(args):
     '''initilize DDP
     '''
@@ -294,7 +302,7 @@ def main(args):
                     shuffle=True,
                     seed=42,
                     index_save_path=f"{pre}/train/batch_split_info",
-                    max_batch_size=None,
+                    max_batch_size=args.sampler_batch_size,
                     max_indication_num=1000,
                     mode="session_ap_p_node",
                 ),
