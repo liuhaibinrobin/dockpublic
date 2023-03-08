@@ -341,7 +341,7 @@ def main(args):
 
 
 
-    logger.info("Loading model, creating optimizer and loss function...", end="")
+    logger.info("Loading model, creating optimizer and loss function...")
     model = get_model(0, logging, device, readout_mode=args.readout_mode, output_func=args.output_func,session_type=args.session_type)
     logger.info("local model end")
     if args.distributed:
