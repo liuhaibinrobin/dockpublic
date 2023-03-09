@@ -351,16 +351,16 @@ def main(args):
 
         #model.load_state_dict(torch.load(args.restart))
         if args.distributed:
-            if "module." not in torch.load("model_path").items()[0][0]:
+            if "module." not in torch.load(args.restart).items()[0][0]:
                 logger.info("distributed module. not in")
-                model.load_state_dict({'module.'+k: v for k, v in torch.load("model_path").items()})
+                model.load_state_dict({'module.'+k: v for k, v in torch.load(args.restart).items()})
             else:
                 logger.info("distributed module. in")
                 model.load_state_dict(torch.load(args.restart))
         else:
             if "module." in torch.load("model_path").items()[0][0]:
                 logger.info("single module.  in")
-                model.load_state_dict({k.replace('module.', ''): v for k, v in torch.load("model_path").items()})
+                model.load_state_dict({k.replace('module.', ''): v for k, v in torch.load(args.restart).items()})
             else:
                 logger.info("single module. not in")
                 model.load_state_dict(torch.load(args.restart))
