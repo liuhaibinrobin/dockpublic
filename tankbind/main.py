@@ -244,6 +244,7 @@ for epoch in range(100000):
     epoch_rmsd_recycling_9_loss=0
     epoch_rmsd_recycling_19_loss=0
     epoch_rmsd_recycling_39_loss=0
+    epoch_rmsd_recycling_1_2_diff_loss=0
 
     epoch_tr_loss =0
     epoch_rot_loss =0
@@ -384,6 +385,13 @@ for epoch in range(100000):
                 rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).requires_grad_().to(y_pred.device)[data.is_equivalent_native_pocket])
             rmsd_loss = torch.stack(rmsd_list).mean()  # TODO:
 
+            next_candicate_conf_pos_batched_recy0=pred_result_list[0][3]
+            next_candicate_conf_pos_batched_recy1=pred_result_list[1][3]
+            rmsd_recycle_diff_list=[]
+            for i in range(len(data_groundtruth_pos_batched)):
+                tmp_rmsd=utils.RMSD(next_candicate_conf_pos_batched_recy0[i], next_candicate_conf_pos_batched_recy1[i])
+                rmsd_recycle_diff_list.append(tmp_rmsd)
+            RMSD_recycle_diff_loss = torch.tensor(rmsd_recycle_diff_list, dtype=torch.float).to(y_pred.device)[data.is_equivalent_native_pocket].mean()
 
             candicate_conf_pos_batched = pred_result_list[0][5]  # 初始坐标
             rmsd_recycling_0_loss=0
@@ -494,6 +502,7 @@ for epoch in range(100000):
         epoch_rmsd_recycling_9_loss  +=len(rmsd_list[0]) * rmsd_recycling_9_loss.item()
         epoch_rmsd_recycling_19_loss +=len(rmsd_list[0]) * rmsd_recycling_19_loss.item()
         epoch_rmsd_recycling_39_loss +=len(rmsd_list[0]) * rmsd_recycling_39_loss.item()
+        epoch_rmsd_recycling_1_2_diff_loss += len(rmsd_list[0]) * RMSD_recycle_diff_loss.item()
 
         # print(f"{loss.item():.3}")
         y_list.append(y)
@@ -572,6 +581,7 @@ for epoch in range(100000):
     writer.add_scalar('epochLoss.rmsd_recycling_9/train', epoch_rmsd_recycling_9_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.rmsd_recycling_19/train', epoch_rmsd_recycling_19_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.rmsd_recycling_39/train', epoch_rmsd_recycling_39_loss / len(RMSD_pred), epoch)
+    writer.add_scalar('epochLoss.epoch_rmsd_recycling_1_2_diff_loss/train', epoch_rmsd_recycling_1_2_diff_loss / len(RMSD_pred), epoch)
 
     writer.add_scalar('epochLoss.tr/train', epoch_tr_loss / len(RMSD_pred), epoch)
     writer.add_scalar('epochLoss.rot/train', epoch_rot_loss / len(RMSD_pred), epoch)
@@ -630,12 +640,12 @@ for epoch in range(100000):
     writer.add_scalar('epochMetric.epoch_tr_loss/validation', metrics["epoch_tr_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rot_loss/validation', metrics["epoch_rot_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_tor_loss/validation', metrics["epoch_tor_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_tr_recy_0_loss/validation', metrics["epoch_tr_loss_recy_0"] / len(RMSD_pred), epoch)
-    writer.add_scalar('epochMetric.epoch_rot_recy_0_loss/validation', metrics["epoch_rot_loss_recy_0"] / len(RMSD_pred), epoch)
-    writer.add_scalar('epochMetric.epoch_tor_recy_0_loss/validation', metrics["epoch_tor_loss_recy_0"] / len(RMSD_pred), epoch)
-    writer.add_scalar('epochMetric.epoch_tr_recy_1_loss/validation', metrics["epoch_tr_loss_recy_1"] / len(RMSD_pred), epoch)
-    writer.add_scalar('epochMetric.epoch_rot_recy_1_loss/validation', metrics["epoch_rot_loss_recy_1"] / len(RMSD_pred), epoch)
-    writer.add_scalar('epochMetric.epoch_tor_recy_1_loss/validation', metrics["epoch_tor_loss_recy_1"] / len(RMSD_pred), epoch)
+    writer.add_scalar('epochMetric.epoch_tr_recy_0_loss/validation', metrics["epoch_tr_loss_recy_0"], epoch)
+    writer.add_scalar('epochMetric.epoch_rot_recy_0_loss/validation', metrics["epoch_rot_loss_recy_0"], epoch)
+    writer.add_scalar('epochMetric.epoch_tor_recy_0_loss/validation', metrics["epoch_tor_loss_recy_0"], epoch)
+    writer.add_scalar('epochMetric.epoch_tr_recy_1_loss/validation', metrics["epoch_tr_loss_recy_1"], epoch)
+    writer.add_scalar('epochMetric.epoch_rot_recy_1_loss/validation', metrics["epoch_rot_loss_recy_1"], epoch)
+    writer.add_scalar('epochMetric.epoch_tor_recy_1_loss/validation', metrics["epoch_tor_loss_recy_1"], epoch)
 
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/validation', metrics["epoch_rmsd_recycling_0_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/validation', metrics["epoch_rmsd_recycling_1_loss"],epoch)
@@ -643,6 +653,7 @@ for epoch in range(100000):
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/validation', metrics["epoch_rmsd_recycling_9_loss"],epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/validation', metrics["epoch_rmsd_recycling_19_loss"],epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/validation', metrics["epoch_rmsd_recycling_39_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_2_diff_loss/validation', metrics["epoch_rmsd_recycling_1_2_diff_loss"],epoch)
     # writer.add_scalar('epochMetric.NativeAUROC/validation', metrics["native_auroc"], epoch)
     # writer.add_scalar('epochMetric.SelectedAUROC/validation', metrics["selected_auroc"], epoch)
     #====================test============================================================
@@ -683,12 +694,12 @@ for epoch in range(100000):
     writer.add_scalar('epochMetric.epoch_tr_loss/test', metrics["epoch_tr_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rot_loss/test', metrics["epoch_rot_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_tor_loss/test', metrics["epoch_tor_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_tr_recy_0_loss/test', metrics["epoch_tr_loss_recy_0"] / len(RMSD_pred), epoch)
-    writer.add_scalar('epochMetric.epoch_rot_recy_0_loss/test', metrics["epoch_rot_loss_recy_0"] / len(RMSD_pred), epoch)
-    writer.add_scalar('epochMetric.epoch_tor_recy_0_loss/test', metrics["epoch_tor_loss_recy_0"] / len(RMSD_pred), epoch)
-    writer.add_scalar('epochMetric.epoch_tr_recy_1_loss/test', metrics["epoch_tr_loss_recy_1"] / len(RMSD_pred), epoch)
-    writer.add_scalar('epochMetric.epoch_rot_recy_1_loss/test', metrics["epoch_rot_loss_recy_1"] / len(RMSD_pred), epoch)
-    writer.add_scalar('epochMetric.epoch_tor_recy_1_loss/test', metrics["epoch_tor_loss_recy_1"] / len(RMSD_pred), epoch)
+    writer.add_scalar('epochMetric.epoch_tr_recy_0_loss/test', metrics["epoch_tr_loss_recy_0"], epoch)
+    writer.add_scalar('epochMetric.epoch_rot_recy_0_loss/test', metrics["epoch_rot_loss_recy_0"], epoch)
+    writer.add_scalar('epochMetric.epoch_tor_recy_0_loss/test', metrics["epoch_tor_loss_recy_0"], epoch)
+    writer.add_scalar('epochMetric.epoch_tr_recy_1_loss/test', metrics["epoch_tr_loss_recy_1"], epoch)
+    writer.add_scalar('epochMetric.epoch_rot_recy_1_loss/test', metrics["epoch_rot_loss_recy_1"], epoch)
+    writer.add_scalar('epochMetric.epoch_tor_recy_1_loss/test', metrics["epoch_tor_loss_recy_1"], epoch)
 
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/test', metrics["epoch_rmsd_recycling_0_loss"], epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/test', metrics["epoch_rmsd_recycling_1_loss"],epoch)
@@ -696,6 +707,7 @@ for epoch in range(100000):
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_9_loss/test', metrics["epoch_rmsd_recycling_9_loss"],epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/test', metrics["epoch_rmsd_recycling_19_loss"],epoch)
     writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/test', metrics["epoch_rmsd_recycling_39_loss"],epoch)
+    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_2_diff_loss/test', metrics["epoch_rmsd_recycling_1_2_diff_loss"],epoch)
     # writer.add_scalar('epochMetric.NativeAUROC/test', metrics["native_auroc"], epoch)
     # writer.add_scalar('epochMetric.SelectedAUROC/test', metrics["selected_auroc"], epoch)
 

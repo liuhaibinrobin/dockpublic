@@ -306,6 +306,7 @@ def evaluate_with_affinity(data_loader,
     epoch_rmsd_recycling_9_loss=0
     epoch_rmsd_recycling_19_loss=0
     epoch_rmsd_recycling_39_loss=0
+    epoch_rmsd_recycling_1_2_diff_loss=0
 
     epoch_tr_loss =0
     epoch_rot_loss =0
@@ -349,6 +350,13 @@ def evaluate_with_affinity(data_loader,
                 tmp_rmsd = RMSD(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
                 tmp_list.append(tmp_rmsd)
             rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).to(y_pred.device))
+        next_candicate_conf_pos_batched_recy0=pred_result_list[0][3]
+        next_candicate_conf_pos_batched_recy1=pred_result_list[1][3]
+        rmsd_recycle_diff_list=[]
+        for i in range(len(data_groundtruth_pos_batched)):
+            tmp_rmsd=RMSD(next_candicate_conf_pos_batched_recy0[i], next_candicate_conf_pos_batched_recy1[i])
+            rmsd_recycle_diff_list.append(tmp_rmsd)
+        RMSD_recycle_diff_loss = torch.tensor(rmsd_recycle_diff_list, dtype=torch.float).to(y_pred.device)[data.is_equivalent_native_pocket].mean()    
 
         candicate_conf_pos_batched = pred_result_list[0][5]  # 初始坐标
         rmsd_recycling_0_loss = 0
@@ -377,13 +385,9 @@ def evaluate_with_affinity(data_loader,
                 tr_loss = 0
                 rot_loss = 0
                 tor_loss = 0
+                tr_loss_recy_0, rot_loss_recy_0, tor_loss_recy_0 = 0, 0, 0
+                tr_loss_recy_1, rot_loss_recy_1, tor_loss_recy_1 = 0, 0, 0
                 tmp_cnt = 0
-                tr_loss_recy_0 = tr_loss_recy_0/len(data_groundtruth_pos_batched)
-                rot_loss_recy_0 = rot_loss_recy_0/len(data_groundtruth_pos_batched)
-                tor_loss_recy_0 = tor_loss_recy_0/len(data_groundtruth_pos_batched)
-                tr_loss_recy_1 = tr_loss_recy_1/len(data_groundtruth_pos_batched)
-                rot_loss_recy_1 = rot_loss_recy_1/len(data_groundtruth_pos_batched)
-                tor_loss_recy_1 = tor_loss_recy_1/len(data_groundtruth_pos_batched)
                 tor_last = []
                 for _ in range(len(data_groundtruth_pos_batched)):
                     tor_last.append([])
@@ -450,7 +454,6 @@ def evaluate_with_affinity(data_loader,
                 rot_loss_recy_1 = rot_loss_recy_1/len(data_groundtruth_pos_batched)
                 tor_loss_recy_1 = tor_loss_recy_1/len(data_groundtruth_pos_batched)
 
-
                 prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i]) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
                 rmsd_loss = torch.stack(rmsd_list[1:]).mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(y_pred.device)
                 contact_loss = contact_criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
@@ -485,6 +488,7 @@ def evaluate_with_affinity(data_loader,
         epoch_rmsd_recycling_9_loss += len(rmsd_list[0]) * rmsd_recycling_9_loss.item()
         epoch_rmsd_recycling_19_loss += len(rmsd_list[0]) * rmsd_recycling_19_loss.item()
         epoch_rmsd_recycling_39_loss += len(rmsd_list[0]) * rmsd_recycling_39_loss.item()
+        epoch_rmsd_recycling_1_2_diff_loss += len(rmsd_list[0]) * RMSD_recycle_diff_loss.item()
 
         epoch_tr_loss += len(rmsd_list[0]) * tr_loss.item()
         epoch_rot_loss += len(rmsd_list[0]) * rot_loss.item()
@@ -535,6 +539,7 @@ def evaluate_with_affinity(data_loader,
         "epoch_rmsd_recycling_9_loss": epoch_rmsd_recycling_9_loss / len(RMSD_pred),
         "epoch_rmsd_recycling_19_loss": epoch_rmsd_recycling_19_loss / len(RMSD_pred),
         "epoch_rmsd_recycling_39_loss": epoch_rmsd_recycling_39_loss / len(RMSD_pred),
+        "epoch_rmsd_recycling_1_2_diff_loss": epoch_rmsd_recycling_1_2_diff_loss / len(RMSD_pred),
         "epoch_tr_loss":epoch_tr_loss / len(RMSD_pred),
         "epoch_rot_loss": epoch_rot_loss / len(RMSD_pred),
         "epoch_tor_loss": epoch_tor_loss / len(RMSD_pred),
