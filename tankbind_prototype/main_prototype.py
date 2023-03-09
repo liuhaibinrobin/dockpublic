@@ -348,9 +348,22 @@ def main(args):
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu],find_unused_parameters=True,broadcast_buffers=False)#
         logger.info("ddp model end")
     if args.restart:
-        model.load_state_dict(torch.load(args.restart))
 
-
+        #model.load_state_dict(torch.load(args.restart))
+        if args.distributed:
+            if "module." not in torch.load("model_path").items()[0][0]:
+                logger.info("distributed module. not in")
+                model.load_state_dict({'module.'+k: v for k, v in torch.load("model_path").items()})
+            else:
+                logger.info("distributed module. in")
+                model.load_state_dict(torch.load(args.restart))
+        else:
+            if "module." in torch.load("model_path").items()[0][0]:
+                logger.info("single module.  in")
+                model.load_state_dict({k.replace('module.', ''): v for k, v in torch.load("model_path").items()})
+            else:
+                logger.info("single module. not in")
+                model.load_state_dict(torch.load(args.restart))
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     logger.info("optimizer end")
     pairwiseloss = PairwiseLoss(sigmoid_lambda=args.sigmoid_lambda, ingrp_thr=args.pair_threshold-1)
