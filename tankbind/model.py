@@ -694,7 +694,11 @@ class IaBNet_with_affinity(torch.nn.Module):
                 compound_out = self.lig_node_embedding(self.rebatch(compound_out_batched, compound_batch))  #128 -> ns
                 protein_out = self.rec_node_embedding(self.rebatch(protein_out_batched, protein_batch))
             else:
-                compound_out, protein_out = compound_out_new[:, :self.ns], protein_out_new[:, :self.ns]  #只取embed中标量的属性
+                # compound_out, protein_out = compound_out_new[:, :self.ns], protein_out_new[:, :self.ns]  #只取embed中标量的属性
+                prmsd_pred = torch.zeros(affinity_pred_A.shape).to(affinity_pred_A.device)
+                compound_out = self.lig_node_embedding(self.rebatch(compound_out_batched, compound_batch))  #128 -> ns
+                protein_out = self.rec_node_embedding(self.rebatch(protein_out_batched, protein_batch))
+
             _, lig_edge_index, lig_edge_attr, lig_edge_sh = self.build_lig_conv_graph(data, current_candicate_conf_pos)
             lig_edge_attr = self.lig_edge_embedding(lig_edge_attr)
             rec_edge_index, rec_edge_attr, rec_edge_sh = self.build_rec_conv_graph(data)
@@ -704,6 +708,7 @@ class IaBNet_with_affinity(torch.nn.Module):
             cross_edge_index, cross_edge_attr, cross_edge_sh = self.build_cross_conv_graph(data, current_candicate_conf_pos)
             cross_lig, cross_rec = cross_edge_index
             cross_edge_attr = self.cross_edge_embedding(cross_edge_attr)
+            assert cross_lig.shape[0] == data.candicate_dis_matrix_batch.shape[0]
             for l in range(len(self.lig_conv_layers)):
                 lig_edge_attr_ = torch.cat([lig_edge_attr, compound_out[lig_src, :self.ns], compound_out[lig_dst, :self.ns]], -1)
                 lig_intra_update = self.lig_conv_layers[l](compound_out, lig_edge_index, lig_edge_attr_, lig_edge_sh)
@@ -809,7 +814,7 @@ class IaBNet_with_affinity(torch.nn.Module):
 
         return edge_index, edge_attr, edge_sh
 
-    def build_cross_conv_graph(self, data, current_candicate_conf_pos, cross_distance_cutoff=100):
+    def build_cross_conv_graph(self, data, current_candicate_conf_pos, cross_distance_cutoff=150):
         # builds the cross edges between ligand and protein
         edge_index = radius(data.node_xyz, current_candicate_conf_pos, cross_distance_cutoff,
                         data['protein'].batch, data['compound'].batch, max_num_neighbors=10000)
@@ -890,7 +895,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                 flexible_new_pos=data_pos_batched[i]
 
             lig_center = torch.mean(flexible_new_pos, dim=0, keepdim=True)
-
+            tr_update = torch.clamp(tr_update, -100.0, 100.0) ##TODO 在pos loss回传时这里会有bug，目前仅为了限制tr不会过大
             if batch_size > 1:
                 _new_pos = torch.mm((flexible_new_pos - lig_center),  rot_mat[i].T )+ tr_update[i,:] + lig_center
             else:
