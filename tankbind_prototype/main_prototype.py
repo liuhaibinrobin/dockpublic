@@ -366,6 +366,12 @@ def main(args):
                 logger.info("single module. not in")
                 model.load_state_dict(torch.load(args.restart))
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5,
+                                                           patience=5, verbose=True, threshold=0.01,
+                                                           threshold_mode='rel',
+                                                           cooldown=0, min_lr=0, eps=1e-08)
+
     logger.info("optimizer end")
     pairwiseloss = PairwiseLoss(sigmoid_lambda=args.sigmoid_lambda, ingrp_thr=args.pair_threshold-1)
     logger.info("pairwiseloss end")
@@ -384,12 +390,12 @@ def main(args):
             logging.info(f"Epoch {epoch} =================================================")
         # TRAIN
         if train_flag:
-            num_steps_train, num_samples_train = run_train(args=args,pre=pre, dataloader=train_dataloader, epoch=epoch,
+            num_steps_train, num_samples_train,total_loss = run_train(args=args,pre=pre, dataloader=train_dataloader, epoch=epoch,
                                                         num_steps_train=num_steps_train, 
                                                         num_samples_train=num_samples_train,
                                                         model=model, optimizer=optimizer, pairwiseloss=pairwiseloss, 
                                                         device=device, writer=writer, logging=logging)
-
+            scheduler.step(total_loss)
         validation_tag=False
         if args.distributed :
             # Only run validation on GPU 0 process, for simplity, so we do not run validation on multi gpu.
@@ -524,7 +530,7 @@ def run_train(pre, args, dataloader,
                 f"{pre}/train/epoch_result/epoch_{epoch}.pt")
         print(f"-- Save result of epoch {epoch} to {pre}/train/epoch_result/epoch_{epoch}.pt.")
 
-    return num_steps_train, num_samples_train
+    return num_steps_train, num_samples_train,total_loss
 
 def run_validation(pre, dataset, dataloader,
                    model, epoch, label, device,
