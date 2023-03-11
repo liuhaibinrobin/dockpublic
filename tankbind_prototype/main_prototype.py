@@ -404,7 +404,7 @@ def main(args):
                                                         num_samples_train=num_samples_train,
                                                         model=model, optimizer=optimizer, pairwiseloss=pairwiseloss, 
                                                         device=device, writer=writer, logging=logging)
-            #scheduler.step(total_loss)
+            scheduler.step(total_loss)
         validation_tag=False
         if args.distributed :
             # Only run validation on GPU 0 process, for simplity, so we do not run validation on multi gpu.
