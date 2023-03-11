@@ -486,7 +486,7 @@ class IaBNet_with_affinity(torch.nn.Module):
 
 def get_model(mode, logging, device, readout_mode=1, output_func="no",session_type=None):
     if session_type is None:
-        logging.warning("session_type is None, witout session_ap model structure opt")
+        logging.warning("session_type is None, without session_ap model structure opt")
     if mode == 0:
         logging.info("5 stack, readout2, pred dis map add self attention and GVP embed, compound model GIN")
         model = IaBNet_with_affinity(readout_mode=readout_mode, output_func=output_func,session_type=session_type).to(device)

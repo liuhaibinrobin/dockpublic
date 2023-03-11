@@ -30,7 +30,7 @@ import random
 import math
 from torch.utils.tensorboard import SummaryWriter
 from data_prototype import get_full_data_prototype, get_internal_dataset
-from sampler_prototype import SessionBatchSampler,DistributedSessionBatchSampler
+from sampler_prototype import SessionBatchSampler,DistributedSessionBatchSampler,SessionAUBatchSampler
 from model import *
 
 # from pympler import tracker
@@ -296,30 +296,39 @@ def main(args):
 
 
     if train_flag:
-        if args.distributed:
-            train_dataloader = DataLoader(
-                train_dataset,
-                batch_sampler=DistributedSessionBatchSampler(
-                    dataset=train_dataset,
-                    num_replicas=args.world_size,
-                    rank=args.rank,
-                    shuffle=True,
-                    seed=42,
-                    index_save_path=f"{pre}/train/batch_split_info",
-                    max_batch_size=args.sampler_batch_size,
-                    max_indication_num=1000,
-                    mode="session_ap_p_node",
-                ),
-                follow_batch=['x', 'y', 'compound_pair',"protein_edge_index"],
-                num_workers=num_workers)
-        else:
-            train_sampler = SessionBatchSampler(train_dataset, max_batch_size=args.sampler_batch_size, seed=0, name=timestamp,
-                                                index_save_path=f"{pre}/train/batch_split_info",mode=args.session_type+"_p_node",max_indication_num=1000)
+        if args.session_type=="session_au":
+            train_sampler = SessionAUBatchSampler(train_dataset, n=args.sampler_batch_size, seed=0, name=timestamp,
+                                                index_save_path=f"{pre}/train/batch_split_info")
             train_dataloader = DataLoader(train_dataset,
-                                    follow_batch=['x', 'y','compound_pair',"protein_edge_index"],
-                                    batch_sampler=train_sampler,
-                                    pin_memory=False,
-                                    num_workers=num_workers)
+                                          follow_batch=['x', 'compound_pair'],
+                                          batch_sampler=train_sampler,
+                                          pin_memory=False,
+                                          num_workers=8)
+        elif args.session_type=="session_ap":
+            if args.distributed:
+                train_dataloader = DataLoader(
+                    train_dataset,
+                    batch_sampler=DistributedSessionBatchSampler(
+                        dataset=train_dataset,
+                        num_replicas=args.world_size,
+                        rank=args.rank,
+                        shuffle=True,
+                        seed=42,
+                        index_save_path=f"{pre}/train/batch_split_info",
+                        max_batch_size=args.sampler_batch_size,
+                        max_indication_num=1000,
+                        mode="session_ap_p_node",
+                    ),
+                    follow_batch=['x', 'y', 'compound_pair',"protein_edge_index"],
+                    num_workers=num_workers)
+            else:
+                train_sampler = SessionBatchSampler(train_dataset, max_batch_size=args.sampler_batch_size, seed=0, name=timestamp,
+                                                    index_save_path=f"{pre}/train/batch_split_info",mode=args.session_type+"_p_node",max_indication_num=1000)
+                train_dataloader = DataLoader(train_dataset,
+                                        follow_batch=['x', 'y','compound_pair',"protein_edge_index"],
+                                        batch_sampler=train_sampler,
+                                        pin_memory=False,
+                                        num_workers=num_workers)
     print("fin!")
 
     valid_batch_size = 8
@@ -395,7 +404,7 @@ def main(args):
                                                         num_samples_train=num_samples_train,
                                                         model=model, optimizer=optimizer, pairwiseloss=pairwiseloss, 
                                                         device=device, writer=writer, logging=logging)
-            scheduler.step(total_loss)
+            #scheduler.step(total_loss)
         validation_tag=False
         if args.distributed :
             # Only run validation on GPU 0 process, for simplity, so we do not run validation on multi gpu.

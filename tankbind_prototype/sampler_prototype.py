@@ -30,8 +30,54 @@ def all_random(a, n=6):
         else:
             b = [list(_) for _ in a[:(-1*rest)].reshape(-1, n)] + [list(a[(-1*rest):])]
         return b
-    
-    
+
+class SessionAUBatchSampler(torch.utils.data.sampler.Sampler):
+    def __init__(self,
+                 dataset: Dataset,
+                 max_batch_size=6,
+                 seed: Optional[int] = None,
+                 name: Optional[str] = None,
+                 index_save_path: Optional[str] = None):
+
+        self.dataset = dataset
+        self.seed_init = seed
+        self.epoch = 0
+        self.max_batch_size = max_batch_size
+        self.group_info_saved = False
+        self.name = name + "_" if name is not None else ""
+        self.index_save_path = index_save_path
+        self.batches = None
+        self.prepare_batches_for_epoch(self.epoch)
+
+    def prepare_batches_for_epoch(self, epoch):
+        seed = self.seed_init + epoch
+        print(f"SessionBatchSampler | Refreshing batches with seed {seed} for epoch {epoch}.")
+        np.random.seed(seed)
+        indices = self.dataset.data.groupby("session_au").indices
+        if not self.group_info_saved:
+            print(f"SessionBatchSampler | Saving all samples' group indices.")
+            torch.save(indices, f"{self.index_save_path}/batch_of_all_sample.pt")
+            self.group_info_saved = True
+        all_indices = [all_random(a=indices[_], n=self.max_batch_size) for _ in indices]
+        indices = []
+        for _ in all_indices:
+            indices.extend(_)
+        if self.index_save_path is not None:
+            print(f"SessionBatchSampler | Saving group indices for epoch {epoch}.")
+            torch.save(indices, f"{self.index_save_path}/batch_in_epoch_{epoch}_with_seed_{seed}.pt")
+        self.batches = indices
+
+    def __iter__(self) -> Iterator[List[int]]:
+        for group in self.batches:
+            if len(group) > 1:
+                yield group
+            else:
+                continue
+
+    def __len__(self) -> int:
+        return len(self.batches)
+
+
 class SessionBatchSampler(torch.utils.data.sampler.Sampler):
     def __init__(self,
                  dataset: Dataset,
