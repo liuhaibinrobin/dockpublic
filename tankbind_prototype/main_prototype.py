@@ -297,7 +297,7 @@ def main(args):
 
     if train_flag:
         if args.session_type=="session_au":
-            train_sampler = SessionAUBatchSampler(train_dataset, n=args.sampler_batch_size, seed=0, name=timestamp,
+            train_sampler = SessionAUBatchSampler(train_dataset, max_batch_size=args.sampler_batch_size, seed=0, name=timestamp,
                                                 index_save_path=f"{pre}/train/batch_split_info")
             train_dataloader = DataLoader(train_dataset,
                                           follow_batch=['x', 'compound_pair'],
