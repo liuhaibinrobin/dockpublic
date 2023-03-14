@@ -53,6 +53,16 @@ export MASTER_ADDR=localhost
 export RANK=0
 export WORLD_SIZE=1
 """
+
+def linear_warmup_lr(step, warmup_steps, total_steps, initial_lr,end_lr):
+    if step < warmup_steps:
+        # start from end_lr(lowest)
+        lr = end_lr + ((initial_lr - end_lr) * (step / warmup_steps))
+
+    else:
+        lr = end_lr + ((initial_lr - end_lr) * (1 - (step - warmup_steps) / (total_steps - warmup_steps)))
+    return lr
+
 def init_distributed_mode(args):
     '''initilize DDP
     '''
@@ -376,11 +386,11 @@ def main(args):
                 model.load_state_dict(torch.load(args.restart))
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5,
-                                                           patience=5, verbose=True, threshold=0.01,
-                                                           threshold_mode='rel',
-                                                           cooldown=0, min_lr=0, eps=1e-08)
-
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5,
+    #                                                        patience=5, verbose=True, threshold=0.01,
+    #                                                        threshold_mode='rel',
+    #                                                        cooldown=0, min_lr=0, eps=1e-08)
+    scheduler=torch.optim.lr_scheduler.MultiStepLR(optimizer, [20, 40,60], 0.35)
     logger.info("optimizer end")
     pairwiseloss = PairwiseLoss(sigmoid_lambda=args.sigmoid_lambda, ingrp_thr=args.pair_threshold-1)
     logger.info("pairwiseloss end")
@@ -399,12 +409,14 @@ def main(args):
             logging.info(f"Epoch {epoch} =================================================")
         # TRAIN
         if train_flag:
+            print("epoch:"%(epoch),str(scheduler.get_lr()[0]))
             num_steps_train, num_samples_train,total_loss = run_train(args=args,pre=pre, dataloader=train_dataloader, epoch=epoch,
                                                         num_steps_train=num_steps_train, 
                                                         num_samples_train=num_samples_train,
                                                         model=model, optimizer=optimizer, pairwiseloss=pairwiseloss, 
                                                         device=device, writer=writer, logging=logging)
-            #scheduler.step(total_loss)
+            scheduler.step(total_loss)
+
         validation_tag=False
         if args.distributed :
             # Only run validation on GPU 0 process, for simplity, so we do not run validation on multi gpu.
