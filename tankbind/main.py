@@ -30,9 +30,25 @@ import math
 from torch.utils.tensorboard import SummaryWriter
 from utils import OptimizeConformer
 import utils
+from torch.multiprocessing import Process
+import torch.distributed as dist
+import pickle
 
 
+def init_distributed_mode(args):
+    '''initilize DDP
+    '''
+    args.rank = int(os.environ["RANK"])
+    args.world_size = int(os.environ["WORLD_SIZE"])
+    args.gpu = 0  # 默认worker都使用0号卡
 
+    args.distributed = True
+
+    torch.cuda.set_device(args.gpu)
+    args.dist_backend = "nccl"
+    
+    dist.init_process_group(
+        backend=args.dist_backend, init_method=args.dist_url, world_size=args.world_size, rank=args.rank)
 
 
 
@@ -112,17 +128,35 @@ parser.add_argument("--use_opt_torsion_dict", type=bool, default=True,
 parser.add_argument("--lr", type=float, default=0.0001, help="learning rate")
 parser.add_argument("--recycling_num", type=int, default=1,
                     help="recycling number, default is not recycling")
+parser.add_argument("--distributed", type=bool, default=False)
+parser.add_argument("--local_rank", type=int, help='local rank, will be passed by ddp')
+parser.add_argument("--world_size", default=1, type=int, help="number of distributed processes")
+parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
+parser.add_argument("--max_node", type=int, default=500)
+parser.add_argument("--dyn_num_steps", type=int, default=None)
+parser.add_argument("--gpu", type=int, default=0)
+
 
 args = parser.parse_args()
 
+# DDP MODIFIED
+if args.distributed:
+    init_distributed_mode(args)
+    device = torch.device("cuda")
+else:
+    device = 'cuda'
 
 timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+if args.distributed:
+    dirname = "rank-" + str(args.rank)+"-"+timestamp
+else:
+    dirname = timestamp
 
 arg_hash = str(abs(hash(str(args))))[0:10]
 
-writer = SummaryWriter(f"./logs/{timestamp}_{args.label}")
+writer = SummaryWriter(f"./logs-ddp/{dirname}_{args.label}")
 
-pre = f"{args.resultFolder}/{timestamp}"
+pre = f"{args.resultFolder}-ddp/{dirname}"
 os.system(f"mkdir -p {pre}")
 logger = logging.getLogger()
 # 指定logger输出格式
@@ -161,8 +195,13 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info, info_va = get_data(args.data, logging, addNoise=args.addNoise)
 logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
 
+from sx_sampler import DistributedDynamicBatchSampler, InstanceDynamicBatchSampler 
+# with open("dyn_sample_info/dyn_sample_info_0.pkl", "rb") as f:
+#     dyn_sample_info = pickle.load(f)
+
 num_workers = 10
 # sampler = RandomSampler(train, replacement=True, num_samples=args.sample_n)
+
 sampler = RandomSampler(train, replacement=False, num_samples=len(train)) #训练数据不足2w，全部口袋时要换回来 TODO
 train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler, pin_memory=False, num_workers=num_workers,drop_last=True)
 sampler2 = RandomSampler(train_after_warm_up, replacement=False, num_samples=args.sample_n)
@@ -175,7 +214,6 @@ all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=
 all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=4)
 # import model is put here due to an error related to torch.utils.data.ConcatDataset after importing torchdrug.
 from model import *
-device = 'cuda'
 model = get_model(args.mode, logger, device, recycling_num=args.recycling_num)
 if args.restart:
     model.load_state_dict(torch.load(args.restart))
