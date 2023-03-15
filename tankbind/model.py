@@ -680,6 +680,9 @@ class IaBNet_with_affinity(torch.nn.Module):
         # ttt1 = time.time()
         # print('before recycling', ttt1-ttt)
         for recycling_num in range(self.recycling_num):
+            compound_out = self.lig_node_embedding(self.rebatch(compound_out_batched, compound_batch))  #128 -> ns
+            protein_out = self.rec_node_embedding(self.rebatch(protein_out_batched, protein_batch))
+            prmsd_pred = torch.zeros(affinity_pred_A.shape).to(affinity_pred_A.device)
             protein_num_batch = degree(data['protein'].batch, dtype=torch.long).tolist()
             compound_num_batch = degree(data['compound'].batch, dtype=torch.long).tolist()
             batch_size = z.shape[0]
@@ -688,16 +691,6 @@ class IaBNet_with_affinity(torch.nn.Module):
             #     candicate_dis_matrix_batched[i, :compound_num_batch[i], :protein_num_batch[i]] = \
             #         self.unbatch(current_candicate_dis_matrix, data.candicate_dis_matrix_batch)[i].view(compound_num_batch[i], protein_num_batch[i]) #让candicate_dis_matrix的维度与z一致
             #self.logging.info("3 z.shape:%s,protein_out_batched.shape:%s,  candicate_dis_matrix_batched.shape:%s "%(z.shape,protein_out_batched.shape,  candicate_dis_matrix_batched.shape))
-            if recycling_num == 0:
-                prmsd_pred = torch.zeros(affinity_pred_A.shape).to(affinity_pred_A.device)
-                # prmsd_pred = prmsd_pred.sigmoid() * 20 #TODO
-                compound_out = self.lig_node_embedding(self.rebatch(compound_out_batched, compound_batch))  #128 -> ns
-                protein_out = self.rec_node_embedding(self.rebatch(protein_out_batched, protein_batch))
-            else:
-                compound_out, protein_out = compound_out_new[:, :self.ns], protein_out_new[:, :self.ns]  #只取embed中标量的属性
-                # prmsd_pred = torch.zeros(affinity_pred_A.shape).to(affinity_pred_A.device)
-                # compound_out = self.lig_node_embedding(self.rebatch(compound_out_batched, compound_batch))  #128 -> ns
-                # protein_out = self.rec_node_embedding(self.rebatch(protein_out_batched, protein_batch))
 
             _, lig_edge_index, lig_edge_attr, lig_edge_sh = self.build_lig_conv_graph(data, current_candicate_conf_pos)
             lig_edge_attr = self.lig_edge_embedding(lig_edge_attr)
@@ -751,6 +744,7 @@ class IaBNet_with_affinity(torch.nn.Module):
             tr_pred = tr_pred.sigmoid() * 20 - 10
             rot_norm = torch.linalg.vector_norm(rot_pred, dim=1).unsqueeze(1)
             rot_pred = rot_pred / rot_norm * self.rot_final_layer(rot_norm)
+            # rot_pred = rot_pred.sigmoid() * 4 * math.pi - 2 * math.pi
             # torsional components
 
             tor_bonds, tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_bond_conv_graph(data,current_candicate_conf_pos)
