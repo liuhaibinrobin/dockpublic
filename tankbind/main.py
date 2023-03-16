@@ -195,15 +195,26 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info, info_va = get_data(args.data, logging, addNoise=args.addNoise)
 logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
 
-from sx_sampler import DistributedDynamicBatchSampler, InstanceDynamicBatchSampler 
+from sx_sampler import DistributedDynamicBatchSampler
 # with open("dyn_sample_info/dyn_sample_info_0.pkl", "rb") as f:
 #     dyn_sample_info = pickle.load(f)
 
 num_workers = 10
 # sampler = RandomSampler(train, replacement=True, num_samples=args.sample_n)
 
-sampler = RandomSampler(train, replacement=False, num_samples=len(train)) #训练数据不足2w，全部口袋时要换回来 TODO
-train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler, pin_memory=False, num_workers=num_workers,drop_last=True)
+if args.distributed:
+    train_loader = DataLoader(train,batch_sampler = DistributedDynamicBatchSampler(
+                                        dataset=train, dyn_max_num=args.max_node, dyn_mode="node",
+                                        num_replicas=args.world_size, rank=args.rank, shuffle=True,
+                                        seed = 42, dyn_num_steps=args.dyn_num_steps, dyn_sample_info=None), 
+                                    follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], 
+                                    num_workers=num_workers)
+else:
+    sampler = RandomSampler(train, replacement=False, num_samples=len(train)) #训练数据不足2w，全部口袋时要换回来 TODO
+    train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler, pin_memory=False, num_workers=num_workers,drop_last=True)
+
+# sampler = RandomSampler(train, replacement=False, num_samples=len(train)) #训练数据不足2w，全部口袋时要换回来 TODO
+# train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler, pin_memory=False, num_workers=num_workers,drop_last=True)
 sampler2 = RandomSampler(train_after_warm_up, replacement=False, num_samples=args.sample_n)
 train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler2, pin_memory=False, num_workers=num_workers,drop_last=True)
 valid_batch_size = test_batch_size = 3 #TODO:why
@@ -215,6 +226,10 @@ all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batc
 # import model is put here due to an error related to torch.utils.data.ConcatDataset after importing torchdrug.
 from model import *
 model = get_model(args.mode, logger, device, recycling_num=args.recycling_num)
+
+if args.distributed:    
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True, broadcast_buffers=False)
+
 if args.restart:
     model.load_state_dict(torch.load(args.restart))
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr) #TODO 原始0.0001
