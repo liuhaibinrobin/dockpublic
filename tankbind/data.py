@@ -377,12 +377,12 @@ def get_data(data_mode, logging, addNoise=None):
         # only_native_train_index = d.query("use_compound_com and group =='train'").index.values
         l_rotate_0 = torch.load('l_rotate_0_pdb.pt')
         l_rotate_30 = torch.load('l_rotate_30_pdb.pt')
-        # only_native_train_index = d.query(
-        #    f"use_compound_com and group =='train' and pdb not in {l_rotate_0} and pdb not in {l_rotate_30} and pdb != '4q3r'").index.values  #torsional 旋转代码加入 mask_rotate assert,检查是否旋转轴同时是True或False （只有一个样本4q3r由于分子错误报这个错，已排除）
+        only_native_train_index = d.query(
+           f"use_compound_com and group =='train' and pdb not in {l_rotate_0} and pdb not in {l_rotate_30} and pdb != '4q3r'").index.values  #torsional 旋转代码加入 mask_rotate assert,检查是否旋转轴同时是True或False （只有一个样本4q3r由于分子错误报这个错，已排除）
         # only_native_train_index = d.query(
         #     f"use_compound_com and group =='train' and pdb not in {l_rotate_30}").index.values
-        only_native_train_index = d.query(
-            "use_compound_com and group =='train' and pdb in ( '1wcq','5u7m','2nno','5j87','5uwf','5kxi','4kju','3eta','2b54','1sdt' )").index.values
+        # only_native_train_index = d.query(
+        #     "use_compound_com and group =='train' and pdb in ( '1wcq','5u7m','2nno','5j87','5uwf','5kxi','4kju','3eta','2b54','1sdt' )").index.values
         # only_native_train_index=only_native_train_index[:100]
         train = new_dataset[only_native_train_index]
         train_index = d.query("group =='train'").index.values

@@ -132,7 +132,7 @@ parser.add_argument("--distributed", type=bool, default=False)
 parser.add_argument("--local_rank", type=int, help='local rank, will be passed by ddp')
 parser.add_argument("--world_size", default=1, type=int, help="number of distributed processes")
 parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
-parser.add_argument("--max_node", type=int, default=500)
+parser.add_argument("--max_node", type=int, default=1000)
 parser.add_argument("--dyn_num_steps", type=int, default=None)
 parser.add_argument("--gpu", type=int, default=0)
 
@@ -153,10 +153,17 @@ else:
     dirname = timestamp
 
 arg_hash = str(abs(hash(str(args))))[0:10]
+train_writer_tag = False
+if args.distributed:
+    if dist.get_rank() == 0:
+        writer = SummaryWriter(f"./logs-ddp/{dirname}_{args.label}") 
+        train_writer_tag = True
+    pre = f"result-ddp/{dirname}"
+else:
+    writer = SummaryWriter(f"./logs/{timestamp}_{args.label}")
+    pre = f"{args.resultFolder}/{timestamp}"
+    train_writer_tag = True
 
-writer = SummaryWriter(f"./logs-ddp/{dirname}_{args.label}")
-
-pre = f"{args.resultFolder}-ddp/{dirname}"
 os.system(f"mkdir -p {pre}")
 logger = logging.getLogger()
 # 指定logger输出格式
@@ -196,17 +203,17 @@ train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info
 logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
 
 from sx_sampler import DistributedDynamicBatchSampler
-# with open("dyn_sample_info/dyn_sample_info_0.pkl", "rb") as f:
-#     dyn_sample_info = pickle.load(f)
+with open("dyn_sample_info/dyn_sample_info_0_1000.pkl", "rb") as f:
+    dyn_sample_info = pickle.load(f)
 
 num_workers = 10
 # sampler = RandomSampler(train, replacement=True, num_samples=args.sample_n)
 
 if args.distributed:
     train_loader = DataLoader(train,batch_sampler = DistributedDynamicBatchSampler(
-                                        dataset=train, dyn_max_num=args.max_node, dyn_mode="node",
+                                        dataset=train, dyn_max_num=args.max_node, #dyn_mode="node",
                                         num_replicas=args.world_size, rank=args.rank, shuffle=True,
-                                        seed = 42, dyn_num_steps=args.dyn_num_steps, dyn_sample_info=None), 
+                                        seed = 42, dyn_num_steps=args.dyn_num_steps, dyn_sample_info=dyn_sample_info), 
                                     follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], 
                                     num_workers=num_workers)
 else:
@@ -229,9 +236,22 @@ model = get_model(args.mode, logger, device, recycling_num=args.recycling_num)
 
 if args.distributed:    
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True, broadcast_buffers=False)
-
 if args.restart:
-    model.load_state_dict(torch.load(args.restart))
+    if args.distributed:
+        if "module." not in list(torch.load(args.restart).items())[0][0]:
+            logger.info("distributed module. not in")
+            model.load_state_dict({'module.'+k: v for k, v in torch.load(args.restart).items()})
+        else:
+            logger.info("distributed module. in")
+            model.load_state_dict(torch.load(args.restart))
+    else:
+        if "module." in list(torch.load(args.restart).items())[0][0]:
+            logger.info("single module.  in")
+            model.load_state_dict({k.replace('module.', ''): v for k, v in torch.load(args.restart).items()})
+        else:
+            logger.info("single module. not in")
+            model.load_state_dict(torch.load(args.restart))
+
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr) #TODO 原始0.0001
 # model.train()
 if args.pred_dis:
@@ -271,7 +291,7 @@ if args.use_opt_torsion_dict:
     print('use prepared optimal torsional dict(max_iter=50)')
 else:
     opt_torsion_dict = {}
-for epoch in range(100000):
+for epoch in range(200):
     model.train()
     y_list = []
     y_pred_list = []
@@ -316,7 +336,7 @@ for epoch in range(100000):
         optimizer.zero_grad()
         affinity_pred_A, affinity_pred_B_list, prmsd_list,pred_result_list= model(data)
         sample_num=len(data.pdb)
-        data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
+        data_groundtruth_pos_batched = data['compound'].pos.split(degree(data['compound'].batch, dtype=torch.long).tolist())
 
         #记录每个样本的学习信息
         data_new_pos_batched_list=[]
@@ -370,9 +390,8 @@ for epoch in range(100000):
                 rot_pred.retain_grad()
                 for tmp_torsion_pred in torsion_pred_batched:
                     tmp_torsion_pred.retain_grad()
-
-                compound_edge_index_batched = model.unbatch(data['compound', 'compound'].edge_index.T,data.compound_compound_edge_attr_batch)
-                compound_rotate_edge_mask_batched = model.unbatch(data['compound'].edge_mask,data.compound_compound_edge_attr_batch)
+                compound_edge_index_batched = data['compound', 'compound'].edge_index.T.split(degree(data.compound_compound_edge_attr_batch, dtype=torch.long).tolist())
+                compound_rotate_edge_mask_batched = data['compound'].edge_mask.split(degree(data.compound_compound_edge_attr_batch, dtype=torch.long).tolist())
                 ligand_atom_sizes= degree(data['compound'].batch, dtype=torch.long).tolist()
                 for i in range(len(data_groundtruth_pos_batched)):
                     rotate_edge_index = compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]] - sum(ligand_atom_sizes[:i])  # 把edge_id 从batch计数转换为样本内部计数
@@ -569,16 +588,16 @@ for epoch in range(100000):
         rmsd_pred_list.append(rmsd_list[-1].detach())
         prmsd_pred_list.append(prmsd_list[-1].detach())
         # torch.cuda.empty_cache()
-
-        writer.add_scalar(f'batchLoss.Total/train', loss.item(), global_steps_train)
-        writer.add_scalar(f'sampleLoss.Total/train', loss.item(), global_samples_train)
-        writer.add_scalar(f'sampleLoss.Contact/train', contact_loss.item(), global_samples_train)
-        writer.add_scalar(f'sampleLoss.Contact_5A/train', contact_loss_cat_off_rmsd_5.item(), global_samples_train)
-        writer.add_scalar(f'sampleLoss.Contact_10A/train', contact_loss_cat_off_rmsd_10.item(), global_samples_train)
-        writer.add_scalar(f'sampleLoss.Affinity_A/train', affinity_loss_A.item(), global_samples_train)
-        writer.add_scalar(f'sampleLoss.Affinity_B/train', affinity_loss_B.item(), global_samples_train)
-        writer.add_scalar(f'sampleLoss.RMSD/train', rmsd_loss.item(), global_samples_train)
-        writer.add_scalar(f'sampleLoss.Pred_RMSD/train', prmsd_loss.item(), global_samples_train)
+        if train_writer_tag:
+            writer.add_scalar(f'batchLoss.Total/train', loss.item(), global_steps_train)
+            writer.add_scalar(f'sampleLoss.Total/train', loss.item(), global_samples_train)
+            writer.add_scalar(f'sampleLoss.Contact/train', contact_loss.item(), global_samples_train)
+            writer.add_scalar(f'sampleLoss.Contact_5A/train', contact_loss_cat_off_rmsd_5.item(), global_samples_train)
+            writer.add_scalar(f'sampleLoss.Contact_10A/train', contact_loss_cat_off_rmsd_10.item(), global_samples_train)
+            writer.add_scalar(f'sampleLoss.Affinity_A/train', affinity_loss_A.item(), global_samples_train)
+            writer.add_scalar(f'sampleLoss.Affinity_B/train', affinity_loss_B.item(), global_samples_train)
+            writer.add_scalar(f'sampleLoss.RMSD/train', rmsd_loss.item(), global_samples_train)
+            writer.add_scalar(f'sampleLoss.Pred_RMSD/train', prmsd_loss.item(), global_samples_train)
         global_steps_train+=1
         global_samples_train+=len(data.pdb)
 
@@ -619,166 +638,171 @@ for epoch in range(100000):
 
     # print(metrics_list)
     # release memory
+    if train_writer_tag:
+        writer.add_scalar('epochLoss.Total/train', metrics["loss"], epoch)
+        writer.add_scalar('epochLoss.Contact/train', epoch_loss_contact / len(y_pred), epoch)
+        writer.add_scalar('epochLoss.Contact_5A/train', metrics["loss_contact_5A"], epoch)
+        writer.add_scalar('epochLoss.Contact_10A/train', metrics["loss_contact_10A"], epoch)
+        writer.add_scalar('epochLoss.Affinity_A/train', epoch_loss_affinity_A / len(affinity_pred_A), epoch)
+        writer.add_scalar('epochLoss.Affinity_B/train', epoch_loss_affinity_B / len(affinity_pred_B), epoch)
+        writer.add_scalar('epochLoss.RMSD/train', epoch_loss_rmsd / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.Pred_RMSD/train', epoch_loss_prmsd / len(PRMSD_pred), epoch)
+        writer.add_scalar('epochNum.TrainedBatches/train', global_steps_train, epoch)
+        writer.add_scalar('epochNum.TrainedSamples/train', global_samples_train, epoch)
 
-    writer.add_scalar('epochLoss.Total/train', metrics["loss"], epoch)
-    writer.add_scalar('epochLoss.Contact/train', epoch_loss_contact / len(y_pred), epoch)
-    writer.add_scalar('epochLoss.Contact_5A/train', metrics["loss_contact_5A"], epoch)
-    writer.add_scalar('epochLoss.Contact_10A/train', metrics["loss_contact_10A"], epoch)
-    writer.add_scalar('epochLoss.Affinity_A/train', epoch_loss_affinity_A / len(affinity_pred_A), epoch)
-    writer.add_scalar('epochLoss.Affinity_B/train', epoch_loss_affinity_B / len(affinity_pred_B), epoch)
-    writer.add_scalar('epochLoss.RMSD/train', epoch_loss_rmsd / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.Pred_RMSD/train', epoch_loss_prmsd / len(PRMSD_pred), epoch)
-    writer.add_scalar('epochNum.TrainedBatches/train', global_steps_train, epoch)
-    writer.add_scalar('epochNum.TrainedSamples/train', global_samples_train, epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_0/train', epoch_rmsd_recycling_0_loss / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_1/train', epoch_rmsd_recycling_1_loss / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_2/train', epoch_rmsd_recycling_2_loss / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_3/train', epoch_rmsd_recycling_3_loss / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_4/train', epoch_rmsd_recycling_4_loss / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_19/train', epoch_rmsd_recycling_19_loss / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_39/train', epoch_rmsd_recycling_39_loss / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.epoch_rmsd_recycling_1_2_diff_loss/train', epoch_rmsd_recycling_1_2_diff_loss / len(RMSD_pred), epoch)
 
-    writer.add_scalar('epochLoss.rmsd_recycling_0/train', epoch_rmsd_recycling_0_loss / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.rmsd_recycling_1/train', epoch_rmsd_recycling_1_loss / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.rmsd_recycling_2/train', epoch_rmsd_recycling_2_loss / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.rmsd_recycling_3/train', epoch_rmsd_recycling_3_loss / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.rmsd_recycling_4/train', epoch_rmsd_recycling_4_loss / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.rmsd_recycling_19/train', epoch_rmsd_recycling_19_loss / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.rmsd_recycling_39/train', epoch_rmsd_recycling_39_loss / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.epoch_rmsd_recycling_1_2_diff_loss/train', epoch_rmsd_recycling_1_2_diff_loss / len(RMSD_pred), epoch)
-
-    writer.add_scalar('epochLoss.tr/train', epoch_tr_loss / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.rot/train', epoch_rot_loss / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.tor/train', epoch_tor_loss / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.tr_recy_0/train', epoch_tr_loss_recy_0 / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.rot_recy_0/train', epoch_rot_loss_recy_0 / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.tor_recy_0/train', epoch_tor_loss_recy_0 / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.tr_recy_1/train', epoch_tr_loss_recy_1 / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.rot_recy_1/train', epoch_rot_loss_recy_1 / len(RMSD_pred), epoch)
-    writer.add_scalar('epochLoss.tor_recy_1/train', epoch_tor_loss_recy_1 / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.tr/train', epoch_tr_loss / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.rot/train', epoch_rot_loss / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.tor/train', epoch_tor_loss / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.tr_recy_0/train', epoch_tr_loss_recy_0 / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.rot_recy_0/train', epoch_rot_loss_recy_0 / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.tor_recy_0/train', epoch_tor_loss_recy_0 / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.tr_recy_1/train', epoch_tr_loss_recy_1 / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.rot_recy_1/train', epoch_rot_loss_recy_1 / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.tor_recy_1/train', epoch_tor_loss_recy_1 / len(RMSD_pred), epoch)
 
 
     #continue #TODO
     #===================validation========================================
+    validation_tag=False
+    if args.distributed :
+        # Only run validation on GPU 0 process, for simplity, so we do not run validation on multi gpu.
+        if dist.get_rank() == 0:
+            validation_tag=True
+    else:
+        validation_tag=True
+
+    if validation_tag==True:
+        y = None
+        y_pred = None
+        # torch.cuda.empty_cache()
+        model.eval()
+        use_y_mask = args.use_equivalent_native_y_mask or args.use_y_mask
+        # saveFileName = f"{pre}/results/single_valid_epoch_{epoch}.pt"
+        saveFileName = f"{pre}/results/valid_epoch_{epoch}.pt"
+        info_va_only_compound = info_va.query("use_compound_com and group =='valid' and c_length < 100 and native_num_contact > 5")
+        metrics, info_va_save, opt_torsion_dict = evaluate_with_affinity(valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
+        valid_result = pd.DataFrame(info_va_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
+        save_path = f"{pre}/results/valid_result_{epoch}.csv"
+        valid_result.to_csv(save_path)
+        # metrics = evaluate_with_affinity(all_pocket_valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va, saveFileName=saveFileName) #TODO
+        #if metrics["auroc"] <= best_auroc and metrics['f1_1'] <= best_f1_1:
+        #    # not improving. (both metrics say there is no improving)
+        #    epoch_not_improving += 1
+        #    ending_message = f" No improvement +{epoch_not_improving}"
+        #else:
+        #    epoch_not_improving = 0
+        #    if metrics["auroc"] > best_auroc:
+        #        best_auroc = metrics['auroc']
+        #    if metrics['f1_1'] > best_f1_1:
+        #        best_f1_1 = metrics['f1_1']
+        #    ending_message = " "
+        valid_metrics_list.append(metrics)
+        #logging.info(f"epoch {epoch:<4d}, single_valid, " + print_metrics(metrics) + ending_message)
+
+        writer.add_scalar('epochLoss.Total/validation', metrics["loss"], epoch)
+        writer.add_scalar('epochLoss.Contact/validation', metrics["loss_contact"], epoch)
+        writer.add_scalar('epochLoss.Contact_5A/validation', metrics["loss_contact_5A"], epoch)
+        writer.add_scalar('epochLoss.Contact_10A/validation', metrics["loss_contact_10A"], epoch)
+        writer.add_scalar('epochLoss.Affinity_A/validation', metrics["loss_affinity_A"], epoch)
+        writer.add_scalar('epochLoss.Affinity_B/validation', metrics["loss_affinity_B"], epoch)
+        writer.add_scalar('epochLoss.RMSD/validation', metrics["loss_rmsd"], epoch)
+        writer.add_scalar('epochLoss.PRMSD/validation', metrics["loss_prmsd"], epoch)
+        writer.add_scalar('epochMetric.RMSE_A/validation', metrics["RMSE_A"], epoch)
+        writer.add_scalar('epochMetric.Pearson_A/validation', metrics["Pearson_A"], epoch)
+        writer.add_scalar('epochMetric.RMSE_B/validation', metrics["RMSE_B"], epoch)
+        writer.add_scalar('epochMetric.Pearson_B/validation', metrics["Pearson_B"], epoch)
+        writer.add_scalar('epochMetric.epoch_tr_loss/validation', metrics["epoch_tr_loss"], epoch)
+        writer.add_scalar('epochMetric.epoch_rot_loss/validation', metrics["epoch_rot_loss"], epoch)
+        writer.add_scalar('epochMetric.epoch_tor_loss/validation', metrics["epoch_tor_loss"], epoch)
+        writer.add_scalar('epochMetric.epoch_tr_recy_0_loss/validation', metrics["epoch_tr_loss_recy_0"], epoch)
+        writer.add_scalar('epochMetric.epoch_rot_recy_0_loss/validation', metrics["epoch_rot_loss_recy_0"], epoch)
+        writer.add_scalar('epochMetric.epoch_tor_recy_0_loss/validation', metrics["epoch_tor_loss_recy_0"], epoch)
+        writer.add_scalar('epochMetric.epoch_tr_recy_1_loss/validation', metrics["epoch_tr_loss_recy_1"], epoch)
+        writer.add_scalar('epochMetric.epoch_rot_recy_1_loss/validation', metrics["epoch_rot_loss_recy_1"], epoch)
+        writer.add_scalar('epochMetric.epoch_tor_recy_1_loss/validation', metrics["epoch_tor_loss_recy_1"], epoch)
+
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/validation', metrics["epoch_rmsd_recycling_0_loss"], epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/validation', metrics["epoch_rmsd_recycling_1_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss/validation', metrics["epoch_rmsd_recycling_2_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_3_loss/validation', metrics["epoch_rmsd_recycling_3_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_4_loss/validation', metrics["epoch_rmsd_recycling_4_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/validation', metrics["epoch_rmsd_recycling_19_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/validation', metrics["epoch_rmsd_recycling_39_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_2_diff_loss/validation', metrics["epoch_rmsd_recycling_1_2_diff_loss"],epoch)
+        # writer.add_scalar('epochMetric.NativeAUROC/validation', metrics["native_auroc"], epoch)
+        # writer.add_scalar('epochMetric.SelectedAUROC/validation', metrics["selected_auroc"], epoch)
+        #====================test============================================================
 
 
-    y = None
-    y_pred = None
-    # torch.cuda.empty_cache()
-    model.eval()
-    use_y_mask = args.use_equivalent_native_y_mask or args.use_y_mask
-    # saveFileName = f"{pre}/results/single_valid_epoch_{epoch}.pt"
-    saveFileName = f"{pre}/results/valid_epoch_{epoch}.pt"
-    info_va_only_compound = info_va.query("use_compound_com and group =='valid' and c_length < 100 and native_num_contact > 5")
-    metrics, info_va_save, opt_torsion_dict = evaluate_with_affinity(valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
-    valid_result = pd.DataFrame(info_va_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
-    save_path = f"{pre}/results/valid_result_{epoch}.csv"
-    valid_result.to_csv(save_path)
-    # metrics = evaluate_with_affinity(all_pocket_valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va, saveFileName=saveFileName) #TODO
-    #if metrics["auroc"] <= best_auroc and metrics['f1_1'] <= best_f1_1:
-    #    # not improving. (both metrics say there is no improving)
-    #    epoch_not_improving += 1
-    #    ending_message = f" No improvement +{epoch_not_improving}"
-    #else:
-    #    epoch_not_improving = 0
-    #    if metrics["auroc"] > best_auroc:
-    #        best_auroc = metrics['auroc']
-    #    if metrics['f1_1'] > best_f1_1:
-    #        best_f1_1 = metrics['f1_1']
-    #    ending_message = " "
-    valid_metrics_list.append(metrics)
-    #logging.info(f"epoch {epoch:<4d}, single_valid, " + print_metrics(metrics) + ending_message)
-
-    writer.add_scalar('epochLoss.Total/validation', metrics["loss"], epoch)
-    writer.add_scalar('epochLoss.Contact/validation', metrics["loss_contact"], epoch)
-    writer.add_scalar('epochLoss.Contact_5A/validation', metrics["loss_contact_5A"], epoch)
-    writer.add_scalar('epochLoss.Contact_10A/validation', metrics["loss_contact_10A"], epoch)
-    writer.add_scalar('epochLoss.Affinity_A/validation', metrics["loss_affinity_A"], epoch)
-    writer.add_scalar('epochLoss.Affinity_B/validation', metrics["loss_affinity_B"], epoch)
-    writer.add_scalar('epochLoss.RMSD/validation', metrics["loss_rmsd"], epoch)
-    writer.add_scalar('epochLoss.PRMSD/validation', metrics["loss_prmsd"], epoch)
-    writer.add_scalar('epochMetric.RMSE_A/validation', metrics["RMSE_A"], epoch)
-    writer.add_scalar('epochMetric.Pearson_A/validation', metrics["Pearson_A"], epoch)
-    writer.add_scalar('epochMetric.RMSE_B/validation', metrics["RMSE_B"], epoch)
-    writer.add_scalar('epochMetric.Pearson_B/validation', metrics["Pearson_B"], epoch)
-    writer.add_scalar('epochMetric.epoch_tr_loss/validation', metrics["epoch_tr_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_rot_loss/validation', metrics["epoch_rot_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_tor_loss/validation', metrics["epoch_tor_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_tr_recy_0_loss/validation', metrics["epoch_tr_loss_recy_0"], epoch)
-    writer.add_scalar('epochMetric.epoch_rot_recy_0_loss/validation', metrics["epoch_rot_loss_recy_0"], epoch)
-    writer.add_scalar('epochMetric.epoch_tor_recy_0_loss/validation', metrics["epoch_tor_loss_recy_0"], epoch)
-    writer.add_scalar('epochMetric.epoch_tr_recy_1_loss/validation', metrics["epoch_tr_loss_recy_1"], epoch)
-    writer.add_scalar('epochMetric.epoch_rot_recy_1_loss/validation', metrics["epoch_rot_loss_recy_1"], epoch)
-    writer.add_scalar('epochMetric.epoch_tor_recy_1_loss/validation', metrics["epoch_tor_loss_recy_1"], epoch)
-
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/validation', metrics["epoch_rmsd_recycling_0_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/validation', metrics["epoch_rmsd_recycling_1_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss/validation', metrics["epoch_rmsd_recycling_2_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_3_loss/validation', metrics["epoch_rmsd_recycling_3_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_4_loss/validation', metrics["epoch_rmsd_recycling_4_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/validation', metrics["epoch_rmsd_recycling_19_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/validation', metrics["epoch_rmsd_recycling_39_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_2_diff_loss/validation', metrics["epoch_rmsd_recycling_1_2_diff_loss"],epoch)
-    # writer.add_scalar('epochMetric.NativeAUROC/validation', metrics["native_auroc"], epoch)
-    # writer.add_scalar('epochMetric.SelectedAUROC/validation', metrics["selected_auroc"], epoch)
-    #====================test============================================================
+        # saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
+        # metrics = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
+        #                                  device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
+        # test_metrics_list.append(metrics)
+        # logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
 
 
-    # saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
-    # metrics = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
-    #                                  device, pred_dis=pred_dis, saveFileName=saveFileName, use_y_mask=use_y_mask)
-    # test_metrics_list.append(metrics)
-    # logging.info(f"epoch {epoch:<4d}, test,  " + print_metrics(metrics))
+        # saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
+        saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
+        info_only_compound = info.query("use_compound_com and group =='test' and c_length < 100 and native_num_contact > 5")
+        metrics, info_save, opt_torsion_dict  = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
+                                        device, pred_dis=pred_dis, info=info_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
+        test_metrics_list.append(metrics)
+        test_result = pd.DataFrame(info_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
+        save_path = f"{pre}/results/test_result_{epoch}.csv"
+        test_result.to_csv(save_path)
+        # metrics = evaluate_with_affinity(all_pocket_test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
+        #                                  device, pred_dis=pred_dis, info=info, saveFileName=saveFileName) #TODO
+        logging.info(f"epoch {epoch:<4d}, test," + print_metrics(metrics))
+        writer.add_scalar('epochLoss.Total/test', metrics["loss"], epoch)
+        writer.add_scalar('epochLoss.Contact/test', metrics["loss_contact"], epoch)
+        writer.add_scalar('epochLoss.Contact_5A/test', metrics["loss_contact_5A"], epoch)
+        writer.add_scalar('epochLoss.Contact_10A/test', metrics["loss_contact_10A"], epoch)
+        writer.add_scalar('epochLoss.Affinity_A/test', metrics["loss_affinity_A"], epoch)
+        writer.add_scalar('epochLoss.Affinity_B/test', metrics["loss_affinity_B"], epoch)
+        writer.add_scalar('epochLoss.RMSD/test', metrics["loss_rmsd"], epoch)
+        writer.add_scalar('epochLoss.PRMSD/test', metrics["loss_prmsd"], epoch)
+        writer.add_scalar('epochMetric.RMSE_A/test', metrics["RMSE_A"], epoch)
+        writer.add_scalar('epochMetric.Pearson_A/test', metrics["Pearson_A"], epoch)
+        writer.add_scalar('epochMetric.RMSE_B/test', metrics["RMSE_B"], epoch)
+        writer.add_scalar('epochMetric.Pearson_B/test', metrics["Pearson_B"], epoch)
 
+        writer.add_scalar('epochMetric.epoch_tr_loss/test', metrics["epoch_tr_loss"], epoch)
+        writer.add_scalar('epochMetric.epoch_rot_loss/test', metrics["epoch_rot_loss"], epoch)
+        writer.add_scalar('epochMetric.epoch_tor_loss/test', metrics["epoch_tor_loss"], epoch)
+        writer.add_scalar('epochMetric.epoch_tr_recy_0_loss/test', metrics["epoch_tr_loss_recy_0"], epoch)
+        writer.add_scalar('epochMetric.epoch_rot_recy_0_loss/test', metrics["epoch_rot_loss_recy_0"], epoch)
+        writer.add_scalar('epochMetric.epoch_tor_recy_0_loss/test', metrics["epoch_tor_loss_recy_0"], epoch)
+        writer.add_scalar('epochMetric.epoch_tr_recy_1_loss/test', metrics["epoch_tr_loss_recy_1"], epoch)
+        writer.add_scalar('epochMetric.epoch_rot_recy_1_loss/test', metrics["epoch_rot_loss_recy_1"], epoch)
+        writer.add_scalar('epochMetric.epoch_tor_recy_1_loss/test', metrics["epoch_tor_loss_recy_1"], epoch)
 
-    # saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
-    saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
-    info_only_compound = info.query("use_compound_com and group =='test' and c_length < 100 and native_num_contact > 5")
-    metrics, info_save, opt_torsion_dict  = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
-                                     device, pred_dis=pred_dis, info=info_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
-    test_metrics_list.append(metrics)
-    test_result = pd.DataFrame(info_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
-    save_path = f"{pre}/results/test_result_{epoch}.csv"
-    test_result.to_csv(save_path)
-    # metrics = evaluate_with_affinity(all_pocket_test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
-    #                                  device, pred_dis=pred_dis, info=info, saveFileName=saveFileName) #TODO
-    logging.info(f"epoch {epoch:<4d}, test," + print_metrics(metrics))
-    writer.add_scalar('epochLoss.Total/test', metrics["loss"], epoch)
-    writer.add_scalar('epochLoss.Contact/test', metrics["loss_contact"], epoch)
-    writer.add_scalar('epochLoss.Contact_5A/test', metrics["loss_contact_5A"], epoch)
-    writer.add_scalar('epochLoss.Contact_10A/test', metrics["loss_contact_10A"], epoch)
-    writer.add_scalar('epochLoss.Affinity_A/test', metrics["loss_affinity_A"], epoch)
-    writer.add_scalar('epochLoss.Affinity_B/test', metrics["loss_affinity_B"], epoch)
-    writer.add_scalar('epochLoss.RMSD/test', metrics["loss_rmsd"], epoch)
-    writer.add_scalar('epochLoss.PRMSD/test', metrics["loss_prmsd"], epoch)
-    writer.add_scalar('epochMetric.RMSE_A/test', metrics["RMSE_A"], epoch)
-    writer.add_scalar('epochMetric.Pearson_A/test', metrics["Pearson_A"], epoch)
-    writer.add_scalar('epochMetric.RMSE_B/test', metrics["RMSE_B"], epoch)
-    writer.add_scalar('epochMetric.Pearson_B/test', metrics["Pearson_B"], epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/test', metrics["epoch_rmsd_recycling_0_loss"], epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/test', metrics["epoch_rmsd_recycling_1_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss/test', metrics["epoch_rmsd_recycling_2_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_3_loss/test', metrics["epoch_rmsd_recycling_3_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_4_loss/test', metrics["epoch_rmsd_recycling_4_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/test', metrics["epoch_rmsd_recycling_19_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/test', metrics["epoch_rmsd_recycling_39_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_2_diff_loss/test', metrics["epoch_rmsd_recycling_1_2_diff_loss"],epoch)
+        # writer.add_scalar('epochMetric.NativeAUROC/test', metrics["native_auroc"], epoch)
+        # writer.add_scalar('epochMetric.SelectedAUROC/test', metrics["selected_auroc"], epoch)
 
-    writer.add_scalar('epochMetric.epoch_tr_loss/test', metrics["epoch_tr_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_rot_loss/test', metrics["epoch_rot_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_tor_loss/test', metrics["epoch_tor_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_tr_recy_0_loss/test', metrics["epoch_tr_loss_recy_0"], epoch)
-    writer.add_scalar('epochMetric.epoch_rot_recy_0_loss/test', metrics["epoch_rot_loss_recy_0"], epoch)
-    writer.add_scalar('epochMetric.epoch_tor_recy_0_loss/test', metrics["epoch_tor_loss_recy_0"], epoch)
-    writer.add_scalar('epochMetric.epoch_tr_recy_1_loss/test', metrics["epoch_tr_loss_recy_1"], epoch)
-    writer.add_scalar('epochMetric.epoch_rot_recy_1_loss/test', metrics["epoch_rot_loss_recy_1"], epoch)
-    writer.add_scalar('epochMetric.epoch_tor_recy_1_loss/test', metrics["epoch_tor_loss_recy_1"], epoch)
+        if epoch % 1 == 0:
+            torch.save(model.state_dict(), f"{pre}/models/epoch_{epoch}.pt")
+        # torch.save((y, y_pred), f"{pre}/results/epoch_{epoch}.pt")
+        if epoch_not_improving > 100:
+            # early stop.
+            print("early stop")
+            break
 
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/test', metrics["epoch_rmsd_recycling_0_loss"], epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/test', metrics["epoch_rmsd_recycling_1_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss/test', metrics["epoch_rmsd_recycling_2_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_3_loss/test', metrics["epoch_rmsd_recycling_3_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_4_loss/test', metrics["epoch_rmsd_recycling_4_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/test', metrics["epoch_rmsd_recycling_19_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/test', metrics["epoch_rmsd_recycling_39_loss"],epoch)
-    writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_2_diff_loss/test', metrics["epoch_rmsd_recycling_1_2_diff_loss"],epoch)
-    # writer.add_scalar('epochMetric.NativeAUROC/test', metrics["native_auroc"], epoch)
-    # writer.add_scalar('epochMetric.SelectedAUROC/test', metrics["selected_auroc"], epoch)
-
-    if epoch % 1 == 0:
-        torch.save(model.state_dict(), f"{pre}/models/epoch_{epoch}.pt")
-    # torch.save((y, y_pred), f"{pre}/results/epoch_{epoch}.pt")
-    if epoch_not_improving > 100:
-        # early stop.
-        print("early stop")
-        break
-    
-    # torch.cuda.empty_cache()
-    os.system(f"cp {timestamp}.log {pre}/")
 
 torch.save((metrics_list, valid_metrics_list, test_metrics_list), f"{pre}/metrics.pt")
