@@ -328,7 +328,7 @@ def evaluate_with_affinity(data_loader,
         y = data.y
         dis_map = data.dis_map
         y_pred = pred_result_list[-1][4] #pred_result_list:(tr_pred, rot_pred, torsion_pred_batched,next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched)
-        data_groundtruth_pos_batched = model.unbatch(data['compound'].pos, data['compound'].batch)
+        data_groundtruth_pos_batched = data['compound'].pos.split(degree(data['compound'].batch, dtype=torch.long).tolist())
         # 记录每个样本的学习信息
         _data_new_pos_batched_list = []
         for i in range(sample_num):  # data_new_pos_batched_list=[[]]*sample_num  #这么写会有严重的bug  所有[]其实都指向了一个[]
@@ -396,11 +396,8 @@ def evaluate_with_affinity(data_loader,
                 for recycling_num, pred_result in enumerate(pred_result_list):
 
                     tr_pred, rot_pred, torsion_pred_batched, _, _, current_candicate_conf_pos_batched = pred_result
-
-                    compound_edge_index_batched = model.unbatch(data['compound', 'compound'].edge_index.T,
-                                                                data.compound_compound_edge_attr_batch)
-                    compound_rotate_edge_mask_batched = model.unbatch(data['compound'].edge_mask,
-                                                                      data.compound_compound_edge_attr_batch)
+                    compound_edge_index_batched = data['compound', 'compound'].edge_index.T.split(degree(data.compound_compound_edge_attr_batch, dtype=torch.long).tolist())
+                    compound_rotate_edge_mask_batched = data['compound'].edge_mask.split(degree(data.compound_compound_edge_attr_batch, dtype=torch.long).tolist())
                     ligand_atom_sizes = degree(data['compound'].batch, dtype=torch.long).tolist()
                     for i in range(len(data_groundtruth_pos_batched)):
                         rotate_edge_index = compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]] - sum(
