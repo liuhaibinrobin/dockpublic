@@ -299,6 +299,9 @@ def evaluate_with_affinity(data_loader,
     epoch_num_nan_contact_5A = 0
     epoch_loss_contact_10A = 0.0
     epoch_num_nan_contact_10A = 0
+    epoch_affinity_B_recycling_1_loss = 0
+    epoch_affinity_B_recycling_2_loss = 0
+    epoch_affinity_B_recycling_3_loss = 0
 
     epoch_rmsd_recycling_0_loss=0
     epoch_rmsd_recycling_1_loss=0
@@ -472,6 +475,9 @@ def evaluate_with_affinity(data_loader,
                 y_pred = y_pred.sigmoid()
             affinity_loss_A = relative_k * affinity_criterion(affinity_pred_A, data.affinity)
             affinity_loss_B = relative_k * torch.stack([affinity_criterion(affinity_pred_B_list[i], data.affinity) for i in range(len(affinity_pred_B_list))],0).mean()
+            affinity_loss_B_recycling_1 = affinity_criterion(affinity_pred_B_list[0], affinity) if len(affinity_pred_B_list) >= 1 else torch.tensor([0]).to(y_pred.device)
+            affinity_loss_B_recycling_2 = affinity_criterion(affinity_pred_B_list[1], affinity) if len(affinity_pred_B_list) >= 2 else torch.tensor([0]).to(y_pred.device)
+            affinity_loss_B_recycling_3 = affinity_criterion(affinity_pred_B_list[2], affinity) if len(affinity_pred_B_list) >= 3 else torch.tensor([0]).to(y_pred.device)
             # loss = contact_loss + affinity_loss ## unused-drop
         epoch_loss_contact += len(y_pred) * contact_loss.item()
         epoch_loss_contact_5A += len(y_pred) * contact_loss_cat_off_rmsd_5.item()
@@ -480,6 +486,9 @@ def evaluate_with_affinity(data_loader,
         epoch_loss_affinity_B += len(affinity_pred_B_list[0]) * affinity_loss_B.item()
         epoch_loss_rmsd += len(rmsd_list[0]) * rmsd_loss.item()
         epoch_loss_prmsd += len(prmsd_list[0]) * prmsd_loss.item()
+        epoch_affinity_B_recycling_1_loss += len(affinity_pred_B_list[0]) * affinity_loss_B_recycling_1.item()
+        epoch_affinity_B_recycling_2_loss += len(affinity_pred_B_list[0]) * affinity_loss_B_recycling_2.item()
+        epoch_affinity_B_recycling_3_loss += len(affinity_pred_B_list[0]) * affinity_loss_B_recycling_3.item()
 
         epoch_rmsd_recycling_0_loss += len(rmsd_list[0]) * rmsd_recycling_0_loss.item()
         epoch_rmsd_recycling_1_loss += len(rmsd_list[0]) * rmsd_recycling_1_loss.item()
@@ -550,7 +559,9 @@ def evaluate_with_affinity(data_loader,
         "epoch_tr_loss_recy_1":epoch_tr_loss_recy_1 / len(RMSD_pred),
         "epoch_rot_loss_recy_1":epoch_rot_loss_recy_1 / len(RMSD_pred),
         "epoch_tor_loss_recy_1":epoch_tor_loss_recy_1 / len(RMSD_pred),
-        
+        "loss_affinity_B_recycling_1": epoch_affinity_B_recycling_1_loss / len(affinity_pred_B), 
+        "loss_affinity_B_recycling_2": epoch_affinity_B_recycling_2_loss / len(affinity_pred_B),
+        "loss_affinity_B_recycling_3": epoch_affinity_B_recycling_3_loss / len(affinity_pred_B), 
 
     }
     

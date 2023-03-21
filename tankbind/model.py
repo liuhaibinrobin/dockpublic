@@ -680,101 +680,116 @@ class IaBNet_with_affinity(torch.nn.Module):
         # ttt1 = time.time()
         # print('before recycling', ttt1-ttt)
         for recycling_num in range(self.recycling_num):
-            compound_out = self.lig_node_embedding(self.rebatch(compound_out_batched, compound_batch))  #128 -> ns
-            protein_out = self.rec_node_embedding(self.rebatch(protein_out_batched, protein_batch))
-            prmsd_pred = torch.zeros(affinity_pred_A.shape).to(affinity_pred_A.device)
-            protein_num_batch = degree(data['protein'].batch, dtype=torch.long).tolist()
-            compound_num_batch = degree(data['compound'].batch, dtype=torch.long).tolist()
-            batch_size = z.shape[0]
-            # candicate_dis_matrix_batched = data.candicate_dis_matrix.new_full([batch_size, ligand_len, pocket_len], 0.)
-            # for i in range(batch_size):
-            #     candicate_dis_matrix_batched[i, :compound_num_batch[i], :protein_num_batch[i]] = \
-            #         self.unbatch(current_candicate_dis_matrix, data.candicate_dis_matrix_batch)[i].view(compound_num_batch[i], protein_num_batch[i]) #让candicate_dis_matrix的维度与z一致
-            #self.logging.info("3 z.shape:%s,protein_out_batched.shape:%s,  candicate_dis_matrix_batched.shape:%s "%(z.shape,protein_out_batched.shape,  candicate_dis_matrix_batched.shape))
-
-            _, lig_edge_index, lig_edge_attr, lig_edge_sh = self.build_lig_conv_graph(data, current_candicate_conf_pos)
-            lig_edge_attr = self.lig_edge_embedding(lig_edge_attr)
-            rec_edge_index, rec_edge_attr, rec_edge_sh = self.build_rec_conv_graph(data)
-            rec_src, rec_dst = rec_edge_index
-            rec_edge_attr = self.rec_edge_embedding(rec_edge_attr)
-            lig_src, lig_dst = lig_edge_index
-            cross_edge_index, cross_edge_attr, cross_edge_sh = self.build_cross_conv_graph(data, current_candicate_conf_pos)
-            cross_lig, cross_rec = cross_edge_index
-            cross_edge_attr = self.cross_edge_embedding(cross_edge_attr)
-            if cross_lig.shape[0] != data.candicate_dis_matrix_batch.shape[0]:
-                torch.save(data,'data_error.pt')
-                torch.save(current_candicate_conf_pos-data['compound'].pos, 'diff_error.pt')
-                raise ValueError(f'{cross_lig.shape[0]} not match {data.candicate_dis_matrix_batch.shape[0]}')
-            for l in range(len(self.lig_conv_layers)):
-                lig_edge_attr_ = torch.cat([lig_edge_attr, compound_out[lig_src, :self.ns], compound_out[lig_dst, :self.ns]], -1)
-                lig_intra_update = self.lig_conv_layers[l](compound_out, lig_edge_index, lig_edge_attr_, lig_edge_sh)
-                cross_lig_batched = self.unbatch(cross_lig, data.candicate_dis_matrix_batch)
-                cross_rec_batched = self.unbatch(cross_rec, data.candicate_dis_matrix_batch)
-                rec_to_lig_edge_attr_ = torch.cat([cross_edge_attr, compound_out[cross_lig, :self.ns], protein_out[cross_rec, :self.ns]], -1)
-                z_attr_ = torch.concat([z[i, cross_rec_batched[i] - sum(protein_num_batch[:i]), cross_lig_batched[i] - sum(compound_num_batch[:i]), :] for i in range(batch_size)])
-                rec_to_lig_edge_attr_ = torch.cat([rec_to_lig_edge_attr_, z_attr_], -1)
-                lig_inter_update = self.rec_to_lig_conv_layers[l](protein_out, cross_edge_index, rec_to_lig_edge_attr_, cross_edge_sh,
-                                                                out_nodes=compound_out.shape[0])
-                if l != len(self.lig_conv_layers) - 1:
-                    rec_edge_attr_ = torch.cat([rec_edge_attr, protein_out[rec_src, :self.ns], protein_out[rec_dst, :self.ns]], -1)
-                    rec_intra_update = self.rec_conv_layers[l](protein_out, rec_edge_index, rec_edge_attr_, rec_edge_sh)
-                compound_out = F.pad(compound_out, (0, lig_intra_update.shape[-1] - compound_out.shape[-1]))
-                compound_out = compound_out + lig_intra_update + lig_inter_update
-                if l != len(self.lig_conv_layers) - 1:
-                    protein_out = F.pad(protein_out, (0, lig_inter_update.shape[-1] - protein_out.shape[-1]))
-                    protein_out = protein_out + rec_intra_update
-
-
-            scalar_lig_attr = torch.cat([compound_out[:,:self.ns], compound_out[:,-self.ns:] ], dim=1) if self.n_trigonometry_module_stack >= 3 else compound_out[:,:self.ns]
-            affinity_pred_B = self.confidence_predictor(scatter_mean(scalar_lig_attr, data['compound'].batch, dim=0)).squeeze(dim=-1)
-            affinity_pred_B = affinity_pred_B.sigmoid() * 15 
-            #先算true_rmsd_上一轮的，再跟上面的算 prmsd_loss
-            compound_out_new, protein_out_new = compound_out, protein_out #dim = 2*ns+3*nv
-            center_edge_index, center_edge_attr, center_edge_sh = self.build_center_conv_graph(data, current_candicate_conf_pos)
-            center_edge_attr = self.center_edge_embedding(center_edge_attr)
-            # lig_node_attr 和 compound_out_new 都是node embedding 有问题，compound_out_new也包含protein信息（z）
-            center_edge_attr = torch.cat([center_edge_attr, compound_out_new[center_edge_index[0], :self.ns]], -1)  #注意node_embedding初始维度为128维，只取了前24维？
-            # in_irreps=f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o'
-            # compound_out_new = compound_out_new[:,:o3.Irreps(in_irreps).dim]  #保证node_embedding的维度是84维，但是原来是128维，需要调整的是in_irreps 
-            global_pred = self.final_conv(compound_out_new, center_edge_index, center_edge_attr, center_edge_sh, out_nodes=data.num_graphs)
-            tr_pred = global_pred[:, :3] + global_pred[:, 6:9]
-            rot_pred = global_pred[:, 3:6] + global_pred[:, 9:]
-            tr_norm = torch.linalg.vector_norm(tr_pred, dim=1).unsqueeze(1)
-            tr_pred = tr_pred / tr_norm * self.tr_final_layer(tr_norm)
-            tr_pred = tr_pred.sigmoid() * 20 - 10
-            rot_norm = torch.linalg.vector_norm(rot_pred, dim=1).unsqueeze(1)
-            rot_pred = rot_pred / rot_norm * self.rot_final_layer(rot_norm)
-            # rot_pred = rot_pred.sigmoid() * 4 * math.pi - 2 * math.pi
-            # torsional components
-
-            tor_bonds, tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_bond_conv_graph(data,current_candicate_conf_pos)
-            tor_bond_vec = current_candicate_conf_pos[tor_bonds[1]] - current_candicate_conf_pos[tor_bonds[0]]
-            tor_bond_attr = compound_out_new[tor_bonds[0]] + compound_out_new[tor_bonds[1]]
-            tor_bonds_sh = o3.spherical_harmonics("2e", tor_bond_vec, normalize=True, normalization='component')
-            tor_edge_sh = self.final_tp_tor(tor_edge_sh, tor_bonds_sh[tor_edge_index[0]])
-            tor_edge_attr = torch.cat([tor_edge_attr, compound_out_new[tor_edge_index[1], :self.ns],  #注意node_embedding初始维度为128维，只取了前24维？TODO
-                                    tor_bond_attr[tor_edge_index[0], :self.ns]], -1)
-            tor_pred = self.tor_bond_conv(compound_out_new, tor_edge_index, tor_edge_attr, tor_edge_sh,
-                                    out_nodes=data['compound'].edge_mask.sum(), reduce='mean')
-            tor_pred = self.tor_final_layer(tor_pred).squeeze(1)
-            # batch_size = int(max(data_new['compound'].batch)) + 1
-            # 步骤四
-            torsion_pred_batched = tor_pred.split( data["compound"].rotate_bond_num.detach().cpu().numpy().tolist())
-            with torch.no_grad():#TODO:这部分的梯度如何传播的目前没搞懂，先不做RMSD loss 了 20230201
-                # next_candicate_conf_pos, next_candicate_dis_matrix = self.modify_conformer(data, tr_pred, rot_pred, tor_pred, batch_size, current_candicate_conf_pos)
-                next_candicate_conf_pos, next_candicate_dis_matrix = self.modify_conformer(data, tr_pred, rot_pred, torsion_pred_batched, batch_size, current_candicate_conf_pos)
-
-            affinity_pred_B_list.append(affinity_pred_B)
-            prmsd_list.append(prmsd_pred)
-            next_candicate_conf_pos_batched = self.unbatch(next_candicate_conf_pos,data['compound'].batch)
-            current_candicate_conf_pos_batched = self.unbatch(current_candicate_conf_pos,data['compound'].batch)
-            pred_result_list.append((tr_pred, rot_pred, torsion_pred_batched, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched))
-            current_candicate_conf_pos = next_candicate_conf_pos
+            if recycling_num == self.recycling_num - 1:
+                output = self.recycling(data, current_candicate_conf_pos, compound_out_batched, compound_batch, protein_out_batched, protein_batch, z)
+                tr_pred, rot_pred, torsion_pred_batched, affinity_pred_B, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched,next_candicate_conf_pos = output
+                prmsd_pred = torch.zeros(affinity_pred_A.shape).to(affinity_pred_A.device)
+                affinity_pred_B_list.append(affinity_pred_B)
+                prmsd_list.append(prmsd_pred)
+                pred_result_list.append((tr_pred, rot_pred, torsion_pred_batched, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched))
+                current_candicate_conf_pos = next_candicate_conf_pos
+            else:
+                # with torch.no_grad:
+                output = self.recycling(data, current_candicate_conf_pos, compound_out_batched, compound_batch, protein_out_batched, protein_batch, z)
+                tr_pred, rot_pred, torsion_pred_batched, affinity_pred_B, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched,next_candicate_conf_pos = output
+                prmsd_pred = torch.zeros(affinity_pred_A.shape).to(affinity_pred_A.device)
+                affinity_pred_B_list.append(affinity_pred_B)
+                prmsd_list.append(prmsd_pred)
+                pred_result_list.append((tr_pred, rot_pred, torsion_pred_batched, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched))
+                current_candicate_conf_pos = next_candicate_conf_pos
             # ttt2 = time.time()
             # print(f'recycling num {recycling_num}', ttt2-ttt1)
         #self.logging.info(f"after point B, affinity_pred_A shape: {affinity_pred_A.shape}, affinity_pred_B_list len: {len(affinity_pred_B_list)}, prmsd_pred_list len: {len(prmsd_pred_list)}, rmsd_list len: {len(rmsd_list)}")
         return  affinity_pred_A, affinity_pred_B_list, prmsd_list,pred_result_list
 
+
+
+    def recycling(self, data, current_candicate_conf_pos, compound_out_batched, compound_batch, protein_out_batched, protein_batch, z):
+        compound_out = self.lig_node_embedding(self.rebatch(compound_out_batched, compound_batch))  #128 -> ns
+        protein_out = self.rec_node_embedding(self.rebatch(protein_out_batched, protein_batch))
+        protein_num_batch = degree(data['protein'].batch, dtype=torch.long).tolist()
+        compound_num_batch = degree(data['compound'].batch, dtype=torch.long).tolist()
+        batch_size = z.shape[0]
+        # candicate_dis_matrix_batched = data.candicate_dis_matrix.new_full([batch_size, ligand_len, pocket_len], 0.)
+        # for i in range(batch_size):
+        #     candicate_dis_matrix_batched[i, :compound_num_batch[i], :protein_num_batch[i]] = \
+        #         self.unbatch(current_candicate_dis_matrix, data.candicate_dis_matrix_batch)[i].view(compound_num_batch[i], protein_num_batch[i]) #让candicate_dis_matrix的维度与z一致
+        #self.logging.info("3 z.shape:%s,protein_out_batched.shape:%s,  candicate_dis_matrix_batched.shape:%s "%(z.shape,protein_out_batched.shape,  candicate_dis_matrix_batched.shape))
+
+        _, lig_edge_index, lig_edge_attr, lig_edge_sh = self.build_lig_conv_graph(data, current_candicate_conf_pos)
+        lig_edge_attr = self.lig_edge_embedding(lig_edge_attr)
+        rec_edge_index, rec_edge_attr, rec_edge_sh = self.build_rec_conv_graph(data)
+        rec_src, rec_dst = rec_edge_index
+        rec_edge_attr = self.rec_edge_embedding(rec_edge_attr)
+        lig_src, lig_dst = lig_edge_index
+        cross_edge_index, cross_edge_attr, cross_edge_sh = self.build_cross_conv_graph(data, current_candicate_conf_pos)
+        cross_lig, cross_rec = cross_edge_index
+        cross_edge_attr = self.cross_edge_embedding(cross_edge_attr)
+        if cross_lig.shape[0] != data.candicate_dis_matrix_batch.shape[0]:
+            torch.save(data,'data_error.pt')
+            torch.save(current_candicate_conf_pos-data['compound'].pos, 'diff_error.pt')
+            raise ValueError(f'{cross_lig.shape[0]} not match {data.candicate_dis_matrix_batch.shape[0]}')
+        for l in range(len(self.lig_conv_layers)):
+            lig_edge_attr_ = torch.cat([lig_edge_attr, compound_out[lig_src, :self.ns], compound_out[lig_dst, :self.ns]], -1)
+            lig_intra_update = self.lig_conv_layers[l](compound_out, lig_edge_index, lig_edge_attr_, lig_edge_sh)
+            cross_lig_batched = self.unbatch(cross_lig, data.candicate_dis_matrix_batch)
+            cross_rec_batched = self.unbatch(cross_rec, data.candicate_dis_matrix_batch)
+            rec_to_lig_edge_attr_ = torch.cat([cross_edge_attr, compound_out[cross_lig, :self.ns], protein_out[cross_rec, :self.ns]], -1)
+            z_attr_ = torch.concat([z[i, cross_rec_batched[i] - sum(protein_num_batch[:i]), cross_lig_batched[i] - sum(compound_num_batch[:i]), :] for i in range(batch_size)])
+            rec_to_lig_edge_attr_ = torch.cat([rec_to_lig_edge_attr_, z_attr_], -1)
+            lig_inter_update = self.rec_to_lig_conv_layers[l](protein_out, cross_edge_index, rec_to_lig_edge_attr_, cross_edge_sh,
+                                                            out_nodes=compound_out.shape[0])
+            if l != len(self.lig_conv_layers) - 1:
+                rec_edge_attr_ = torch.cat([rec_edge_attr, protein_out[rec_src, :self.ns], protein_out[rec_dst, :self.ns]], -1)
+                rec_intra_update = self.rec_conv_layers[l](protein_out, rec_edge_index, rec_edge_attr_, rec_edge_sh)
+            compound_out = F.pad(compound_out, (0, lig_intra_update.shape[-1] - compound_out.shape[-1]))
+            compound_out = compound_out + lig_intra_update + lig_inter_update
+            if l != len(self.lig_conv_layers) - 1:
+                protein_out = F.pad(protein_out, (0, lig_inter_update.shape[-1] - protein_out.shape[-1]))
+                protein_out = protein_out + rec_intra_update
+
+
+        scalar_lig_attr = torch.cat([compound_out[:,:self.ns], compound_out[:,-self.ns:] ], dim=1) if self.n_trigonometry_module_stack >= 3 else compound_out[:,:self.ns]
+        affinity_pred_B = self.confidence_predictor(scatter_mean(scalar_lig_attr, data['compound'].batch, dim=0)).squeeze(dim=-1)
+        affinity_pred_B = affinity_pred_B.sigmoid() * 15 
+        #先算true_rmsd_上一轮的，再跟上面的算 prmsd_loss
+        compound_out_new = compound_out #dim = 2*ns+3*nv
+        center_edge_index, center_edge_attr, center_edge_sh = self.build_center_conv_graph(data, current_candicate_conf_pos)
+        center_edge_attr = self.center_edge_embedding(center_edge_attr)
+        # lig_node_attr 和 compound_out_new 都是node embedding 有问题，compound_out_new也包含protein信息（z）
+        center_edge_attr = torch.cat([center_edge_attr, compound_out_new[center_edge_index[0], :self.ns]], -1)  #注意node_embedding初始维度为128维，只取了前24维？
+        # in_irreps=f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o'
+        # compound_out_new = compound_out_new[:,:o3.Irreps(in_irreps).dim]  #保证node_embedding的维度是84维，但是原来是128维，需要调整的是in_irreps 
+        global_pred = self.final_conv(compound_out_new, center_edge_index, center_edge_attr, center_edge_sh, out_nodes=data.num_graphs)
+        tr_pred = global_pred[:, :3] + global_pred[:, 6:9]
+        rot_pred = global_pred[:, 3:6] + global_pred[:, 9:]
+        tr_norm = torch.linalg.vector_norm(tr_pred, dim=1).unsqueeze(1)
+        tr_pred = tr_pred / tr_norm * self.tr_final_layer(tr_norm)
+        tr_pred = tr_pred.sigmoid() * 20 - 10
+        rot_norm = torch.linalg.vector_norm(rot_pred, dim=1).unsqueeze(1)
+        rot_pred = rot_pred / rot_norm * self.rot_final_layer(rot_norm)
+        # rot_pred = rot_pred.sigmoid() * 2 * math.pi - math.pi
+        # torsional components
+
+        tor_bonds, tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_bond_conv_graph(data,current_candicate_conf_pos)
+        tor_bond_vec = current_candicate_conf_pos[tor_bonds[1]] - current_candicate_conf_pos[tor_bonds[0]]
+        tor_bond_attr = compound_out_new[tor_bonds[0]] + compound_out_new[tor_bonds[1]]
+        tor_bonds_sh = o3.spherical_harmonics("2e", tor_bond_vec, normalize=True, normalization='component')
+        tor_edge_sh = self.final_tp_tor(tor_edge_sh, tor_bonds_sh[tor_edge_index[0]])
+        tor_edge_attr = torch.cat([tor_edge_attr, compound_out_new[tor_edge_index[1], :self.ns],  #注意node_embedding初始维度为128维，只取了前24维？TODO
+                                tor_bond_attr[tor_edge_index[0], :self.ns]], -1)
+        tor_pred = self.tor_bond_conv(compound_out_new, tor_edge_index, tor_edge_attr, tor_edge_sh,
+                                out_nodes=data['compound'].edge_mask.sum(), reduce='mean')
+        tor_pred = self.tor_final_layer(tor_pred).squeeze(1)
+        # batch_size = int(max(data_new['compound'].batch)) + 1
+        # 步骤四
+        torsion_pred_batched = tor_pred.split( data["compound"].rotate_bond_num.detach().cpu().numpy().tolist())
+        with torch.no_grad():#TODO:这部分的梯度如何传播的目前没搞懂，先不做RMSD loss 了 20230201
+            # next_candicate_conf_pos, next_candicate_dis_matrix = self.modify_conformer(data, tr_pred, rot_pred, tor_pred, batch_size, current_candicate_conf_pos)
+            next_candicate_conf_pos, next_candicate_dis_matrix = self.modify_conformer(data, tr_pred, rot_pred, torsion_pred_batched, batch_size, current_candicate_conf_pos)
+        next_candicate_conf_pos_batched = self.unbatch(next_candicate_conf_pos,data['compound'].batch)
+        current_candicate_conf_pos_batched = self.unbatch(current_candicate_conf_pos,data['compound'].batch)
+        return tr_pred, rot_pred, torsion_pred_batched, affinity_pred_B, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched, next_candicate_conf_pos
 
 
     def build_lig_conv_graph(self, data, current_candicate_conf_pos):   

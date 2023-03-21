@@ -46,7 +46,7 @@ def init_distributed_mode(args):
 
     torch.cuda.set_device(args.gpu)
     args.dist_backend = "nccl"
-    
+    print('NCCL_SOCKET_IFNAME:', os.environ["NCCL_SOCKET_IFNAME"])
     dist.init_process_group(
         backend=args.dist_backend, init_method=args.dist_url, world_size=args.world_size, rank=args.rank)
 
@@ -310,6 +310,9 @@ for epoch in range(200):
     epoch_loss_affinity_B = 0.0
     epoch_loss_rmsd = 0.0
     epoch_loss_prmsd = 0.0
+    epoch_affinity_B_recycling_1_loss = 0
+    epoch_affinity_B_recycling_2_loss = 0
+    epoch_affinity_B_recycling_3_loss = 0
 
     epoch_rmsd_recycling_0_loss=0
     epoch_rmsd_recycling_1_loss=0
@@ -527,13 +530,18 @@ for epoch in range(200):
         if args.affinity_loss_mode == 0:
             affinity_loss_A = relative_k * affinity_criterion(affinity_pred_A, affinity)
             affinity_loss_B = relative_k * torch.stack([affinity_criterion(affinity_pred_B_list[i], affinity) for i in range(len(affinity_pred_B_list))],0).mean()
+            affinity_loss_B_recycling_1 = affinity_criterion(affinity_pred_B_list[0], affinity) if len(affinity_pred_B_list) >= 1 else torch.tensor([0]).to(y_pred.device)
+            affinity_loss_B_recycling_2 = affinity_criterion(affinity_pred_B_list[1], affinity) if len(affinity_pred_B_list) >= 2 else torch.tensor([0]).to(y_pred.device)
+            affinity_loss_B_recycling_3 = affinity_criterion(affinity_pred_B_list[2], affinity) if len(affinity_pred_B_list) >= 3 else torch.tensor([0]).to(y_pred.device)
         elif args.affinity_loss_mode == 1:
             native_pocket_mask = data.is_equivalent_native_pocket
             affinity_loss_A = relative_k * my_affinity_criterion(affinity_pred_A,
                                                                 affinity, 
                                                                 native_pocket_mask, decoy_gap=args.decoy_gap)
             affinity_loss_B = relative_k * torch.stack([my_affinity_criterion(affinity_pred_B_list[i], affinity, native_pocket_mask, decoy_gap=args.decoy_gap) for i in range(len(affinity_pred_B_list))],0).mean()
-
+            affinity_loss_B_recycling_1 = affinity_criterion(affinity_pred_B_list[0], affinity) if len(affinity_pred_B_list) >= 1 else torch.tensor([0]).to(y_pred.device)
+            affinity_loss_B_recycling_2 = affinity_criterion(affinity_pred_B_list[1], affinity) if len(affinity_pred_B_list) >= 2 else torch.tensor([0]).to(y_pred.device)
+            affinity_loss_B_recycling_3 = affinity_criterion(affinity_pred_B_list[2], affinity) if len(affinity_pred_B_list) >= 3 else torch.tensor([0]).to(y_pred.device)
 
 
         # print(contact_loss.item(), affinity_loss_A.item())
@@ -569,6 +577,9 @@ for epoch in range(200):
         epoch_loss_affinity_B += len(affinity_pred_B_list[0]) * affinity_loss_B.item()
         epoch_loss_rmsd += len(rmsd_list[0]) * rmsd_loss.item()
         epoch_loss_prmsd += len(prmsd_list[0]) * prmsd_loss.item()
+        epoch_affinity_B_recycling_1_loss += len(affinity_pred_B_list[0]) * affinity_loss_B_recycling_1.item()
+        epoch_affinity_B_recycling_2_loss += len(affinity_pred_B_list[0]) * affinity_loss_B_recycling_2.item()
+        epoch_affinity_B_recycling_3_loss += len(affinity_pred_B_list[0]) * affinity_loss_B_recycling_3.item()
 
         epoch_rmsd_recycling_0_loss +=len(rmsd_list[0]) * rmsd_recycling_0_loss.item()
         epoch_rmsd_recycling_1_loss +=len(rmsd_list[0]) * rmsd_recycling_1_loss.item()
@@ -649,6 +660,9 @@ for epoch in range(200):
         writer.add_scalar('epochLoss.Pred_RMSD/train', epoch_loss_prmsd / len(PRMSD_pred), epoch)
         writer.add_scalar('epochNum.TrainedBatches/train', global_steps_train, epoch)
         writer.add_scalar('epochNum.TrainedSamples/train', global_samples_train, epoch)
+        writer.add_scalar('epochLoss.Affinity_B_recycling_1/train', epoch_affinity_B_recycling_1_loss / len(affinity_pred_B), epoch)
+        writer.add_scalar('epochLoss.Affinity_B_recycling_2/train', epoch_affinity_B_recycling_2_loss / len(affinity_pred_B), epoch)
+        writer.add_scalar('epochLoss.Affinity_B_recycling_3/train', epoch_affinity_B_recycling_3_loss / len(affinity_pred_B), epoch)
 
         writer.add_scalar('epochLoss.rmsd_recycling_0/train', epoch_rmsd_recycling_0_loss / len(RMSD_pred), epoch)
         writer.add_scalar('epochLoss.rmsd_recycling_1/train', epoch_rmsd_recycling_1_loss / len(RMSD_pred), epoch)
@@ -729,6 +743,9 @@ for epoch in range(200):
         writer.add_scalar('epochMetric.epoch_tr_recy_1_loss/validation', metrics["epoch_tr_loss_recy_1"], epoch)
         writer.add_scalar('epochMetric.epoch_rot_recy_1_loss/validation', metrics["epoch_rot_loss_recy_1"], epoch)
         writer.add_scalar('epochMetric.epoch_tor_recy_1_loss/validation', metrics["epoch_tor_loss_recy_1"], epoch)
+        writer.add_scalar('epochLoss.Affinity_B_recycling_1/validation', metrics["loss_affinity_B_recycling_1"], epoch)
+        writer.add_scalar('epochLoss.Affinity_B_recycling_2/validation', metrics["loss_affinity_B_recycling_2"], epoch)
+        writer.add_scalar('epochLoss.Affinity_B_recycling_3/validation', metrics["loss_affinity_B_recycling_3"], epoch)
 
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/validation', metrics["epoch_rmsd_recycling_0_loss"], epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/validation', metrics["epoch_rmsd_recycling_1_loss"],epoch)
@@ -784,6 +801,9 @@ for epoch in range(200):
         writer.add_scalar('epochMetric.epoch_tr_recy_1_loss/test', metrics["epoch_tr_loss_recy_1"], epoch)
         writer.add_scalar('epochMetric.epoch_rot_recy_1_loss/test', metrics["epoch_rot_loss_recy_1"], epoch)
         writer.add_scalar('epochMetric.epoch_tor_recy_1_loss/test', metrics["epoch_tor_loss_recy_1"], epoch)
+        writer.add_scalar('epochLoss.Affinity_B_recycling_1/test', metrics["loss_affinity_B_recycling_1"], epoch)
+        writer.add_scalar('epochLoss.Affinity_B_recycling_2/test', metrics["loss_affinity_B_recycling_2"], epoch)
+        writer.add_scalar('epochLoss.Affinity_B_recycling_3/test', metrics["loss_affinity_B_recycling_3"], epoch)
 
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_0_loss/test', metrics["epoch_rmsd_recycling_0_loss"], epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_loss/test', metrics["epoch_rmsd_recycling_1_loss"],epoch)

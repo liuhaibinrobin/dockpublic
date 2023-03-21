@@ -111,6 +111,10 @@ class RowAttentionBlock(nn.Module):
         self.mha = Attention(node_hidden_dim, node_hidden_dim, node_hidden_dim, attention_hidden_dim, no_heads)
 
     def forward(self, node_embed_i, node_embed_j, pair_embed, pair_mask, node_mask_i):
+        '''
+        pair_embed: Z.
+        node_embed_i and j are ligand/protein, not sure which one.
+        '''
         node_embed_i = self.layernorm_node_i(node_embed_i)  # (*, I, C_node)
         node_embed_j = self.layernorm_node_j(node_embed_j)  # (*, J, C_node)
         pair_embed = self.layernorm_pair(pair_embed)  # (*, I, J, C_pair)
