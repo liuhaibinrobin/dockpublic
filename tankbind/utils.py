@@ -475,9 +475,9 @@ def evaluate_with_affinity(data_loader,
                 y_pred = y_pred.sigmoid()
             affinity_loss_A = relative_k * affinity_criterion(affinity_pred_A, data.affinity)
             affinity_loss_B = relative_k * torch.stack([affinity_criterion(affinity_pred_B_list[i], data.affinity) for i in range(len(affinity_pred_B_list))],0).mean()
-            affinity_loss_B_recycling_1 = affinity_criterion(affinity_pred_B_list[0], affinity) if len(affinity_pred_B_list) >= 1 else torch.tensor([0]).to(y_pred.device)
-            affinity_loss_B_recycling_2 = affinity_criterion(affinity_pred_B_list[1], affinity) if len(affinity_pred_B_list) >= 2 else torch.tensor([0]).to(y_pred.device)
-            affinity_loss_B_recycling_3 = affinity_criterion(affinity_pred_B_list[2], affinity) if len(affinity_pred_B_list) >= 3 else torch.tensor([0]).to(y_pred.device)
+            affinity_loss_B_recycling_1 = affinity_criterion(affinity_pred_B_list[0], data.affinity) if len(affinity_pred_B_list) >= 1 else torch.tensor([0]).to(y_pred.device)
+            affinity_loss_B_recycling_2 = affinity_criterion(affinity_pred_B_list[1], data.affinity) if len(affinity_pred_B_list) >= 2 else torch.tensor([0]).to(y_pred.device)
+            affinity_loss_B_recycling_3 = affinity_criterion(affinity_pred_B_list[2], data.affinity) if len(affinity_pred_B_list) >= 3 else torch.tensor([0]).to(y_pred.device)
             # loss = contact_loss + affinity_loss ## unused-drop
         epoch_loss_contact += len(y_pred) * contact_loss.item()
         epoch_loss_contact_5A += len(y_pred) * contact_loss_cat_off_rmsd_5.item()

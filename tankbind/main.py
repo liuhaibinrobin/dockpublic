@@ -389,10 +389,11 @@ for epoch in range(200):
             for recycling_num, pred_result in enumerate(pred_result_list):
 
                 tr_pred, rot_pred, torsion_pred_batched, _, _, current_candicate_conf_pos_batched = pred_result
-                tr_pred.retain_grad()
-                rot_pred.retain_grad()
-                for tmp_torsion_pred in torsion_pred_batched:
-                    tmp_torsion_pred.retain_grad()
+                if recycling_num == len(pred_result_list) - 1:
+                    tr_pred.retain_grad()
+                    rot_pred.retain_grad()
+                    for tmp_torsion_pred in torsion_pred_batched:
+                        tmp_torsion_pred.retain_grad()
                 compound_edge_index_batched = data['compound', 'compound'].edge_index.T.split(degree(data.compound_compound_edge_attr_batch, dtype=torch.long).tolist())
                 compound_rotate_edge_mask_batched = data['compound'].edge_mask.split(degree(data.compound_compound_edge_attr_batch, dtype=torch.long).tolist())
                 ligand_atom_sizes= degree(data['compound'].batch, dtype=torch.long).tolist()
@@ -433,15 +434,16 @@ for epoch in range(200):
                         rot_loss_recy_1 += F.mse_loss(rot_pred[i],opt_rotate)
                         if opt_torsion is not None:
                             tor_loss_recy_1 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
-                    tr_loss += F.mse_loss(tr_pred[i],opt_tr)
-                    rot_loss += F.mse_loss(rot_pred[i],opt_rotate)
-                    if opt_torsion is not None:
-                        tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
+                    if recycling_num == len(pred_result_list) - 1:
+                        tr_loss += F.mse_loss(tr_pred[i],opt_tr)
+                        rot_loss += F.mse_loss(rot_pred[i],opt_rotate)
+                        if opt_torsion is not None:
+                            tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
                     tmp_cnt += 1
 
-            tr_loss = tr_loss/tmp_cnt
-            rot_loss = rot_loss/tmp_cnt
-            tor_loss = tor_loss/tmp_cnt
+            tr_loss = tr_loss/len(data_groundtruth_pos_batched)
+            rot_loss = rot_loss/len(data_groundtruth_pos_batched)
+            tor_loss = tor_loss/len(data_groundtruth_pos_batched)
             tr_loss_recy_0 = tr_loss_recy_0/len(data_groundtruth_pos_batched)
             rot_loss_recy_0 = rot_loss_recy_0/len(data_groundtruth_pos_batched)
             tor_loss_recy_0 = tor_loss_recy_0/len(data_groundtruth_pos_batched)
@@ -529,7 +531,8 @@ for epoch in range(200):
             affinity = affinity[data.real_affinity_mask]
         if args.affinity_loss_mode == 0:
             affinity_loss_A = relative_k * affinity_criterion(affinity_pred_A, affinity)
-            affinity_loss_B = relative_k * torch.stack([affinity_criterion(affinity_pred_B_list[i], affinity) for i in range(len(affinity_pred_B_list))],0).mean()
+            affinity_loss_B = relative_k * affinity_criterion(affinity_pred_B_list[-1], affinity)
+            # affinity_loss_B = relative_k * torch.stack([affinity_criterion(affinity_pred_B_list[i], affinity) for i in range(len(affinity_pred_B_list))],0).mean()
             affinity_loss_B_recycling_1 = affinity_criterion(affinity_pred_B_list[0], affinity) if len(affinity_pred_B_list) >= 1 else torch.tensor([0]).to(y_pred.device)
             affinity_loss_B_recycling_2 = affinity_criterion(affinity_pred_B_list[1], affinity) if len(affinity_pred_B_list) >= 2 else torch.tensor([0]).to(y_pred.device)
             affinity_loss_B_recycling_3 = affinity_criterion(affinity_pred_B_list[2], affinity) if len(affinity_pred_B_list) >= 3 else torch.tensor([0]).to(y_pred.device)
@@ -538,7 +541,8 @@ for epoch in range(200):
             affinity_loss_A = relative_k * my_affinity_criterion(affinity_pred_A,
                                                                 affinity, 
                                                                 native_pocket_mask, decoy_gap=args.decoy_gap)
-            affinity_loss_B = relative_k * torch.stack([my_affinity_criterion(affinity_pred_B_list[i], affinity, native_pocket_mask, decoy_gap=args.decoy_gap) for i in range(len(affinity_pred_B_list))],0).mean()
+            affinity_loss_B = relative_k * affinity_criterion(affinity_pred_B_list[-1], affinity)
+            # affinity_loss_B = relative_k * torch.stack([my_affinity_criterion(affinity_pred_B_list[i], affinity, native_pocket_mask, decoy_gap=args.decoy_gap) for i in range(len(affinity_pred_B_list))],0).mean()
             affinity_loss_B_recycling_1 = affinity_criterion(affinity_pred_B_list[0], affinity) if len(affinity_pred_B_list) >= 1 else torch.tensor([0]).to(y_pred.device)
             affinity_loss_B_recycling_2 = affinity_criterion(affinity_pred_B_list[1], affinity) if len(affinity_pred_B_list) >= 2 else torch.tensor([0]).to(y_pred.device)
             affinity_loss_B_recycling_3 = affinity_criterion(affinity_pred_B_list[2], affinity) if len(affinity_pred_B_list) >= 3 else torch.tensor([0]).to(y_pred.device)

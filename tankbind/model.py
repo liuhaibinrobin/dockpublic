@@ -689,14 +689,14 @@ class IaBNet_with_affinity(torch.nn.Module):
                 pred_result_list.append((tr_pred, rot_pred, torsion_pred_batched, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched))
                 current_candicate_conf_pos = next_candicate_conf_pos
             else:
-                # with torch.no_grad:
-                output = self.recycling(data, current_candicate_conf_pos, compound_out_batched, compound_batch, protein_out_batched, protein_batch, z)
-                tr_pred, rot_pred, torsion_pred_batched, affinity_pred_B, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched,next_candicate_conf_pos = output
-                prmsd_pred = torch.zeros(affinity_pred_A.shape).to(affinity_pred_A.device)
-                affinity_pred_B_list.append(affinity_pred_B)
-                prmsd_list.append(prmsd_pred)
-                pred_result_list.append((tr_pred, rot_pred, torsion_pred_batched, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched))
-                current_candicate_conf_pos = next_candicate_conf_pos
+                with torch.no_grad():
+                    output = self.recycling(data, current_candicate_conf_pos, compound_out_batched, compound_batch, protein_out_batched, protein_batch, z)
+                    tr_pred, rot_pred, torsion_pred_batched, affinity_pred_B, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched,next_candicate_conf_pos = output
+                    prmsd_pred = torch.zeros(affinity_pred_A.shape).to(affinity_pred_A.device)
+                    affinity_pred_B_list.append(affinity_pred_B)
+                    prmsd_list.append(prmsd_pred)
+                    pred_result_list.append((tr_pred, rot_pred, torsion_pred_batched, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched))
+                    current_candicate_conf_pos = next_candicate_conf_pos
             # ttt2 = time.time()
             # print(f'recycling num {recycling_num}', ttt2-ttt1)
         #self.logging.info(f"after point B, affinity_pred_A shape: {affinity_pred_A.shape}, affinity_pred_B_list len: {len(affinity_pred_B_list)}, prmsd_pred_list len: {len(prmsd_pred_list)}, rmsd_list len: {len(rmsd_list)}")
