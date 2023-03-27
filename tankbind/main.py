@@ -235,6 +235,7 @@ from model import *
 model = get_model(args.mode, logger, device, recycling_num=args.recycling_num)
 
 if args.distributed:    
+    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True, broadcast_buffers=False)
 if args.restart:
     if args.distributed:
@@ -333,6 +334,8 @@ for epoch in range(200):
     #     data_it = tqdm(train_loader)
     # else:
     #     data_it = tqdm(train_after_warm_up_loader)
+    if args.distributed:
+        train_loader.batch_sampler.set_epoch(epoch)
     data_it = tqdm(train_loader)
     for data in data_it:
         data = data.to(device)
@@ -390,8 +393,8 @@ for epoch in range(200):
 
                 tr_pred, rot_pred, torsion_pred_batched, _, _, current_candicate_conf_pos_batched = pred_result
                 if recycling_num == len(pred_result_list) - 1:
-                    tr_pred.retain_grad()
-                    rot_pred.retain_grad()
+                    # tr_pred.retain_grad()
+                    # rot_pred.retain_grad()
                     for tmp_torsion_pred in torsion_pred_batched:
                         tmp_torsion_pred.retain_grad()
                 compound_edge_index_batched = data['compound', 'compound'].edge_index.T.split(degree(data.compound_compound_edge_attr_batch, dtype=torch.long).tolist())
@@ -425,15 +428,15 @@ for epoch in range(200):
                         opt_tr = opt_tr.T[0]
                         tor_last[i] = (tor_last[i] + torsion_pred_batched[i]) % (math.pi * 2)#累加tor_pred，是否余2pi?TODO
                     if recycling_num == 0:
-                        tr_loss_recy_0 += F.mse_loss(tr_pred[i],opt_tr)
-                        rot_loss_recy_0 += F.mse_loss(rot_pred[i],opt_rotate)
+                        tr_loss_recy_0 += F.mse_loss(tr_pred[i],opt_tr).item()
+                        rot_loss_recy_0 += F.mse_loss(rot_pred[i],opt_rotate).item()
                         if opt_torsion is not None:
-                            tor_loss_recy_0 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
+                            tor_loss_recy_0 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device)).item()
                     elif recycling_num == 1:
-                        tr_loss_recy_1 += F.mse_loss(tr_pred[i],opt_tr)
-                        rot_loss_recy_1 += F.mse_loss(rot_pred[i],opt_rotate)
+                        tr_loss_recy_1 += F.mse_loss(tr_pred[i],opt_tr).item()
+                        rot_loss_recy_1 += F.mse_loss(rot_pred[i],opt_rotate).item()
                         if opt_torsion is not None:
-                            tor_loss_recy_1 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
+                            tor_loss_recy_1 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device)).item()
                     if recycling_num == len(pred_result_list) - 1:
                         tr_loss += F.mse_loss(tr_pred[i],opt_tr)
                         rot_loss += F.mse_loss(rot_pred[i],opt_rotate)
@@ -461,7 +464,11 @@ for epoch in range(200):
                     tmp_rmsd=utils.RMSD(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
                     tmp_list.append(tmp_rmsd)
                 rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).requires_grad_().to(y_pred.device)[data.is_equivalent_native_pocket])
-            rmsd_loss = torch.stack(rmsd_list).mean()  # TODO:
+            rmsd_loss = torch.stack(rmsd_list).mean()  
+
+            _size = degree(data['compound'].batch, dtype=torch.long).tolist()
+            candicate_conf_pos_recy_last = torch.concat([pred_result_list[-1][3][i].split(_size[i])[0] for i in range(len(_size))])
+            rmsd_loss_recy_last = torch.sqrt(F.mse_loss(candicate_conf_pos_recy_last, data['compound'].pos, reduction="sum") / len(candicate_conf_pos_recy_last))
 
             next_candicate_conf_pos_batched_recy0=pred_result_list[0][3]
             next_candicate_conf_pos_batched_recy1=pred_result_list[1][3]
@@ -552,7 +559,7 @@ for epoch in range(200):
 
         #total loss
         if args.use_contact_loss == 0:
-            loss = tr_loss  + rot_loss + tor_loss + affinity_loss_A + affinity_loss_B #TODO:debug阶段
+            loss = rmsd_loss_recy_last + tor_loss + affinity_loss_A + affinity_loss_B #TODO:debug阶段
             #loss = tor_loss #TODO:debug阶段
             #loss = prmsd_loss.double() + rmsd_loss.double() + affinity_loss_A + affinity_loss_B
         else:
@@ -566,12 +573,12 @@ for epoch in range(200):
         epoch_tr_loss+=len(rmsd_list[0]) * tr_loss.item()
         epoch_rot_loss += len(rmsd_list[0]) * rot_loss.item()
         epoch_tor_loss += len(rmsd_list[0]) * tor_loss.item()
-        epoch_tr_loss_recy_0 += len(rmsd_list[0]) * tr_loss_recy_0.item()
-        epoch_rot_loss_recy_0 += len(rmsd_list[0]) * rot_loss_recy_0.item()
-        epoch_tor_loss_recy_0 += len(rmsd_list[0]) * tor_loss_recy_0.item()
-        epoch_tr_loss_recy_1 += len(rmsd_list[0]) * tr_loss_recy_1.item()
-        epoch_rot_loss_recy_1 += len(rmsd_list[0]) * rot_loss_recy_1.item()
-        epoch_tor_loss_recy_1 += len(rmsd_list[0]) * tor_loss_recy_1.item()
+        epoch_tr_loss_recy_0 += len(rmsd_list[0]) * tr_loss_recy_0
+        epoch_rot_loss_recy_0 += len(rmsd_list[0]) * rot_loss_recy_0
+        epoch_tor_loss_recy_0 += len(rmsd_list[0]) * tor_loss_recy_0
+        epoch_tr_loss_recy_1 += len(rmsd_list[0]) * tr_loss_recy_1
+        epoch_rot_loss_recy_1 += len(rmsd_list[0]) * rot_loss_recy_1
+        epoch_tor_loss_recy_1 += len(rmsd_list[0]) * tor_loss_recy_1
 
 
         epoch_loss_contact += len(y_pred) * contact_loss.item()
@@ -708,7 +715,7 @@ for epoch in range(200):
         saveFileName = f"{pre}/results/valid_epoch_{epoch}.pt"
         info_va_only_compound = info_va.query("use_compound_com and group =='valid' and c_length < 100 and native_num_contact > 5")
         metrics, info_va_save, opt_torsion_dict = evaluate_with_affinity(valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
-        valid_result = pd.DataFrame(info_va_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
+        valid_result = pd.DataFrame(info_va_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred', 'tr_pred_0','tr_pred_1','tr_pred_2', 'rot_pred_0', 'rot_pred_1','rot_pred_2'])
         save_path = f"{pre}/results/valid_result_{epoch}.csv"
         valid_result.to_csv(save_path)
         # metrics = evaluate_with_affinity(all_pocket_valid_loader, model, contact_criterion, affinity_criterion, args.relative_k, device, pred_dis=pred_dis, info=info_va, saveFileName=saveFileName) #TODO
@@ -777,7 +784,7 @@ for epoch in range(200):
         metrics, info_save, opt_torsion_dict  = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
                                         device, pred_dis=pred_dis, info=info_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
         test_metrics_list.append(metrics)
-        test_result = pd.DataFrame(info_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred'])
+        test_result = pd.DataFrame(info_save, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'rmsd_pred', 'prmsd_pred', 'tr_pred_0','tr_pred_1','tr_pred_2', 'rot_pred_0', 'rot_pred_1','rot_pred_2'])
         save_path = f"{pre}/results/test_result_{epoch}.csv"
         test_result.to_csv(save_path)
         # metrics = evaluate_with_affinity(all_pocket_test_loader, model, contact_criterion, affinity_criterion, args.relative_k,

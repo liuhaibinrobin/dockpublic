@@ -287,6 +287,9 @@ def evaluate_with_affinity(data_loader,
     c_length_list = []
     affinity_A_pred_list = []
     affinity_B_pred_list = []
+    tr_pred_list = []
+    rot_pred_list = []
+    tor_pred_list = []
     rmsd_pred_list = []
     prmsd_pred_list = []
     data_new_pos_batched_list = []
@@ -515,6 +518,8 @@ def evaluate_with_affinity(data_loader,
         affinity_B_pred_list.append(affinity_pred_B_list[-1].detach()) #只取最后一个pred做pearson， TODO
         rmsd_pred_list.append(rmsd_list[-1].detach())
         prmsd_pred_list.append(prmsd_list[-1].detach())
+        tr_pred_list.append(pred_result_list[-1][0].detach())
+        rot_pred_list.append(pred_result_list[-1][1].detach())
 
         real_y_mask_list.append(data.real_y_mask)
         # torch.cuda.empty_cache()
@@ -531,6 +536,8 @@ def evaluate_with_affinity(data_loader,
     affinity_pred_B = torch.cat(affinity_B_pred_list)
     RMSD_pred = torch.cat(rmsd_pred_list)
     PRMSD_pred = torch.cat(prmsd_pred_list)
+    TR_pred = torch.cat(tr_pred_list)
+    ROT_pred = torch.cat(rot_pred_list)
     if saveFileName:
         torch.save((y, y_pred, affinity, affinity_pred_A, affinity_pred_B, RMSD_pred, PRMSD_pred), saveFileName)
     metrics = {
@@ -576,6 +583,12 @@ def evaluate_with_affinity(data_loader,
         info['affinity_pred_B'] = affinity_pred_B.cpu().numpy()
         info['rmsd_pred'] = RMSD_pred.cpu().numpy()
         info['prmsd_pred'] = PRMSD_pred.cpu().numpy()
+        info['tr_pred_0'] = TR_pred[:, 0].cpu().numpy()
+        info['tr_pred_1'] = TR_pred[:, 1].cpu().numpy()
+        info['tr_pred_2'] = TR_pred[:, 2].cpu().numpy()
+        info['rot_pred_0'] = ROT_pred[:, 0].cpu().numpy()
+        info['rot_pred_1'] = ROT_pred[:, 1].cpu().numpy()
+        info['rot_pred_2'] = ROT_pred[:, 2].cpu().numpy()
         info['candicate_conf_pos'] = data_new_pos_batched_list
         # selected_A, selected_B = select_pocket_by_predicted_affinity(info) #真口袋用不上排序选最好的，但是后面全部口袋时要用上 TODO
         selected_A = selected_B = info

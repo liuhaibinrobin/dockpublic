@@ -535,7 +535,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                     n_edge_features=3 * ns,
                     residual=False,
                     dropout=dropout,
-                    batch_norm=True
+                batch_norm=True
                 )
             self.tor_final_layer = nn.Sequential(
                     nn.Linear(2 * ns, ns, bias=False),
@@ -784,9 +784,9 @@ class IaBNet_with_affinity(torch.nn.Module):
         # batch_size = int(max(data_new['compound'].batch)) + 1
         # 步骤四
         torsion_pred_batched = tor_pred.split( data["compound"].rotate_bond_num.detach().cpu().numpy().tolist())
-        with torch.no_grad():#TODO:这部分的梯度如何传播的目前没搞懂，先不做RMSD loss 了 20230201
+        # with torch.no_grad():#TODO:这部分的梯度如何传播的目前没搞懂，先不做RMSD loss 了 20230201
             # next_candicate_conf_pos, next_candicate_dis_matrix = self.modify_conformer(data, tr_pred, rot_pred, tor_pred, batch_size, current_candicate_conf_pos)
-            next_candicate_conf_pos, next_candicate_dis_matrix = self.modify_conformer(data, tr_pred, rot_pred, torsion_pred_batched, batch_size, current_candicate_conf_pos)
+        next_candicate_conf_pos, next_candicate_dis_matrix = self.modify_conformer(data, tr_pred, rot_pred, torsion_pred_batched, batch_size, current_candicate_conf_pos)
         next_candicate_conf_pos_batched = self.unbatch(next_candicate_conf_pos,data['compound'].batch)
         current_candicate_conf_pos_batched = self.unbatch(current_candicate_conf_pos,data['compound'].batch)
         return tr_pred, rot_pred, torsion_pred_batched, affinity_pred_B, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched, next_candicate_conf_pos
@@ -894,11 +894,12 @@ class IaBNet_with_affinity(torch.nn.Module):
         for i in range(batch_size):
 
             if torsion_pred_batched[i] is not None:
-                rotate_edge_index=compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]]-sum(ligand_atom_sizes[:i]) #把edge_id 从batch计数转换为样本内部计数
-                flexible_new_pos = modify_conformer_torsion_angles(data_pos_batched[i],
-                                                                   rotate_edge_index,
-                                                                   data['compound'].mask_rotate[i],
-                                                                   torsion_pred_batched[i])
+                with torch.no_grad():
+                    rotate_edge_index=compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]]-sum(ligand_atom_sizes[:i]) #把edge_id 从batch计数转换为样本内部计数
+                    flexible_new_pos = modify_conformer_torsion_angles(data_pos_batched[i],
+                                                                    rotate_edge_index,
+                                                                    data['compound'].mask_rotate[i],
+                                                                    torsion_pred_batched[i])
                 # TODO:这里先删掉原版diffdock代码中的align
                 # R, t = rigid_transform_Kabsch_3D_torch(flexible_new_pos.T, rigid_new_pos.T)
                 # aligned_flexible_pos = flexible_new_pos @ R.T + t.T
