@@ -41,6 +41,7 @@ def init_distributed_mode(args):
     args.rank = int(os.environ["RANK"])
     args.world_size = int(os.environ["WORLD_SIZE"])
     args.gpu = 0  # 默认worker都使用0号卡
+    # args.gpu = int(os.environ['LOCAL_RANK'])
 
     args.distributed = True
 
@@ -566,7 +567,12 @@ for epoch in range(200):
             loss = contact_loss.float()
             loss = loss.requires_grad_(True)
         # logging.info(f"prmsd_loss: {prmsd_loss.detach().cpu()}, rmsd_loss: {rmsd_loss.detach().cpu()}, affinity_loss_A: {affinity_loss_A.detach().cpu()}, affinity_loss_B: {affinity_loss_B.detach().cpu()}")
-        loss.backward()
+        try:
+            loss.backward()
+        except:
+            print(rmsd_loss_recy_last,tor_loss,affinity_loss_A,affinity_loss_B)
+            import pdb
+            pdb.set_trace()
         optimizer.step()
 
         #记录日志
