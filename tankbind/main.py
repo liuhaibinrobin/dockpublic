@@ -430,17 +430,20 @@ for epoch in range(200):
                         tor_last[i] = (tor_last[i] + torsion_pred_batched[i]) % (math.pi * 2)#累加tor_pred，是否余2pi?TODO
                     if recycling_num == 0:
                         tr_loss_recy_0 += F.mse_loss(tr_pred[i],opt_tr).item()
-                        rot_loss_recy_0 += F.mse_loss(rot_pred[i],opt_rotate).item()
+                        rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
+                        rot_loss_recy_0 += F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate).item()
                         if opt_torsion is not None:
                             tor_loss_recy_0 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device)).item()
                     elif recycling_num == 1:
                         tr_loss_recy_1 += F.mse_loss(tr_pred[i],opt_tr).item()
-                        rot_loss_recy_1 += F.mse_loss(rot_pred[i],opt_rotate).item()
+                        rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
+                        rot_loss_recy_1 += F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate).item()
                         if opt_torsion is not None:
                             tor_loss_recy_1 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device)).item()
                     if recycling_num == len(pred_result_list) - 1:
                         tr_loss += F.mse_loss(tr_pred[i],opt_tr)
-                        rot_loss += F.mse_loss(rot_pred[i],opt_rotate)
+                        rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
+                        rot_loss += F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate)
                         if opt_torsion is not None:
                             tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
                     tmp_cnt += 1
@@ -769,9 +772,14 @@ for epoch in range(200):
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss/validation', metrics["epoch_rmsd_recycling_2_loss"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_3_loss/validation', metrics["epoch_rmsd_recycling_3_loss"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_4_loss/validation', metrics["epoch_rmsd_recycling_4_loss"],epoch)
-        writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/validation', metrics["epoch_rmsd_recycling_19_loss"],epoch)
-        writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/validation', metrics["epoch_rmsd_recycling_39_loss"],epoch)
-        writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_2_diff_loss/validation', metrics["epoch_rmsd_recycling_1_2_diff_loss"],epoch)
+        # writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/validation', metrics["epoch_rmsd_recycling_19_loss"],epoch)
+        # writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/validation', metrics["epoch_rmsd_recycling_39_loss"],epoch)
+        # writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_2_diff_loss/validation', metrics["epoch_rmsd_recycling_1_2_diff_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss_2A_ratio/validation', metrics["epoch_rmsd_recycling_2_loss_2A_ratio"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss_5A_ratio/validation', metrics["epoch_rmsd_recycling_2_loss_5A_ratio"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_25/validation', metrics["epoch_rmsd_recycling_2_25"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_50/validation', metrics["epoch_rmsd_recycling_2_50"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_75/validation', metrics["epoch_rmsd_recycling_2_75"],epoch)
         # writer.add_scalar('epochMetric.NativeAUROC/validation', metrics["native_auroc"], epoch)
         # writer.add_scalar('epochMetric.SelectedAUROC/validation', metrics["selected_auroc"], epoch)
         #====================test============================================================
@@ -827,9 +835,14 @@ for epoch in range(200):
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss/test', metrics["epoch_rmsd_recycling_2_loss"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_3_loss/test', metrics["epoch_rmsd_recycling_3_loss"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_4_loss/test', metrics["epoch_rmsd_recycling_4_loss"],epoch)
-        writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/test', metrics["epoch_rmsd_recycling_19_loss"],epoch)
-        writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/test', metrics["epoch_rmsd_recycling_39_loss"],epoch)
-        writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_2_diff_loss/test', metrics["epoch_rmsd_recycling_1_2_diff_loss"],epoch)
+        # writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/test', metrics["epoch_rmsd_recycling_19_loss"],epoch)
+        # writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/test', metrics["epoch_rmsd_recycling_39_loss"],epoch)
+        # writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_2_diff_loss/test', metrics["epoch_rmsd_recycling_1_2_diff_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss_2A_ratio/test', metrics["epoch_rmsd_recycling_2_loss_2A_ratio"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss_5A_ratio/test', metrics["epoch_rmsd_recycling_2_loss_5A_ratio"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_25/test', metrics["epoch_rmsd_recycling_2_25"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_50/test', metrics["epoch_rmsd_recycling_2_50"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_75/test', metrics["epoch_rmsd_recycling_2_75"],epoch)
         # writer.add_scalar('epochMetric.NativeAUROC/test', metrics["native_auroc"], epoch)
         # writer.add_scalar('epochMetric.SelectedAUROC/test', metrics["selected_auroc"], epoch)
 

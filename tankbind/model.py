@@ -502,7 +502,7 @@ class IaBNet_with_affinity(torch.nn.Module):
             # self.lig_to_rec_conv_layers = nn.ModuleList(lig_to_rec_conv_layers)
             self.rec_conv_layers = nn.ModuleList(rec_conv_layers)
             self.lig_node_embedding = nn.Sequential(nn.Linear(128, ns),nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
-            self.lig_node_embedding_b = nn.Sequential(nn.Linear(2*ns + 6*nv, 2*ns + 6*nv),nn.ReLU(), nn.Dropout(dropout),nn.Linear(2*ns + 6*nv, 2*ns + 6*nv))
+            # self.lig_node_embedding_b = nn.Sequential(nn.Linear(2*ns + 6*nv, 2*ns + 6*nv),nn.ReLU(), nn.Dropout(dropout),nn.Linear(2*ns + 6*nv, 2*ns + 6*nv))
             self.rec_node_embedding = nn.Sequential(nn.Linear(128, ns),nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
             self.lig_edge_embedding = nn.Sequential(nn.Linear(19 + distance_embed_dim, ns),nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
             self.rec_edge_embedding = nn.Sequential(nn.Linear(distance_embed_dim, ns), nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
@@ -522,7 +522,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                 in_irreps=self.lig_conv_layers[-1].out_irreps,
                 sh_irreps=self.sh_irreps,
                 out_irreps=f'2x1o + 2x1e',
-                n_edge_features=3*ns + 6*nv,
+                n_edge_features=2*ns,
                 residual=False,
                 dropout=dropout,
                 batch_norm=True
@@ -533,7 +533,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                     in_irreps=self.lig_conv_layers[-1].out_irreps,
                     sh_irreps=self.final_tp_tor.irreps_out,
                     out_irreps=f'{ns}x0o + {ns}x0e',
-                    n_edge_features=5*ns + 12*nv,
+                    n_edge_features=3*ns,
                     residual=False,
                     dropout=dropout,
                 batch_norm=True
@@ -574,14 +574,14 @@ class IaBNet_with_affinity(torch.nn.Module):
             self.c_c_dist_layer = RBFDistanceModule(rbf_stop=f(16), distance_hidden_dim=embedding_channels, num_gaussian=32)
         self.linear = Linear(embedding_channels, 1)
         self.linear_energy = Linear(embedding_channels, 1)
-        embedding_channels_b = 2*ns + 6*nv
-        self.linear_energy_new = Linear(embedding_channels_b, 1)
-        self.trioformer_blocks_b = nn.ModuleList([TrioformerBlock(embedding_channels_b, embedding_channels_b, embedding_channels_b) for _ in range(n_trigonometry_module_stack)])
-        self.p_p_dist_layer_b = RBFDistanceModule(rbf_stop=f(32), distance_hidden_dim=embedding_channels_b, num_gaussian=32)
-        self.c_c_dist_layer_b = RBFDistanceModule(rbf_stop=f(16), distance_hidden_dim=embedding_channels_b, num_gaussian=32)
+        # embedding_channels_b = 2*ns + 6*nv
+        # self.linear_energy_new = Linear(embedding_channels_b, 1)
+        # self.trioformer_blocks_b = nn.ModuleList([TrioformerBlock(embedding_channels_b, embedding_channels_b, embedding_channels_b) for _ in range(n_trigonometry_module_stack)])
+        # self.p_p_dist_layer_b = RBFDistanceModule(rbf_stop=f(32), distance_hidden_dim=embedding_channels_b, num_gaussian=32)
+        # self.c_c_dist_layer_b = RBFDistanceModule(rbf_stop=f(16), distance_hidden_dim=embedding_channels_b, num_gaussian=32)
         if readout_mode == 2:
             self.gate_linear = Linear(embedding_channels, 1)
-            self.gate_linear_new = Linear(embedding_channels_b, 1)
+            # self.gate_linear_new = Linear(embedding_channels_b, 1)
         # self.gate_linear = Linear(embedding_channels, 1)
         self.bias = torch.nn.Parameter(torch.ones(1))
         self.leaky = torch.nn.LeakyReLU()
@@ -732,7 +732,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         cross_edge_index, cross_edge_attr, cross_edge_sh = self.build_cross_conv_graph(data, current_candicate_conf_pos)
         cross_lig, cross_rec = cross_edge_index
         cross_edge_attr = self.cross_edge_embedding(cross_edge_attr)
-        if cross_lig.shape[0] != data.candicate_dis_matrix_batch.shape[0]:
+        if cross_lig.shape[0] != data.candicate_dis_matrix_batch.shape[0]: #组成的cross graph没有覆盖全部分子，说明离得太远了
             torch.save(data,'data_error.pt')
             torch.save(current_candicate_conf_pos-data['compound'].pos, 'diff_error.pt')
             raise ValueError(f'{cross_lig.shape[0]} not match {data.candicate_dis_matrix_batch.shape[0]}')
@@ -757,35 +757,35 @@ class IaBNet_with_affinity(torch.nn.Module):
 
 
         compound_out_new, protein_out_new = compound_out, protein_out
-        protein_out_batched_new, protein_out_mask = to_dense_batch(protein_out_new, protein_batch)
-        compound_out_batched_new, compound_out_mask = to_dense_batch(compound_out_new, compound_batch)
-        z_new = torch.einsum("bik,bjk->bijk", protein_out_batched_new, compound_out_batched_new)
-        z_mask = torch.einsum("bi,bj->bij", protein_out_mask, compound_out_mask)
-        p_coord_batched, p_coord_mask = to_dense_batch(data.node_xyz, data['protein'].batch)
-        c_coord_batched, c_coord_mask = to_dense_batch(current_candicate_conf_pos, data['compound'].batch)
-        p_p_dist = torch.cdist(p_coord_batched, p_coord_batched, compute_mode='donot_use_mm_for_euclid_dist')
-        c_c_dist = torch.cdist(c_coord_batched, c_coord_batched, compute_mode='donot_use_mm_for_euclid_dist')
-        p_p_dist_mask = torch.einsum("...i, ...j->...ij", p_coord_mask, p_coord_mask)
-        c_c_dist_mask = torch.diag_embed(c_coord_mask)  # (B, Nc, Nc)
-        p_p_dist[~p_p_dist_mask] = 1e6
-        c_c_dist[~c_c_dist_mask] = 1e6
-        p_p_dist_embed = self.p_p_dist_layer_b(p_p_dist)
-        c_c_dist_embed = self.c_c_dist_layer_b(c_c_dist)
-        for i_block in self.trioformer_blocks_b:
-            protein_out_batched_new, compound_out_batched_new, z_new = i_block(
-                protein_out_batched_new, protein_out_mask,
-                compound_out_batched_new, compound_out_mask,
-                z_new, z_mask,
-                p_p_dist_embed, c_c_dist_embed)
-        pair_energy = (self.gate_linear_new(z_new).sigmoid() * self.linear_energy_new(z_new)).squeeze(-1) * z_mask
-        affinity_pred_B = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
-        # scalar_lig_attr = torch.cat([compound_out[:,:self.ns], compound_out[:,-self.ns:] ], dim=1) if self.n_trigonometry_module_stack >= 3 else compound_out[:,:self.ns]
-        # affinity_pred_B = self.confidence_predictor(scatter_mean(scalar_lig_attr, data['compound'].batch, dim=0)).squeeze(dim=-1)
-        # affinity_pred_B = affinity_pred_B.sigmoid() * 15 
+        # protein_out_batched_new, protein_out_mask = to_dense_batch(protein_out_new, protein_batch)
+        # compound_out_batched_new, compound_out_mask = to_dense_batch(compound_out_new, compound_batch)
+        # z_new = torch.einsum("bik,bjk->bijk", protein_out_batched_new, compound_out_batched_new)
+        # z_mask = torch.einsum("bi,bj->bij", protein_out_mask, compound_out_mask)
+        # p_coord_batched, p_coord_mask = to_dense_batch(data.node_xyz, data['protein'].batch)
+        # c_coord_batched, c_coord_mask = to_dense_batch(current_candicate_conf_pos, data['compound'].batch)
+        # p_p_dist = torch.cdist(p_coord_batched, p_coord_batched, compute_mode='donot_use_mm_for_euclid_dist')
+        # c_c_dist = torch.cdist(c_coord_batched, c_coord_batched, compute_mode='donot_use_mm_for_euclid_dist')
+        # p_p_dist_mask = torch.einsum("...i, ...j->...ij", p_coord_mask, p_coord_mask)
+        # c_c_dist_mask = torch.diag_embed(c_coord_mask)  # (B, Nc, Nc)
+        # p_p_dist[~p_p_dist_mask] = 1e6
+        # c_c_dist[~c_c_dist_mask] = 1e6
+        # p_p_dist_embed = self.p_p_dist_layer_b(p_p_dist)
+        # c_c_dist_embed = self.c_c_dist_layer_b(c_c_dist)
+        # for i_block in self.trioformer_blocks_b:
+        #     protein_out_batched_new, compound_out_batched_new, z_new = i_block(
+        #         protein_out_batched_new, protein_out_mask,
+        #         compound_out_batched_new, compound_out_mask,
+        #         z_new, z_mask,
+        #         p_p_dist_embed, c_c_dist_embed)
+        # pair_energy = (self.gate_linear_new(z_new).sigmoid() * self.linear_energy_new(z_new)).squeeze(-1) * z_mask
+        # affinity_pred_B = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
+        scalar_lig_attr = torch.cat([compound_out[:,:self.ns], compound_out[:,-self.ns:] ], dim=1) if self.n_trigonometry_module_stack >= 3 else compound_out[:,:self.ns]
+        affinity_pred_B = self.confidence_predictor(scatter_mean(scalar_lig_attr, data['compound'].batch, dim=0)).squeeze(dim=-1)
+        affinity_pred_B = affinity_pred_B.sigmoid() * 15 
         #先算true_rmsd_上一轮的，再跟上面的算 prmsd_loss
 
         # compound_out_new = compound_out #dim = 2*ns+3*nv
-        compound_out_new = self.lig_node_embedding_b(self.rebatch(compound_out_batched_new, compound_batch))
+        # compound_out_new = self.lig_node_embedding_b(self.rebatch(compound_out_batched_new, compound_batch))
         tr_pred, rot_pred, tor_pred = self.torsional_block(data, compound_out_new, current_candicate_conf_pos)
         
         torsion_pred_batched = tor_pred.split( data["compound"].rotate_bond_num.detach().cpu().numpy().tolist())
@@ -799,8 +799,8 @@ class IaBNet_with_affinity(torch.nn.Module):
         center_edge_index, center_edge_attr, center_edge_sh = self.build_center_conv_graph(data, current_candicate_conf_pos)
         center_edge_attr = self.center_edge_embedding(center_edge_attr)
         # lig_node_attr 和 compound_out_new 都是node embedding 有问题，compound_out_new也包含protein信息（z）
-        # center_edge_attr = torch.cat([center_edge_attr, compound_out_new[center_edge_index[0], :self.ns]], -1)  #注意node_embedding初始维度为128维，只取了前24维？
-        center_edge_attr = torch.cat([center_edge_attr, compound_out_new[center_edge_index[0], :]], -1)  #注意node_embedding初始维度为128维，只取了前24维？
+        center_edge_attr = torch.cat([center_edge_attr, compound_out_new[center_edge_index[0], :self.ns]], -1)  #注意node_embedding初始维度为128维，只取了前24维？
+        # center_edge_attr = torch.cat([center_edge_attr, compound_out_new[center_edge_index[0], :]], -1)  #注意node_embedding初始维度为128维，只取了前24维？
         # in_irreps=f'{ns}x0e + {nv}x1o + {nv}x1e + {ns}x0o'
         # compound_out_new = compound_out_new[:,:o3.Irreps(in_irreps).dim]  #保证node_embedding的维度是84维，但是原来是128维，需要调整的是in_irreps 
         global_pred = self.final_conv(compound_out_new, center_edge_index, center_edge_attr, center_edge_sh, out_nodes=data.num_graphs)
@@ -819,10 +819,10 @@ class IaBNet_with_affinity(torch.nn.Module):
         tor_bond_attr = compound_out_new[tor_bonds[0]] + compound_out_new[tor_bonds[1]]
         tor_bonds_sh = o3.spherical_harmonics("2e", tor_bond_vec, normalize=True, normalization='component')
         tor_edge_sh = self.final_tp_tor(tor_edge_sh, tor_bonds_sh[tor_edge_index[0]])
-        # tor_edge_attr = torch.cat([tor_edge_attr, compound_out_new[tor_edge_index[1], :self.ns],  #注意node_embedding初始维度为128维，只取了前24维？TODO
-        #                         tor_bond_attr[tor_edge_index[0], :self.ns]], -1)
-        tor_edge_attr = torch.cat([tor_edge_attr, compound_out_new[tor_edge_index[1], :],  #注意node_embedding初始维度为128维，只取了前24维？TODO
-                                tor_bond_attr[tor_edge_index[0], :]], -1)
+        tor_edge_attr = torch.cat([tor_edge_attr, compound_out_new[tor_edge_index[1], :self.ns],  #注意node_embedding初始维度为128维，只取了前24维？TODO
+                                tor_bond_attr[tor_edge_index[0], :self.ns]], -1)
+        # tor_edge_attr = torch.cat([tor_edge_attr, compound_out_new[tor_edge_index[1], :],  #注意node_embedding初始维度为128维，只取了前24维？TODO
+                                # tor_bond_attr[tor_edge_index[0], :]], -1)
         tor_pred = self.tor_bond_conv(compound_out_new, tor_edge_index, tor_edge_attr, tor_edge_sh,
                                 out_nodes=data['compound'].edge_mask.sum(), reduce='mean')
         tor_pred = self.tor_final_layer(tor_pred).squeeze(1)

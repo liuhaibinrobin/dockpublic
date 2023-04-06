@@ -134,6 +134,22 @@ data_test =  data_test.drop(index = data_test[data_test['compound_name'].isin(er
 data_valid =  data_valid.drop(index = data_valid[data_valid['compound_name'].isin(error_pdb_list)].index.tolist())
 data_train =  data_train.drop(index = data_train[data_train['compound_name'].isin(error_pdb_list)].index.tolist())
 print('len(data_train):',len(data_train), 'len(data_valid):',len(data_valid), 'len(data_test):',len(data_test))
+
+data_mol = []
+from spyrmsd import rmsd, molecule
+pdb_list = data_train.compound_name.unique().tolist()
+for pdb in tqdm(pdb_list):
+    mol, _ = read_mol(f"{pre}/renumber_atom_index_same_as_smiles/{pdb}.sdf", None)
+    try:
+        mol = molecule.Molecule.from_rdkit(mol)
+        data_mol.append([pdb, mol.atomicnums, mol.adjacency_matrix])
+    except Exception as e:
+        print('Failed to generate ', pdb, ' We are skipping it. The reason is the exception: ', e)
+data_mol = pd.DataFrame(data_mol, columns=['compound_name' ,'atomicnums', 'adjacency_matrix'])
+data_train = pd.merge(data_train, data_mol,how="left" ,on='compound_name' )
+data_test = pd.merge(data_test, data_mol,how="left" ,on='compound_name' )
+data_valid = pd.merge(data_valid, data_mol,how="left" ,on='compound_name' )
+
 result_train = pd.merge(data_train, t,how="left" ,on='compound_name' )
 result_test = pd.merge(data_test, t,how="left" ,on='compound_name' )
 result_valid = pd.merge(data_valid, t,how="left" ,on='compound_name' )

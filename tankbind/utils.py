@@ -436,16 +436,19 @@ def evaluate_with_affinity(data_loader,
                             tor_last[i] = tor_last[i] + torsion_pred_batched[i] % (math.pi * 2)#累加tor_pred
                         if recycling_num == 0:
                             tr_loss_recy_0 += F.mse_loss(tr_pred[i],opt_tr)
-                            rot_loss_recy_0 += F.mse_loss(rot_pred[i],opt_rotate)
+                            rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
+                            rot_loss_recy_0 += F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate).item()
                             if opt_torsion is not None:
                                 tor_loss_recy_0 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
                         elif recycling_num == 1:
                             tr_loss_recy_1 += F.mse_loss(tr_pred[i],opt_tr)
-                            rot_loss_recy_1 += F.mse_loss(rot_pred[i],opt_rotate)
+                            rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
+                            rot_loss_recy_1 += F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate).item()
                             if opt_torsion is not None:
                                 tor_loss_recy_1 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
                         tr_loss += F.mse_loss(tr_pred[i], opt_tr)
-                        rot_loss += F.mse_loss(rot_pred[i], opt_rotate)
+                        rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
+                        rot_loss += F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate).item()
                         if opt_torsion is not None:
                             tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
                         tmp_cnt += 1
@@ -503,13 +506,13 @@ def evaluate_with_affinity(data_loader,
         epoch_rmsd_recycling_1_2_diff_loss += len(rmsd_list[0]) * RMSD_recycle_diff_loss.item()
 
         epoch_tr_loss += len(rmsd_list[0]) * tr_loss.item()
-        epoch_rot_loss += len(rmsd_list[0]) * rot_loss.item()
+        epoch_rot_loss += len(rmsd_list[0]) * rot_loss
         epoch_tor_loss += len(rmsd_list[0]) * tor_loss.item()
         epoch_tr_loss_recy_0 += len(rmsd_list[0]) * tr_loss_recy_0.item()
-        epoch_rot_loss_recy_0 += len(rmsd_list[0]) * rot_loss_recy_0.item()
+        epoch_rot_loss_recy_0 += len(rmsd_list[0]) * rot_loss_recy_0
         epoch_tor_loss_recy_0 += len(rmsd_list[0]) * tor_loss_recy_0.item()
         epoch_tr_loss_recy_1 += len(rmsd_list[0]) * tr_loss_recy_1.item()
-        epoch_rot_loss_recy_1 += len(rmsd_list[0]) * rot_loss_recy_1.item()
+        epoch_rot_loss_recy_1 += len(rmsd_list[0]) * rot_loss_recy_1
         epoch_tor_loss_recy_1 += len(rmsd_list[0]) * tor_loss_recy_1.item()
         y_list.append(y)
         y_pred_list.append(y_pred.detach())
@@ -552,6 +555,11 @@ def evaluate_with_affinity(data_loader,
         "epoch_rmsd_recycling_0_loss":epoch_rmsd_recycling_0_loss/len(RMSD_pred),
         "epoch_rmsd_recycling_1_loss": epoch_rmsd_recycling_1_loss / len(RMSD_pred),
         "epoch_rmsd_recycling_2_loss": epoch_rmsd_recycling_2_loss / len(RMSD_pred),
+        "epoch_rmsd_recycling_2_loss_2A_ratio": (RMSD_pred < 2).sum() / len(RMSD_pred),
+        "epoch_rmsd_recycling_2_loss_5A_ratio": (RMSD_pred < 5).sum() / len(RMSD_pred),
+        "epoch_rmsd_recycling_2_25": RMSD_pred.quantile(0.25),
+        "epoch_rmsd_recycling_2_50": RMSD_pred.quantile(0.5),
+        "epoch_rmsd_recycling_2_75": RMSD_pred.quantile(0.75),
         "epoch_rmsd_recycling_3_loss": epoch_rmsd_recycling_3_loss / len(RMSD_pred),
         "epoch_rmsd_recycling_4_loss": epoch_rmsd_recycling_4_loss / len(RMSD_pred),
         "epoch_rmsd_recycling_19_loss": epoch_rmsd_recycling_19_loss / len(RMSD_pred),
