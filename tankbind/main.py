@@ -441,7 +441,8 @@ for epoch in range(200):
                         if opt_torsion is not None:
                             tor_loss_recy_1 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device)).item()
                     if recycling_num == len(pred_result_list) - 1:
-                        tr_loss += F.mse_loss(tr_pred[i],opt_tr)
+                        if opt_tr is not None:
+                            tr_loss += F.mse_loss(tr_pred[i],opt_tr)
                         rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
                         rot_loss += F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate)
                         if opt_torsion is not None:
@@ -560,7 +561,6 @@ for epoch in range(200):
 
 
         # print(contact_loss.item(), affinity_loss_A.item())
-
         #total loss
         if args.use_contact_loss == 0:
             loss = rmsd_loss_recy_last + tor_loss + affinity_loss_A + affinity_loss_B #TODO:debug阶段

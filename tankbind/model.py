@@ -958,7 +958,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         #更新candicate_dis_matrix
         data_pos_batched_new = self.unbatch(candicate_conf_pos_new, data['compound'].batch)
         protein_pos_batched = self.unbatch(data.node_xyz, data['protein'].batch)
-        candicate_dis_matrix_new = torch.concat([torch.cdist(data_pos_batched_new[i], protein_pos_batched[i]).flatten() for i in range(batch_size)])
+        candicate_dis_matrix_new = torch.concat([torch.cdist(protein_pos_batched[i], data_pos_batched_new[i]).flatten() for i in range(batch_size)])
         return candicate_conf_pos_new,candicate_dis_matrix_new
 
     # def modify_conformer(self, data, tr_update, rot_update, torsion_updates, batch_size, candicate_conf_pos): #已修正，与sample版本的输出一致
