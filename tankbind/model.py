@@ -656,7 +656,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                     z = z + self.dropout(self.protein_to_compound_list[i_module](z, protein_pair, compound_pair, z_mask.unsqueeze(-1)))
                     z = z + self.dropout(self.triangle_self_attention_list[i_module](z, z_mask))
                     z = self.tranistion(z)
-            compound_out_batched, protein_out_batched, affinity_pred_B, prmsd_pred,_ = self.MultiHeadAttention_dis_bias(z, z_mask, protein_out_batched,compound_out_batched) #获得包含protein和compound交互信息的compound single representation #TODO
+            compound_out_batched, protein_out_batched, affinity_pred_A, prmsd_pred,_ = self.MultiHeadAttention_dis_bias(z, z_mask, protein_out_batched,compound_out_batched) #获得包含protein和compound交互信息的compound single representation #TODO
         elif self.mode == 1:
             p_coord_batched, p_coord_mask = to_dense_batch(data.node_xyz, data['protein'].batch)
             c_coord_batched, c_coord_mask = to_dense_batch(data.candicate_conf_pos, data['compound'].batch)
@@ -757,28 +757,6 @@ class IaBNet_with_affinity(torch.nn.Module):
 
 
         compound_out_new, protein_out_new = compound_out, protein_out
-        # protein_out_batched_new, protein_out_mask = to_dense_batch(protein_out_new, protein_batch)
-        # compound_out_batched_new, compound_out_mask = to_dense_batch(compound_out_new, compound_batch)
-        # z_new = torch.einsum("bik,bjk->bijk", protein_out_batched_new, compound_out_batched_new)
-        # z_mask = torch.einsum("bi,bj->bij", protein_out_mask, compound_out_mask)
-        # p_coord_batched, p_coord_mask = to_dense_batch(data.node_xyz, data['protein'].batch)
-        # c_coord_batched, c_coord_mask = to_dense_batch(current_candicate_conf_pos, data['compound'].batch)
-        # p_p_dist = torch.cdist(p_coord_batched, p_coord_batched, compute_mode='donot_use_mm_for_euclid_dist')
-        # c_c_dist = torch.cdist(c_coord_batched, c_coord_batched, compute_mode='donot_use_mm_for_euclid_dist')
-        # p_p_dist_mask = torch.einsum("...i, ...j->...ij", p_coord_mask, p_coord_mask)
-        # c_c_dist_mask = torch.diag_embed(c_coord_mask)  # (B, Nc, Nc)
-        # p_p_dist[~p_p_dist_mask] = 1e6
-        # c_c_dist[~c_c_dist_mask] = 1e6
-        # p_p_dist_embed = self.p_p_dist_layer_b(p_p_dist)
-        # c_c_dist_embed = self.c_c_dist_layer_b(c_c_dist)
-        # for i_block in self.trioformer_blocks_b:
-        #     protein_out_batched_new, compound_out_batched_new, z_new = i_block(
-        #         protein_out_batched_new, protein_out_mask,
-        #         compound_out_batched_new, compound_out_mask,
-        #         z_new, z_mask,
-        #         p_p_dist_embed, c_c_dist_embed)
-        # pair_energy = (self.gate_linear_new(z_new).sigmoid() * self.linear_energy_new(z_new)).squeeze(-1) * z_mask
-        # affinity_pred_B = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
         scalar_lig_attr = torch.cat([compound_out[:,:self.ns], compound_out[:,-self.ns:] ], dim=1) if self.n_trigonometry_module_stack >= 3 else compound_out[:,:self.ns]
         affinity_pred_B = self.confidence_predictor(scatter_mean(scalar_lig_attr, data['compound'].batch, dim=0)).squeeze(dim=-1)
         affinity_pred_B = affinity_pred_B.sigmoid() * 15 

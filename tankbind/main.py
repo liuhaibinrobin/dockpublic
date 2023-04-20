@@ -367,11 +367,15 @@ for epoch in range(200):
         y = data.y
         affinity = data.affinity
         dis_map = data.dis_map
+        dis_map_mask = data.dis_map_mask
         y_pred = candicate_dis_matrix=pred_result_list[-1][4]
         if args.use_equivalent_native_y_mask:
             y_pred = y_pred[data.equivalent_native_y_mask]
             y = y[data.equivalent_native_y_mask]
             dis_map = dis_map[data.equivalent_native_y_mask]
+            dis_map_mask = dis_map_mask[data.equivalent_native_y_mask]
+            y_pred = y_pred[dis_map_mask]
+            dis_map = dis_map[dis_map_mask]
             for i in range(len(prmsd_list)):
                 prmsd_list[i] = prmsd_list[i][data.is_equivalent_native_pocket]
         elif args.use_y_mask:
@@ -563,19 +567,21 @@ for epoch in range(200):
         # print(contact_loss.item(), affinity_loss_A.item())
         #total loss
         if args.use_contact_loss == 0:
-            loss = rmsd_loss_recy_last + tor_loss + affinity_loss_A + affinity_loss_B #TODO:debug阶段
+            # loss = tor_loss + affinity_loss_B + contact_loss #TODO:debug阶段
+            loss = rmsd_loss_recy_last + tor_loss + affinity_loss_A + affinity_loss_B
             #loss = tor_loss #TODO:debug阶段
             #loss = prmsd_loss.double() + rmsd_loss.double() + affinity_loss_A + affinity_loss_B
         else:
             loss = contact_loss.float()
             loss = loss.requires_grad_(True)
         # logging.info(f"prmsd_loss: {prmsd_loss.detach().cpu()}, rmsd_loss: {rmsd_loss.detach().cpu()}, affinity_loss_A: {affinity_loss_A.detach().cpu()}, affinity_loss_B: {affinity_loss_B.detach().cpu()}")
-        try:
-            loss.backward()
-        except:
-            print(rmsd_loss_recy_last,tor_loss,affinity_loss_A,affinity_loss_B)
-            import pdb
-            pdb.set_trace()
+        # try:
+        #     loss.backward()
+        # except:
+        #     print(rmsd_loss_recy_last,tor_loss,affinity_loss_A,affinity_loss_B)
+        #     import pdb
+        #     pdb.set_trace()
+        loss.backward()
         optimizer.step()
 
         #记录日志
@@ -595,7 +601,7 @@ for epoch in range(200):
         epoch_loss_contact_10A += len(y_pred) * contact_loss_cat_off_rmsd_10.item()
         epoch_loss_affinity_A += len(affinity_pred_A) * affinity_loss_A.item()
         epoch_loss_affinity_B += len(affinity_pred_B_list[0]) * affinity_loss_B.item()
-        epoch_loss_rmsd += len(rmsd_list[0]) * rmsd_loss.item()
+        epoch_loss_rmsd += len(rmsd_list[0]) * rmsd_loss_recy_last.item()
         epoch_loss_prmsd += len(prmsd_list[0]) * prmsd_loss.item()
         epoch_affinity_B_recycling_1_loss += len(affinity_pred_B_list[0]) * affinity_loss_B_recycling_1.item()
         epoch_affinity_B_recycling_2_loss += len(affinity_pred_B_list[0]) * affinity_loss_B_recycling_2.item()
@@ -662,7 +668,7 @@ for epoch in range(200):
     }
 
     # torch.cuda.empty_cache()
-    metrics.update(myMetric(y_pred, y, threshold=contact_threshold))
+    # metrics.update(myMetric(y_pred, y, threshold=contact_threshold))
     metrics.update(affinity_metrics(affinity_pred_A, affinity))
     logging.info(f"epoch {epoch:<4d}, train, " + print_metrics(metrics))
     metrics_list.append(metrics)
