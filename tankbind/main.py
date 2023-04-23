@@ -1,3 +1,4 @@
+from ast import Raise
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -134,7 +135,7 @@ parser.add_argument("--local_rank", type=int, help='local rank, will be passed b
 parser.add_argument("--world_size", default=1, type=int, help="number of distributed processes")
 parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
 parser.add_argument("--max_node", type=int, default=1000)
-parser.add_argument("--dyn_num_steps", type=int, default=None)
+parser.add_argument("--dyn_num_steps", type=int, default=20000)
 parser.add_argument("--gpu", type=int, default=0)
 
 
@@ -204,22 +205,22 @@ train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info
 logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
 
 from sx_sampler import DistributedDynamicBatchSampler
-with open(f"dyn_sample_info/dyn_sample_info_0_{args.max_node}.pkl", "rb") as f: #修改data时一定要重新生成dyn_sample_info！！TODO
+with open(f"dyn_sample_info/dyn_sample_info_total_0_{args.max_node}.pkl", "rb") as f: #修改data时一定要重新生成dyn_sample_info！！TODO
     dyn_sample_info = pickle.load(f)
 
 num_workers = 10
 # sampler = RandomSampler(train, replacement=True, num_samples=args.sample_n)
 
 if args.distributed:
-    train_loader = DataLoader(train,batch_sampler = DistributedDynamicBatchSampler(
-                                        dataset=train, dyn_max_num=args.max_node, #dyn_mode="node",
+    train_loader = DataLoader(train_after_warm_up,batch_sampler = DistributedDynamicBatchSampler(
+                                        dataset=train_after_warm_up, dyn_max_num=args.max_node, #dyn_mode="node",
                                         num_replicas=args.world_size, rank=args.rank, shuffle=True,
                                         seed = 42, dyn_num_steps=args.dyn_num_steps, dyn_sample_info=dyn_sample_info), 
                                     follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], 
                                     num_workers=num_workers)
 else:
-    sampler = RandomSampler(train, replacement=False, num_samples=len(train)) #训练数据不足2w，全部口袋时要换回来 TODO
-    train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler, pin_memory=False, num_workers=num_workers,drop_last=True)
+    sampler = RandomSampler(train_after_warm_up, replacement=False, num_samples=args.sample_n) #训练数据不足2w，全部口袋时要换回来 TODO
+    train_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler, pin_memory=False, num_workers=num_workers,drop_last=True)
 
 # sampler = RandomSampler(train, replacement=False, num_samples=len(train)) #训练数据不足2w，全部口袋时要换回来 TODO
 # train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler, pin_memory=False, num_workers=num_workers,drop_last=True)
@@ -300,8 +301,8 @@ for epoch in range(200):
     affinity_list = []
     affinity_A_pred_list = []
     affinity_B_pred_list = []
-    rmsd_pred_list = []
-    prmsd_pred_list = []
+    rmsd_pred_num = 0
+    prmsd_pred_num = 0
     train_result_list = []
     epoch_loss_contact = 0.0
     epoch_loss_contact_5A = 0.0
@@ -346,21 +347,21 @@ for epoch in range(200):
         data_groundtruth_pos_batched = data['compound'].pos.split(degree(data['compound'].batch, dtype=torch.long).tolist())
 
         #记录每个样本的学习信息
-        data_new_pos_batched_list=[]
-        for i in range(sample_num):# data_new_pos_batched_list=[[]]*sample_num  #这么写会有严重的bug  所有[]其实都指向了一个[]
-            data_new_pos_batched_list.append([])
-        candicate_conf_pos_batched=pred_result_list[0][5] #初始坐标
-        for i in range(len(candicate_conf_pos_batched)):
-            data_new_pos_batched_list[i].append(candicate_conf_pos_batched[i].detach().cpu().numpy().tolist())
-        for pred_result in pred_result_list:#每个pred_result是一个迭代轮次的batch中的全部样本
-            #data_new_pos_batched:  bs*pos..
-            next_candicate_conf_pos_batched=pred_result[3]
-            for i in range(len(next_candicate_conf_pos_batched)):
-                data_new_pos_batched_list[i].append(next_candicate_conf_pos_batched[i].detach().cpu().numpy().tolist())
+        # data_new_pos_batched_list=[]
+        # for i in range(sample_num):# data_new_pos_batched_list=[[]]*sample_num  #这么写会有严重的bug  所有[]其实都指向了一个[]
+        #     data_new_pos_batched_list.append([])
+        # candicate_conf_pos_batched=pred_result_list[0][5] #初始坐标
+        # for i in range(len(candicate_conf_pos_batched)):
+        #     data_new_pos_batched_list[i].append(candicate_conf_pos_batched[i].detach().cpu().numpy().tolist())
+        # for pred_result in pred_result_list:#每个pred_result是一个迭代轮次的batch中的全部样本
+        #     #data_new_pos_batched:  bs*pos..
+        #     next_candicate_conf_pos_batched=pred_result[3]
+        #     for i in range(len(next_candicate_conf_pos_batched)):
+        #         data_new_pos_batched_list[i].append(next_candicate_conf_pos_batched[i].detach().cpu().numpy().tolist())
         # print(data.y.sum(), y_pred.sum())
         # print(data_new.is_equivalent_native_pocket, rmsd_list[2].shape) 训练时出现晶体构象不是is_equivalent_native_pocket情况，暂时无法打印rmsd_list
-        for i in range(len(data_new_pos_batched_list)): #记录每个样本的后面recycling构象更新情况，第0个构象是原始构象 全口袋时删除  TODO
-            train_result_list.append([data.pdb[i], data_new_pos_batched_list[i], affinity_pred_A[i].detach().cpu().numpy(), affinity_pred_B_list[-1][i].detach().cpu().numpy() , prmsd_list[-1][i].detach().cpu().numpy()])
+        # for i in range(len(data_new_pos_batched_list)): #记录每个样本的后面recycling构象更新情况，第0个构象是原始构象 全口袋时删除  TODO
+        #     train_result_list.append([data.pdb[i], data_new_pos_batched_list[i], affinity_pred_A[i].detach().cpu().numpy(), affinity_pred_B_list[-1][i].detach().cpu().numpy() , prmsd_list[-1][i].detach().cpu().numpy()])
 
         # RMSD loss
         #dis_map
@@ -385,15 +386,17 @@ for epoch in range(200):
         if args.pred_dis:
 
             #tr,rot,tor loss
-            tr_loss=0
-            rot_loss=0
-            tor_loss=0
+            tr_loss=torch.tensor(0, dtype=torch.float32).to(y_pred.device)
+            rot_loss=torch.tensor(0, dtype=torch.float32).to(y_pred.device)
+            tor_loss=torch.tensor(0, dtype=torch.float32).to(y_pred.device)
             tr_loss_recy_0, rot_loss_recy_0, tor_loss_recy_0 = 0, 0, 0
             tr_loss_recy_1, rot_loss_recy_1, tor_loss_recy_1 = 0, 0, 0
             tmp_cnt=0 
             tor_last = []
+            opt_torsion_list = []
+            opt_torsion_mask_list = []
             for _ in range(len(data_groundtruth_pos_batched)):
-                tor_last.append([])
+                tor_last.append([0])
             for recycling_num, pred_result in enumerate(pred_result_list):
 
                 tr_pred, rot_pred, torsion_pred_batched, _, _, current_candicate_conf_pos_batched = pred_result
@@ -413,20 +416,20 @@ for epoch in range(200):
                                                                mask_rotate=data['compound'].mask_rotate[i])
 
                     if recycling_num == 0:
-                        if data.pdb[i] not in opt_torsion_dict.keys():
+                        if data.pdb[i][:4] not in opt_torsion_dict.keys():
                             ttt = time.time()
                             opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=50)
-                            opt_torsion_dict[data.pdb[i]] = opt_torsion
+                            opt_torsion_dict[data.pdb[i][:4]] = opt_torsion.detach().cpu()
                             tor_last[i] = torsion_pred_batched[i]
-                            # print(tmp_cnt, opt_rmsd,time.time()-ttt)
+                            print(tmp_cnt, opt_rmsd,time.time()-ttt,data.pdb[i][:4])
                         else:
-                            opt_torsion = opt_torsion_dict[data.pdb[i]]
+                            opt_torsion = opt_torsion_dict[data.pdb[i][:4]]
                             opt_rmsd, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.numpy())
                             opt_rotate = matrix_to_axis_angle(opt_R).float()
                             opt_tr = opt_tr.T[0]
                             tor_last[i] = torsion_pred_batched[i]
                     else:
-                        opt_torsion = opt_torsion_dict[data.pdb[i]]
+                        opt_torsion = opt_torsion_dict[data.pdb[i][:4]]
                         opt_torsion = opt_torsion - tor_last[i].detach().cpu() #opt_tor2 = opt_tor1 - tor_pred
                         _, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.numpy())
                         opt_rotate = matrix_to_axis_angle(opt_R).float()
@@ -449,13 +452,24 @@ for epoch in range(200):
                             tr_loss += F.mse_loss(tr_pred[i],opt_tr)
                         rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
                         rot_loss += F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate)
-                        if opt_torsion is not None:
-                            tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
+                        # if opt_torsion is not None:
+                        #     tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
+                        opt_torsion_list.append(opt_torsion)
+                        mask = torch.ones if data.is_equivalent_native_pocket[i] else torch.zeros
+                        opt_torsion_mask_list.append(mask(torsion_pred_batched[i].shape, dtype=torch.bool).to(torsion_pred_batched[i].device))
                     tmp_cnt += 1
+            
+            tor_score = torch.concat([i for i in opt_torsion_list]).to(y_pred.device)
+            tor_score_mask = torch.concat([i for i in opt_torsion_mask_list]).to(y_pred.device)
+            tor_pred = torch.concat(pred_result_list[-1][2]).to(y_pred.device)
+            if tor_score_mask.sum() == 0:
+                tor_loss = torch.clamp(F.mse_loss(tor_pred, tor_score), min=0, max=1e-6)
+            else:
+                tor_loss = F.mse_loss(tor_pred[tor_score_mask], tor_score[tor_score_mask])
 
             tr_loss = tr_loss/len(data_groundtruth_pos_batched)
             rot_loss = rot_loss/len(data_groundtruth_pos_batched)
-            tor_loss = tor_loss/len(data_groundtruth_pos_batched)
+            # tor_loss = tor_loss/len(data_groundtruth_pos_batched)
             tr_loss_recy_0 = tr_loss_recy_0/len(data_groundtruth_pos_batched)
             rot_loss_recy_0 = rot_loss_recy_0/len(data_groundtruth_pos_batched)
             tor_loss_recy_0 = tor_loss_recy_0/len(data_groundtruth_pos_batched)
@@ -467,18 +481,30 @@ for epoch in range(200):
             #rmsd_loss
             rmsd_list=[]
             for pred_result in pred_result_list:
-                next_candicate_conf_pos_batched=pred_result[3]
-                tmp_list=[]
-                for i in range(len(data_groundtruth_pos_batched)):
-                    tmp_rmsd=utils.RMSD(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
-                    tmp_list.append(tmp_rmsd)
-                rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).requires_grad_().to(y_pred.device)[data.is_equivalent_native_pocket])
+                pred_compound_coord = torch.concat(pred_result[3])
+                coord_sd = ((pred_compound_coord.detach() - data['compound'].pos) ** 2).sum(axis=-1)
+                coord_rmsd = scatter_mean(coord_sd, index=data['compound'].batch, dim=0).sqrt().detach()
+                pocket_loss_mask = torch.logical_or(coord_rmsd < 8, data.is_equivalent_native_pocket)
+                coord_loss_mask = pocket_loss_mask[data['compound'].batch]
+                if coord_loss_mask.sum() == 0:
+                    rmsd_loss_recy = torch.tensor(0, requires_grad=True, dtype=torch.float32).to(y_pred.device)
+                else:
+                    rmsd_loss_recy = (((pred_compound_coord[coord_loss_mask] -
+                            data['compound'].pos[coord_loss_mask]) ** 2).sum(axis=-1)).mean()
+                rmsd_list.append(rmsd_loss_recy)
             rmsd_loss = torch.stack(rmsd_list).mean()  
 
-            _size = degree(data['compound'].batch, dtype=torch.long).tolist()
-            candicate_conf_pos_recy_last = torch.concat([pred_result_list[-1][3][i].split(_size[i])[0] for i in range(len(_size))])
-            rmsd_loss_recy_last = torch.sqrt(F.mse_loss(candicate_conf_pos_recy_last, data['compound'].pos, reduction="sum") / len(candicate_conf_pos_recy_last))
-
+            pred_compound_coord = torch.concat(pred_result_list[-1][3])
+            coord_sd = ((pred_compound_coord.detach() - data['compound'].pos) ** 2).sum(axis=-1)
+            coord_rmsd = scatter_mean(coord_sd, index=data['compound'].batch, dim=0).sqrt().detach()
+            pocket_loss_mask = torch.logical_or(coord_rmsd < 8, data.is_equivalent_native_pocket)
+            coord_loss_mask = pocket_loss_mask[data['compound'].batch]
+            if coord_loss_mask.sum() == 0:
+                rmsd_loss_recy_last = torch.tensor(0, requires_grad=True, dtype=torch.float32).to(y_pred.device)
+            else:
+                rmsd_loss_recy_last = (((pred_compound_coord[coord_loss_mask] -
+                        data['compound'].pos[coord_loss_mask]) ** 2).sum(axis=-1)).mean()
+                        
             next_candicate_conf_pos_batched_recy0=pred_result_list[0][3]
             next_candicate_conf_pos_batched_recy1=pred_result_list[1][3]
             rmsd_recycle_diff_list=[]
@@ -506,10 +532,10 @@ for epoch in range(200):
             # pdb.set_trace()
 
             if args.use_weighted_rmsd_loss:
-                prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i], args.contact_loss_mode) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
+                # prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i], args.contact_loss_mode) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
                 contact_loss = contact_criterion(y_pred, dis_map, args.contact_loss_mode) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
             else:
-                prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i]) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
+                # prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i]) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
                 contact_loss = contact_criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
 
             with torch.no_grad():
@@ -557,43 +583,46 @@ for epoch in range(200):
             affinity_loss_A = relative_k * my_affinity_criterion(affinity_pred_A,
                                                                 affinity, 
                                                                 native_pocket_mask, decoy_gap=args.decoy_gap)
-            affinity_loss_B = relative_k * affinity_criterion(affinity_pred_B_list[-1], affinity)
+            affinity_loss_B = relative_k * my_affinity_criterion(affinity_pred_B_list[-1], affinity,native_pocket_mask, decoy_gap=args.decoy_gap)
             # affinity_loss_B = relative_k * torch.stack([my_affinity_criterion(affinity_pred_B_list[i], affinity, native_pocket_mask, decoy_gap=args.decoy_gap) for i in range(len(affinity_pred_B_list))],0).mean()
-            affinity_loss_B_recycling_1 = affinity_criterion(affinity_pred_B_list[0], affinity) if len(affinity_pred_B_list) >= 1 else torch.tensor([0]).to(y_pred.device)
-            affinity_loss_B_recycling_2 = affinity_criterion(affinity_pred_B_list[1], affinity) if len(affinity_pred_B_list) >= 2 else torch.tensor([0]).to(y_pred.device)
-            affinity_loss_B_recycling_3 = affinity_criterion(affinity_pred_B_list[2], affinity) if len(affinity_pred_B_list) >= 3 else torch.tensor([0]).to(y_pred.device)
-
+            affinity_loss_B_recycling_1 = my_affinity_criterion(affinity_pred_B_list[0], affinity,native_pocket_mask, decoy_gap=args.decoy_gap) if len(affinity_pred_B_list) >= 1 else torch.tensor([0]).to(y_pred.device)
+            affinity_loss_B_recycling_2 = my_affinity_criterion(affinity_pred_B_list[1], affinity,native_pocket_mask, decoy_gap=args.decoy_gap) if len(affinity_pred_B_list) >= 2 else torch.tensor([0]).to(y_pred.device)
+            affinity_loss_B_recycling_3 = my_affinity_criterion(affinity_pred_B_list[2], affinity,native_pocket_mask, decoy_gap=args.decoy_gap) if len(affinity_pred_B_list) >= 3 else torch.tensor([0]).to(y_pred.device)
 
         # print(contact_loss.item(), affinity_loss_A.item())
         #total loss
         if args.use_contact_loss == 0:
-            # loss = tor_loss + affinity_loss_B + contact_loss #TODO:debug阶段
+            # loss = tor_loss + affinity_loss_B + contact_loss #TODO:debug阶段 必须要加tor_loss,否则报错
             loss = rmsd_loss_recy_last + tor_loss + affinity_loss_A + affinity_loss_B
-            #loss = tor_loss #TODO:debug阶段
             #loss = prmsd_loss.double() + rmsd_loss.double() + affinity_loss_A + affinity_loss_B
         else:
             loss = contact_loss.float()
             loss = loss.requires_grad_(True)
         # logging.info(f"prmsd_loss: {prmsd_loss.detach().cpu()}, rmsd_loss: {rmsd_loss.detach().cpu()}, affinity_loss_A: {affinity_loss_A.detach().cpu()}, affinity_loss_B: {affinity_loss_B.detach().cpu()}")
-        # try:
-        #     loss.backward()
+        try: 
+            loss.backward()
+        except RuntimeError as err:
+            print(err)
+            from IPython import embed
+            embed()
         # except:
         #     print(rmsd_loss_recy_last,tor_loss,affinity_loss_A,affinity_loss_B)
-        #     import pdb
-        #     pdb.set_trace()
-        loss.backward()
+        #     raise ValueError("--RuntimeError: Expected a proper Tensor but got None (or an undefined Tensor in C++) for argument #0 'self'")
+
+        # loss.backward()
         optimizer.step()
 
         #记录日志
-        epoch_tr_loss+=len(rmsd_list[0]) * tr_loss.item()
-        epoch_rot_loss += len(rmsd_list[0]) * rot_loss.item()
-        epoch_tor_loss += len(rmsd_list[0]) * tor_loss.item()
-        epoch_tr_loss_recy_0 += len(rmsd_list[0]) * tr_loss_recy_0
-        epoch_rot_loss_recy_0 += len(rmsd_list[0]) * rot_loss_recy_0
-        epoch_tor_loss_recy_0 += len(rmsd_list[0]) * tor_loss_recy_0
-        epoch_tr_loss_recy_1 += len(rmsd_list[0]) * tr_loss_recy_1
-        epoch_rot_loss_recy_1 += len(rmsd_list[0]) * rot_loss_recy_1
-        epoch_tor_loss_recy_1 += len(rmsd_list[0]) * tor_loss_recy_1
+        num_native_pocket = int(data.is_equivalent_native_pocket.sum())
+        epoch_tr_loss+=num_native_pocket * tr_loss.item()
+        epoch_rot_loss += num_native_pocket * rot_loss.item()
+        epoch_tor_loss += num_native_pocket * tor_loss.item()
+        epoch_tr_loss_recy_0 += num_native_pocket * tr_loss_recy_0
+        epoch_rot_loss_recy_0 += num_native_pocket * rot_loss_recy_0
+        epoch_tor_loss_recy_0 += num_native_pocket * tor_loss_recy_0
+        epoch_tr_loss_recy_1 += num_native_pocket * tr_loss_recy_1
+        epoch_rot_loss_recy_1 += num_native_pocket * rot_loss_recy_1
+        epoch_tor_loss_recy_1 += num_native_pocket * tor_loss_recy_1
 
 
         epoch_loss_contact += len(y_pred) * contact_loss.item()
@@ -601,29 +630,29 @@ for epoch in range(200):
         epoch_loss_contact_10A += len(y_pred) * contact_loss_cat_off_rmsd_10.item()
         epoch_loss_affinity_A += len(affinity_pred_A) * affinity_loss_A.item()
         epoch_loss_affinity_B += len(affinity_pred_B_list[0]) * affinity_loss_B.item()
-        epoch_loss_rmsd += len(rmsd_list[0]) * rmsd_loss_recy_last.item()
-        epoch_loss_prmsd += len(prmsd_list[0]) * prmsd_loss.item()
+        epoch_loss_rmsd += num_native_pocket * rmsd_loss_recy_last.item()
+        # epoch_loss_prmsd += len(prmsd_list[0]) * prmsd_loss.item()
         epoch_affinity_B_recycling_1_loss += len(affinity_pred_B_list[0]) * affinity_loss_B_recycling_1.item()
         epoch_affinity_B_recycling_2_loss += len(affinity_pred_B_list[0]) * affinity_loss_B_recycling_2.item()
         epoch_affinity_B_recycling_3_loss += len(affinity_pred_B_list[0]) * affinity_loss_B_recycling_3.item()
 
-        epoch_rmsd_recycling_0_loss +=len(rmsd_list[0]) * rmsd_recycling_0_loss.item()
-        epoch_rmsd_recycling_1_loss +=len(rmsd_list[0]) * rmsd_recycling_1_loss.item()
-        epoch_rmsd_recycling_2_loss +=len(rmsd_list[0]) * rmsd_recycling_2_loss.item()
-        epoch_rmsd_recycling_3_loss  +=len(rmsd_list[0]) * rmsd_recycling_3_loss.item()
-        epoch_rmsd_recycling_4_loss +=len(rmsd_list[0]) * rmsd_recycling_4_loss.item()
-        epoch_rmsd_recycling_19_loss +=len(rmsd_list[0]) * rmsd_recycling_19_loss.item()
-        epoch_rmsd_recycling_39_loss +=len(rmsd_list[0]) * rmsd_recycling_39_loss.item()
-        epoch_rmsd_recycling_1_2_diff_loss += len(rmsd_list[0]) * RMSD_recycle_diff_loss.item()
+        epoch_rmsd_recycling_0_loss +=num_native_pocket * rmsd_recycling_0_loss.item()
+        epoch_rmsd_recycling_1_loss +=num_native_pocket * rmsd_recycling_1_loss.item()
+        epoch_rmsd_recycling_2_loss +=num_native_pocket * rmsd_recycling_2_loss.item()
+        epoch_rmsd_recycling_3_loss  +=num_native_pocket * rmsd_recycling_3_loss.item()
+        epoch_rmsd_recycling_4_loss +=num_native_pocket * rmsd_recycling_4_loss.item()
+        epoch_rmsd_recycling_19_loss +=num_native_pocket * rmsd_recycling_19_loss.item()
+        epoch_rmsd_recycling_39_loss +=num_native_pocket * rmsd_recycling_39_loss.item()
+        epoch_rmsd_recycling_1_2_diff_loss += num_native_pocket * RMSD_recycle_diff_loss.item()
 
         # print(f"{loss.item():.3}")
         y_list.append(y)
         y_pred_list.append(y_pred.detach())
         affinity_list.append(data.affinity)
         affinity_A_pred_list.append(affinity_pred_A.detach())
-        affinity_B_pred_list.append(affinity_pred_B_list[-1].detach()) #只取最后一个pred做pearson， TODO
-        rmsd_pred_list.append(rmsd_list[-1].detach())
-        prmsd_pred_list.append(prmsd_list[-1].detach())
+        affinity_B_pred_list.append(affinity_pred_B_list[-1].detach()) #只取最后一个pred做pearson
+        rmsd_pred_num += num_native_pocket
+        prmsd_pred_num += num_native_pocket
         # torch.cuda.empty_cache()
         if train_writer_tag:
             writer.add_scalar(f'batchLoss.Total/train', loss.item(), global_steps_train)
@@ -634,10 +663,9 @@ for epoch in range(200):
             writer.add_scalar(f'sampleLoss.Affinity_A/train', affinity_loss_A.item(), global_samples_train)
             writer.add_scalar(f'sampleLoss.Affinity_B/train', affinity_loss_B.item(), global_samples_train)
             writer.add_scalar(f'sampleLoss.RMSD/train', rmsd_loss.item(), global_samples_train)
-            writer.add_scalar(f'sampleLoss.Pred_RMSD/train', prmsd_loss.item(), global_samples_train)
+            # writer.add_scalar(f'sampleLoss.Pred_RMSD/train', prmsd_loss.item(), global_samples_train)
         global_steps_train+=1
         global_samples_train+=len(data.pdb)
-
     train_result = pd.DataFrame(train_result_list, columns=['compound_name', 'candicate_conf_pos', 'affinity_pred_A', 'affinity_pred_B', 'prmsd_pred'])
     save_path = f"{pre}/results/train_result_{epoch}.csv"
     train_result.to_csv(save_path)
@@ -655,14 +683,12 @@ for epoch in range(200):
     affinity = torch.cat(affinity_list)
     affinity_pred_A = torch.cat(affinity_A_pred_list)
     affinity_pred_B = torch.cat(affinity_B_pred_list)
-    RMSD_pred = torch.cat(rmsd_pred_list)
-    PRMSD_pred = torch.cat(prmsd_pred_list)
     metrics = {
-        "loss": epoch_loss_rmsd / len(RMSD_pred) + epoch_loss_affinity_A / len(affinity_pred_A) + epoch_loss_affinity_B / len(affinity_pred_B) + epoch_loss_prmsd / len(PRMSD_pred), 
+        "loss": epoch_loss_rmsd / rmsd_pred_num + epoch_loss_affinity_A / len(affinity_pred_A) + epoch_loss_affinity_B / len(affinity_pred_B) + epoch_loss_prmsd / prmsd_pred_num, 
         "loss_affinity_A": epoch_loss_affinity_A / len(affinity_pred_A),
         "loss_affinity_B": epoch_loss_affinity_B / len(affinity_pred_B),
-        "loss_rmsd": epoch_loss_rmsd / len(RMSD_pred),
-        "loss_prmsd": epoch_loss_prmsd / len(PRMSD_pred),
+        "loss_rmsd": epoch_loss_rmsd / rmsd_pred_num,
+        "loss_prmsd": epoch_loss_prmsd / prmsd_pred_num,
         "loss_contact_5A": epoch_loss_contact_5A / (len(y_pred) - epoch_num_nan_contact_5A),
         "loss_contact_10A": epoch_loss_contact_10A / (len(y_pred) - epoch_num_nan_contact_10A),
     }
@@ -682,32 +708,32 @@ for epoch in range(200):
         writer.add_scalar('epochLoss.Contact_10A/train', metrics["loss_contact_10A"], epoch)
         writer.add_scalar('epochLoss.Affinity_A/train', epoch_loss_affinity_A / len(affinity_pred_A), epoch)
         writer.add_scalar('epochLoss.Affinity_B/train', epoch_loss_affinity_B / len(affinity_pred_B), epoch)
-        writer.add_scalar('epochLoss.RMSD/train', epoch_loss_rmsd / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.Pred_RMSD/train', epoch_loss_prmsd / len(PRMSD_pred), epoch)
+        writer.add_scalar('epochLoss.RMSD/train', epoch_loss_rmsd / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.Pred_RMSD/train', epoch_loss_prmsd / prmsd_pred_num, epoch)
         writer.add_scalar('epochNum.TrainedBatches/train', global_steps_train, epoch)
         writer.add_scalar('epochNum.TrainedSamples/train', global_samples_train, epoch)
         writer.add_scalar('epochLoss.Affinity_B_recycling_1/train', epoch_affinity_B_recycling_1_loss / len(affinity_pred_B), epoch)
         writer.add_scalar('epochLoss.Affinity_B_recycling_2/train', epoch_affinity_B_recycling_2_loss / len(affinity_pred_B), epoch)
         writer.add_scalar('epochLoss.Affinity_B_recycling_3/train', epoch_affinity_B_recycling_3_loss / len(affinity_pred_B), epoch)
 
-        writer.add_scalar('epochLoss.rmsd_recycling_0/train', epoch_rmsd_recycling_0_loss / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.rmsd_recycling_1/train', epoch_rmsd_recycling_1_loss / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.rmsd_recycling_2/train', epoch_rmsd_recycling_2_loss / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.rmsd_recycling_3/train', epoch_rmsd_recycling_3_loss / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.rmsd_recycling_4/train', epoch_rmsd_recycling_4_loss / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.rmsd_recycling_19/train', epoch_rmsd_recycling_19_loss / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.rmsd_recycling_39/train', epoch_rmsd_recycling_39_loss / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.epoch_rmsd_recycling_1_2_diff_loss/train', epoch_rmsd_recycling_1_2_diff_loss / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_0/train', epoch_rmsd_recycling_0_loss / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_1/train', epoch_rmsd_recycling_1_loss / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_2/train', epoch_rmsd_recycling_2_loss / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_3/train', epoch_rmsd_recycling_3_loss / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_4/train', epoch_rmsd_recycling_4_loss / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_19/train', epoch_rmsd_recycling_19_loss / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.rmsd_recycling_39/train', epoch_rmsd_recycling_39_loss / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.epoch_rmsd_recycling_1_2_diff_loss/train', epoch_rmsd_recycling_1_2_diff_loss / rmsd_pred_num, epoch)
 
-        writer.add_scalar('epochLoss.tr/train', epoch_tr_loss / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.rot/train', epoch_rot_loss / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.tor/train', epoch_tor_loss / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.tr_recy_0/train', epoch_tr_loss_recy_0 / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.rot_recy_0/train', epoch_rot_loss_recy_0 / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.tor_recy_0/train', epoch_tor_loss_recy_0 / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.tr_recy_1/train', epoch_tr_loss_recy_1 / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.rot_recy_1/train', epoch_rot_loss_recy_1 / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.tor_recy_1/train', epoch_tor_loss_recy_1 / len(RMSD_pred), epoch)
+        writer.add_scalar('epochLoss.tr/train', epoch_tr_loss / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.rot/train', epoch_rot_loss / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.tor/train', epoch_tor_loss / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.tr_recy_0/train', epoch_tr_loss_recy_0 / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.rot_recy_0/train', epoch_rot_loss_recy_0 / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.tor_recy_0/train', epoch_tor_loss_recy_0 / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.tr_recy_1/train', epoch_tr_loss_recy_1 / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.rot_recy_1/train', epoch_rot_loss_recy_1 / rmsd_pred_num, epoch)
+        writer.add_scalar('epochLoss.tor_recy_1/train', epoch_tor_loss_recy_1 / rmsd_pred_num, epoch)
 
 
     #continue #TODO

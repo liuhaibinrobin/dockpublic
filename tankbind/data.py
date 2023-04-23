@@ -385,7 +385,7 @@ def get_data(data_mode, logging, addNoise=None):
         #     "use_compound_com and group =='train' and pdb in ( '1wcq','5u7m','2nno','5j87','5uwf','5kxi','4kju','3eta','2b54','1sdt' )").index.values
         # only_native_train_index=only_native_train_index[:100]
         train = new_dataset[only_native_train_index]
-        train_index = d.query("group =='train'").index.values
+        train_index = d.query(f"group =='train' and protein_name not in {l_rotate_0} and protein_name not in {l_rotate_30} and protein_name != '4q3r'").index.values
         train_after_warm_up = new_dataset[train_index]
         # train = torch.utils.data.ConcatDataset([train1, train2])
         valid_index = d.query("use_compound_com and group =='valid'").index.values

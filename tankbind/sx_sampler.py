@@ -148,10 +148,10 @@ class DistributedDynamicBatchSampler(Sampler[T_co]):
                  dyn_num_steps: Optional[int] = None) -> None:
         
         print("Initializing DDPS with parameters:")
-        print(f" dataset: {dataset}\n"
-              f" dyn_max_num: {dyn_max_num}  dyn_mode: {dyn_mode}  dyn_sample_info: {dyn_sample_info}\n"
-              f" num_replicas: {num_replicas}  rank: {rank}  shuffle: {shuffle}  seed: {seed}\n"
-              f"dyn_skip_too_big: {dyn_skip_too_big}  dyn_num_steps: {dyn_num_steps}")
+        # print(f" dataset: {dataset}\n"
+        #       f" dyn_max_num: {dyn_max_num}  dyn_mode: {dyn_mode}  dyn_sample_info: {dyn_sample_info}\n"
+        #       f" num_replicas: {num_replicas}  rank: {rank}  shuffle: {shuffle}  seed: {seed}\n"
+        #       f"dyn_skip_too_big: {dyn_skip_too_big}  dyn_num_steps: {dyn_num_steps}")
         
         
         if dyn_mode is None and dyn_sample_info is None:
@@ -201,7 +201,7 @@ class DistributedDynamicBatchSampler(Sampler[T_co]):
                         dyn_sample_info.append(data.num_edges)
                 except:
                     dyn_sample_info.append(-1)
-            with open(f"dyn_sample_info/dyn_sample_info_{self.rank}_{self.dyn_max_num}.pkl", "wb") as f:
+            with open(f"dyn_sample_info/dyn_sample_info_total_{self.rank}_{self.dyn_max_num}.pkl", "wb") as f:
                 pickle.dump(dyn_sample_info, f)
         
         self.dyn_sample_info = dyn_sample_info
@@ -223,7 +223,7 @@ class DistributedDynamicBatchSampler(Sampler[T_co]):
             indices = torch.randperm(len(self.dataset), generator=g, dtype=torch.long)  # type: ignore[arg-type]
         else:
             indices = torch.arange(len(self.dataset), dtype=torch.long)  # type: ignore[arg-type]
-            
+        indices = indices[:self.dyn_num_steps] #设置每轮最大sample数
         #print("Shuffled index", indices)
             
         batched_indices = []

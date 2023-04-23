@@ -678,7 +678,6 @@ class IaBNet_with_affinity(torch.nn.Module):
         pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
         affinity_pred_A = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
         #self.logging.info(f"after point A, z shape: {z.shape}, compound_out_batched shape: {compound_out_batched.shape}, protein_out_batched shape: {protein_out_batched.shape}, affinity_pred_A shape: {affinity_pred_A.shape}")
-
         pred_result_list=[]
         affinity_pred_B_list=[]
         prmsd_list=[]

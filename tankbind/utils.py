@@ -495,7 +495,7 @@ def evaluate_with_affinity(data_loader,
         epoch_loss_contact_10A += len(y_pred) * contact_loss_cat_off_rmsd_10.item()
         epoch_loss_affinity_A += len(affinity_pred_A) * affinity_loss_A.item()
         epoch_loss_affinity_B += len(affinity_pred_B_list[0]) * affinity_loss_B.item()
-        epoch_loss_rmsd += len(rmsd_list[0]) * epoch_loss_rmsd.item()
+        epoch_loss_rmsd += len(rmsd_list[0]) * rmsd_loss.item()
         epoch_loss_prmsd += len(prmsd_list[0]) * prmsd_loss.item()
         epoch_affinity_B_recycling_1_loss += len(affinity_pred_B_list[0]) * affinity_loss_B_recycling_1.item()
         epoch_affinity_B_recycling_2_loss += len(affinity_pred_B_list[0]) * affinity_loss_B_recycling_2.item()
