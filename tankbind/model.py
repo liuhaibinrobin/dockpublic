@@ -674,7 +674,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                     compound_out_batched, compound_out_mask,
                     z, z_mask,
                     p_p_dist_embed, c_c_dist_embed)
-        # return z,z_mask, protein_out_batched,compound_out_batched, compound_out, compound_batch
+                    
         pair_energy = (self.gate_linear(z).sigmoid() * self.linear_energy(z)).squeeze(-1) * z_mask
         affinity_pred_A = self.leaky(self.bias + ((pair_energy).sum(axis=(-1, -2))))
         #self.logging.info(f"after point A, z shape: {z.shape}, compound_out_batched shape: {compound_out_batched.shape}, protein_out_batched shape: {protein_out_batched.shape}, affinity_pred_A shape: {affinity_pred_A.shape}")
@@ -856,7 +856,8 @@ class IaBNet_with_affinity(torch.nn.Module):
     def build_center_conv_graph(self, data, current_candicate_conf_pos):
         # builds the filter and edges for the convolution generating translational and rotational scores
         edge_index = torch.cat([data['compound'].batch.unsqueeze(0), torch.arange(len(data['compound'].batch)).to(data['compound'].x.device).unsqueeze(0)], dim=0)
-
+        from IPython import embed
+        embed()
         center_pos, count = torch.zeros((data.num_graphs, 3)).to(data['compound'].x.device), torch.zeros((data.num_graphs, 3)).to(data['compound'].x.device)
         center_pos.index_add_(0, index=data['compound'].batch, source=current_candicate_conf_pos)
         center_pos = center_pos / torch.bincount(data['compound'].batch).unsqueeze(1)

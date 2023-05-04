@@ -504,7 +504,7 @@ for epoch in range(200):
             else:
                 rmsd_loss_recy_last = (((pred_compound_coord[coord_loss_mask] -
                         data['compound'].pos[coord_loss_mask]) ** 2).sum(axis=-1)).mean()
-                        
+
             next_candicate_conf_pos_batched_recy0=pred_result_list[0][3]
             next_candicate_conf_pos_batched_recy1=pred_result_list[1][3]
             rmsd_recycle_diff_list=[]
@@ -684,7 +684,7 @@ for epoch in range(200):
     affinity_pred_A = torch.cat(affinity_A_pred_list)
     affinity_pred_B = torch.cat(affinity_B_pred_list)
     metrics = {
-        "loss": epoch_loss_rmsd / rmsd_pred_num + epoch_loss_affinity_A / len(affinity_pred_A) + epoch_loss_affinity_B / len(affinity_pred_B) + epoch_loss_prmsd / prmsd_pred_num, 
+        "loss": epoch_loss_rmsd / rmsd_pred_num + epoch_loss_affinity_A / len(affinity_pred_A) + epoch_loss_affinity_B / len(affinity_pred_B), 
         "loss_affinity_A": epoch_loss_affinity_A / len(affinity_pred_A),
         "loss_affinity_B": epoch_loss_affinity_B / len(affinity_pred_B),
         "loss_rmsd": epoch_loss_rmsd / rmsd_pred_num,

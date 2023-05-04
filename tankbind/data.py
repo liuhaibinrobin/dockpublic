@@ -375,8 +375,8 @@ def get_data(data_mode, logging, addNoise=None):
         new_dataset.data = new_dataset.data.query("c_length < 100 and native_num_contact > 5").reset_index(drop=True)
         d = new_dataset.data
         # only_native_train_index = d.query("use_compound_com and group =='train'").index.values
-        l_rotate_0 = torch.load('l_rotate_0_pdb.pt')
-        l_rotate_30 = torch.load('l_rotate_30_pdb.pt')
+        l_rotate_0 = torch.load('l_rotate_0_pdb.pt') #代表没有柔性键的小分子
+        l_rotate_30 = torch.load('l_rotate_30_pdb.pt') #代表柔性键数大于30个的小分子，常为多肽
         only_native_train_index = d.query(
            f"use_compound_com and group =='train' and pdb not in {l_rotate_0} and pdb not in {l_rotate_30} and pdb != '4q3r'").index.values  #torsional 旋转代码加入 mask_rotate assert,检查是否旋转轴同时是True或False （只有一个样本4q3r由于分子错误报这个错，已排除）
         # only_native_train_index = d.query(

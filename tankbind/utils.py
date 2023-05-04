@@ -468,7 +468,7 @@ def evaluate_with_affinity(data_loader,
                 tor_loss_recy_1 = tor_loss_recy_1/len(data_groundtruth_pos_batched)
 
                 prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i]) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
-                rmsd_loss = torch.stack(rmsd_list[1:]).mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(y_pred.device)
+                rmsd_loss = torch.stack(rmsd_list[-1]).mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(y_pred.device)
                 contact_loss = contact_criterion(y_pred, dis_map) if len(dis_map) > 0 else torch.tensor([0]).to(dis_map.device)
                 if math.isnan(cut_off_rmsd(y_pred, dis_map, cut_off=5)):
                     epoch_num_nan_contact_5A += len(y_pred)
@@ -482,7 +482,7 @@ def evaluate_with_affinity(data_loader,
                     contact_loss_cat_off_rmsd_10 = cut_off_rmsd(y_pred, dis_map, cut_off=10)
             else:
                 prmsd_loss = torch.stack([contact_criterion(rmsd_list[i], prmsd_list[i]) for i in range(len(prmsd_list))]).mean() if len(prmsd_list) > 0 else torch.tensor([0]).to(y_pred.device)
-                rmsd_loss = torch.stack(rmsd_list[1:]).mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(y_pred.device)
+                rmsd_loss = torch.stack(rmsd_list[-1]).mean() if len(rmsd_list) > 1 else torch.tensor([0]).to(y_pred.device)
                 y_pred = y_pred.sigmoid()
             affinity_loss_A = relative_k * affinity_criterion(affinity_pred_A, data.affinity)
             affinity_loss_B = relative_k * torch.stack([affinity_criterion(affinity_pred_B_list[i], data.affinity) for i in range(len(affinity_pred_B_list))],0).mean()
