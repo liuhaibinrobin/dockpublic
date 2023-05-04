@@ -215,22 +215,22 @@ if args.distributed:
                                         dataset=train, dyn_max_num=args.max_node, #dyn_mode="node",
                                         num_replicas=args.world_size, rank=args.rank, shuffle=True,
                                         seed = 42, dyn_num_steps=args.dyn_num_steps, dyn_sample_info=dyn_sample_info), 
-                                    follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], 
+                                    follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr','LAS_distance_constraint_mask'], 
                                     num_workers=num_workers)
 else:
     sampler = RandomSampler(train, replacement=False, num_samples=len(train)) #训练数据不足2w，全部口袋时要换回来 TODO
-    train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler, pin_memory=False, num_workers=num_workers,drop_last=True)
+    train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr','LAS_distance_constraint_mask'], sampler=sampler, pin_memory=False, num_workers=num_workers,drop_last=True)
 
 # sampler = RandomSampler(train, replacement=False, num_samples=len(train)) #训练数据不足2w，全部口袋时要换回来 TODO
 # train_loader = DataLoader(train, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler, pin_memory=False, num_workers=num_workers,drop_last=True)
 sampler2 = RandomSampler(train_after_warm_up, replacement=False, num_samples=args.sample_n)
-train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], sampler=sampler2, pin_memory=False, num_workers=num_workers,drop_last=True)
+train_after_warm_up_loader = DataLoader(train_after_warm_up, batch_size=args.batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr','LAS_distance_constraint_mask'], sampler=sampler2, pin_memory=False, num_workers=num_workers,drop_last=True)
 valid_batch_size = test_batch_size = 3 #TODO:why
 #valid_batch_size=test_batch_size=batch_size
-valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=num_workers)
-test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=num_workers)
-all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=4)
-all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr'], shuffle=False, pin_memory=False, num_workers=4)
+valid_loader = DataLoader(valid, batch_size=valid_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr','LAS_distance_constraint_mask'], shuffle=False, pin_memory=False, num_workers=num_workers)
+test_loader = DataLoader(test, batch_size=test_batch_size, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr','LAS_distance_constraint_mask'], shuffle=False, pin_memory=False, num_workers=num_workers)
+all_pocket_test_loader = DataLoader(all_pocket_test, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr','LAS_distance_constraint_mask'], shuffle=False, pin_memory=False, num_workers=4)
+all_pocket_valid_loader = DataLoader(all_pocket_valid, batch_size=2, follow_batch=['x', 'compound_pair','candicate_dis_matrix','compound_compound_edge_attr','LAS_distance_constraint_mask'], shuffle=False, pin_memory=False, num_workers=4)
 # import model is put here due to an error related to torch.utils.data.ConcatDataset after importing torchdrug.
 from model import *
 model = get_model(args.mode, logger, device, recycling_num=args.recycling_num)

@@ -168,7 +168,7 @@ def extract_torchdrug_feature_from_mol(mol, has_LAS_mask=False):
     assert edge_weight.min() == 1
     assert coords.shape[0] == compound_node_features.shape[0]
     edge_feature = molstd.edge_feature # [num_edge, edge_feature_dim]
-    x = (coords, compound_node_features, edge_list, edge_feature, pair_dis_distribution)
+    x = (coords, compound_node_features, edge_list, edge_feature, pair_dis_distribution, LAS_distance_constraint_mask)
     return x
 
 import gvp

@@ -663,7 +663,13 @@ class IaBNet_with_affinity(torch.nn.Module):
             p_p_dist = torch.cdist(p_coord_batched, p_coord_batched, compute_mode='donot_use_mm_for_euclid_dist')
             c_c_dist = torch.cdist(c_coord_batched, c_coord_batched, compute_mode='donot_use_mm_for_euclid_dist')
             p_p_dist_mask = torch.einsum("...i, ...j->...ij", p_coord_mask, p_coord_mask)
-            c_c_dist_mask = torch.diag_embed(c_coord_mask)  # (B, Nc, Nc)
+            c_c_diag_mask = torch.diag_embed(c_coord_mask)  # (B, Nc, Nc)
+            LAS_mask_batched = data.LAS_distance_constraint_mask.new_full(c_c_diag_mask.shape, 0.)
+            compound_num_batch = degree(data['compound'].batch, dtype=torch.long).tolist()
+            for i in range(c_c_diag_mask.shape[0]):
+                LAS_mask_batched[i, :compound_num_batch[i], :compound_num_batch[i]] = \
+                    self.unbatch(data.LAS_distance_constraint_mask, data.LAS_distance_constraint_mask_batch)[i].view(compound_num_batch[i], compound_num_batch[i])
+            c_c_dist_mask = torch.logical_or(LAS_mask_batched.bool(), c_c_diag_mask)
             p_p_dist[~p_p_dist_mask] = 1e6
             c_c_dist[~c_c_dist_mask] = 1e6
             p_p_dist_embed = self.p_p_dist_layer(p_p_dist)

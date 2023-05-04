@@ -199,7 +199,7 @@ class TankBindDataSet_torsion(Dataset):
             protein_node_xyz, protein_seq, protein_node_s, protein_node_v, protein_edge_index, protein_edge_s, protein_edge_v = self.protein_dict[protein_name]
 
         name = line['compound_name']
-        coords, compound_node_features, input_atom_edge_list, input_atom_edge_attr_list, pair_dis_distribution = self.compound_dict[name]
+        coords, compound_node_features, input_atom_edge_list, input_atom_edge_attr_list, pair_dis_distribution, LAS_distance_constraint_mask = self.compound_dict[name]
 
         # node_xyz could add noise too.
         shake_nodes = self.shake_nodes if group == 'train' else None
@@ -232,7 +232,8 @@ class TankBindDataSet_torsion(Dataset):
         #为计算rmsd作准备
         data.atomicnums = line['atomicnums']
         data.adjacency_matrix = line['adjacency_matrix']
-        
+        data.LAS_distance_constraint_mask = LAS_distance_constraint_mask.flatten()
+    
         data.real_affinity_mask = torch.tensor([use_compound_com], dtype=torch.bool)
         data.real_y_mask = torch.ones(data.y.shape).bool() if use_compound_com else torch.zeros(data.y.shape).bool()
         # fract_of_native_contact = float(line['fract_of_native_contact']) if "fract_of_native_contact" in line.index else 1
