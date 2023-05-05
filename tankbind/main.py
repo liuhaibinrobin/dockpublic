@@ -40,13 +40,14 @@ def init_distributed_mode(args):
     '''
     args.rank = int(os.environ["RANK"])
     args.world_size = int(os.environ["WORLD_SIZE"])
-    args.gpu = 0  # 默认worker都使用0号卡
-    # args.gpu = int(os.environ['LOCAL_RANK'])
+    # args.gpu = 0  # 默认worker都使用0号卡 #ddp
+    args.gpu = int(os.environ['LOCAL_RANK']) #单机多卡
 
     args.distributed = True
 
     torch.cuda.set_device(args.gpu)
     args.dist_backend = "nccl"
+    os.environ["NCCL_SOCKET_IFNAME"] = ''
     print('NCCL_SOCKET_IFNAME:', os.environ["NCCL_SOCKET_IFNAME"])
     dist.init_process_group(
         backend=args.dist_backend, init_method=args.dist_url, world_size=args.world_size, rank=args.rank)
@@ -134,7 +135,7 @@ parser.add_argument("--local_rank", type=int, help='local rank, will be passed b
 parser.add_argument("--world_size", default=1, type=int, help="number of distributed processes")
 parser.add_argument("--dist-url", default="env://", type=str, help="url used to set up distributed training")
 parser.add_argument("--max_node", type=int, default=1000)
-parser.add_argument("--dyn_num_steps", type=int, default=None)
+parser.add_argument("--dyn_num_steps", type=int, default=20000)
 parser.add_argument("--gpu", type=int, default=0)
 
 
@@ -204,7 +205,7 @@ train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info
 logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
 
 from sx_sampler import DistributedDynamicBatchSampler
-with open(f"dyn_sample_info/dyn_sample_info_0_{args.max_node}.pkl", "rb") as f: #修改data时一定要重新生成dyn_sample_info！！TODO
+with open(f"dyn_sample_info/dyn_sample_info_true_5_conf_0_{args.max_node}.pkl", "rb") as f: #修改data时一定要重新生成dyn_sample_info！！TODO
     dyn_sample_info = pickle.load(f)
 
 num_workers = 10
@@ -413,20 +414,20 @@ for epoch in range(200):
                                                                mask_rotate=data['compound'].mask_rotate[i])
 
                     if recycling_num == 0:
-                        if data.pdb[i] not in opt_torsion_dict.keys():
+                        if data.pdb[i][:4] not in opt_torsion_dict.keys():
                             ttt = time.time()
                             opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=50)
-                            opt_torsion_dict[data.pdb[i]] = opt_torsion
+                            opt_torsion_dict[data.pdb[i][:4]] = opt_torsion.detach().cpu()
                             tor_last[i] = torsion_pred_batched[i]
-                            # print(tmp_cnt, opt_rmsd,time.time()-ttt)
+                            print(tmp_cnt, opt_rmsd,time.time()-ttt)
                         else:
-                            opt_torsion = opt_torsion_dict[data.pdb[i]]
+                            opt_torsion = opt_torsion_dict[data.pdb[i][:4]]
                             opt_rmsd, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.numpy())
                             opt_rotate = matrix_to_axis_angle(opt_R).float()
                             opt_tr = opt_tr.T[0]
                             tor_last[i] = torsion_pred_batched[i]
                     else:
-                        opt_torsion = opt_torsion_dict[data.pdb[i]]
+                        opt_torsion = opt_torsion_dict[data.pdb[i][:4]]
                         opt_torsion = opt_torsion - tor_last[i].detach().cpu() #opt_tor2 = opt_tor1 - tor_pred
                         _, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.numpy())
                         opt_rotate = matrix_to_axis_angle(opt_R).float()

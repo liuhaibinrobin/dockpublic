@@ -372,14 +372,14 @@ def get_data(data_mode, logging, addNoise=None):
         add_noise_to_com = float(addNoise) if addNoise else None
         
         # compoundMode = 1 is for GIN model.
-        new_dataset = TankBindDataSet_torsion(f"{pre}/train_dataset", add_noise_to_com=add_noise_to_com)
+        new_dataset = TankBindDataSet_torsion(f"{pre}/train_dataset_true_5_conf", add_noise_to_com=add_noise_to_com)
         new_dataset.data = new_dataset.data.query("c_length < 100 and native_num_contact > 5").reset_index(drop=True)
         d = new_dataset.data
         # only_native_train_index = d.query("use_compound_com and group =='train'").index.values
         l_rotate_0 = torch.load('l_rotate_0_pdb.pt')
         l_rotate_30 = torch.load('l_rotate_30_pdb.pt')
         only_native_train_index = d.query(
-           f"use_compound_com and group =='train' and pdb not in {l_rotate_0} and pdb not in {l_rotate_30} and pdb != '4q3r'").index.values  #torsional 旋转代码加入 mask_rotate assert,检查是否旋转轴同时是True或False （只有一个样本4q3r由于分子错误报这个错，已排除）
+           f"group =='train' and protein_name not in {l_rotate_0} and protein_name not in {l_rotate_30} and protein_name != '4q3r'").index.values  #torsional 旋转代码加入 mask_rotate assert,检查是否旋转轴同时是True或False （只有一个样本4q3r由于分子错误报这个错，已排除）
         # only_native_train_index = d.query(
         #     f"use_compound_com and group =='train' and pdb not in {l_rotate_30}").index.values
         # only_native_train_index = d.query(

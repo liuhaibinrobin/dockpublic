@@ -419,20 +419,20 @@ def evaluate_with_affinity(data_loader,
                                                                 rotate_edge_index=rotate_edge_index,
                                                                 mask_rotate=data['compound'].mask_rotate[i])
                         if recycling_num == 0:
-                            if data.pdb[i] not in opt_torsion_dict.keys():
+                            if data.pdb[i][:4] not in opt_torsion_dict.keys():
                                 ttt = time.time()
                                 opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=50)
-                                opt_torsion_dict[data.pdb[i]] = opt_torsion
+                                opt_torsion_dict[data.pdb[i][:4]] = opt_torsion
                                 tor_last[i] = torsion_pred_batched[i]
                                 # print(tmp_cnt, opt_rmsd,time.time()-ttt)
                             else:
-                                opt_torsion = opt_torsion_dict[data.pdb[i]]
+                                opt_torsion = opt_torsion_dict[data.pdb[i][:4]]
                                 opt_rmsd, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.detach().cpu().numpy())
                                 opt_rotate = matrix_to_axis_angle(opt_R).float()
                                 opt_tr = opt_tr.T[0]
                                 tor_last[i] = torsion_pred_batched[i]
                         else:
-                            opt_torsion = opt_torsion_dict[data.pdb[i]]
+                            opt_torsion = opt_torsion_dict[data.pdb[i][:4]]
                             if opt_torsion is not None:
                                 opt_torsion = opt_torsion - tor_last[i].detach().cpu() #opt_tor2 = opt_tor1 - tor_pred
                             _, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.detach().cpu().numpy())
