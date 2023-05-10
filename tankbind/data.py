@@ -392,7 +392,8 @@ def get_data(data_mode, logging, addNoise=None):
         valid_index = d.query("pdb.str.endswith('_1') and group =='valid'").index.values
         # valid_index=only_native_train_index[:934]
         valid = new_dataset[valid_index]
-        test_index = d.query("pdb.str.endswith('_1') and group =='test'").index.values
+        test_index = d.query("group =='test'").index.values
+        # test_index = d.query("pdb.str.endswith('_1') and group =='test'").index.values
         test = new_dataset[test_index]
 
         all_pocket_test_fileName = f"{pre}/test_dataset/"

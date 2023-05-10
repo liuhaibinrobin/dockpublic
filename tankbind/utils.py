@@ -438,7 +438,8 @@ def evaluate_with_affinity(data_loader,
                             _, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.detach().cpu().numpy())
                             opt_rotate = matrix_to_axis_angle(opt_R).float()
                             opt_tr = opt_tr.T[0]
-                            tor_last[i] = tor_last[i] + torsion_pred_batched[i] % (math.pi * 2)#累加tor_pred
+                            if torsion_pred_batched[i] is not None:
+                                tor_last[i] = tor_last[i] + torsion_pred_batched[i] % (math.pi * 2)#累加tor_pred
                         if recycling_num == 0:
                             tr_loss_recy_0 += F.mse_loss(tr_pred[i],opt_tr)
                             rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
@@ -512,13 +513,13 @@ def evaluate_with_affinity(data_loader,
 
         epoch_tr_loss += len(rmsd_list[0]) * tr_loss.item()
         epoch_rot_loss += len(rmsd_list[0]) * rot_loss
-        epoch_tor_loss += len(rmsd_list[0]) * tor_loss.item()
+        epoch_tor_loss += len(rmsd_list[0]) * tor_loss.item() if torch.is_tensor(tor_loss) else len(rmsd_list[0]) * tor_loss
         epoch_tr_loss_recy_0 += len(rmsd_list[0]) * tr_loss_recy_0.item()
         epoch_rot_loss_recy_0 += len(rmsd_list[0]) * rot_loss_recy_0
-        epoch_tor_loss_recy_0 += len(rmsd_list[0]) * tor_loss_recy_0.item()
+        epoch_tor_loss_recy_0 += len(rmsd_list[0]) * tor_loss_recy_0.item() if torch.is_tensor(tor_loss_recy_0) else len(rmsd_list[0]) * tor_loss_recy_0
         epoch_tr_loss_recy_1 += len(rmsd_list[0]) * tr_loss_recy_1.item()
         epoch_rot_loss_recy_1 += len(rmsd_list[0]) * rot_loss_recy_1
-        epoch_tor_loss_recy_1 += len(rmsd_list[0]) * tor_loss_recy_1.item()
+        epoch_tor_loss_recy_1 += len(rmsd_list[0]) * tor_loss_recy_1.item() if torch.is_tensor(tor_loss_recy_1) else len(rmsd_list[0]) * tor_loss_recy_1
         y_list.append(y)
         y_pred_list.append(y_pred.detach())
         affinity_list.append(data.affinity)
@@ -552,7 +553,7 @@ def evaluate_with_affinity(data_loader,
         "loss": epoch_loss_rmsd / len(RMSD_pred) + epoch_loss_affinity_A / len(affinity_pred_A) + epoch_loss_affinity_B / len(affinity_pred_B) + epoch_loss_prmsd / len(PRMSD_pred), 
         "loss_affinity_A": epoch_loss_affinity_A / len(affinity_pred_A),
         "loss_affinity_B": epoch_loss_affinity_B / len(affinity_pred_B),
-        "loss_rmsd": epoch_loss_rmsd / len(RMSD_pred),
+        # "loss_rmsd": epoch_loss_rmsd / len(RMSD_pred),
         "loss_prmsd": epoch_loss_prmsd / len(PRMSD_pred),
         "loss_contact": epoch_loss_contact / len(y_pred),
         "loss_contact_5A": epoch_loss_contact_5A / (len(y_pred) - epoch_num_nan_contact_5A),
@@ -584,7 +585,7 @@ def evaluate_with_affinity(data_loader,
         "loss_affinity_B_recycling_3": epoch_affinity_B_recycling_3_loss / len(affinity_pred_B), 
 
     }
-    
+
     if info is not None:
         # print(affinity, affinity_pred)
         try:
@@ -604,7 +605,7 @@ def evaluate_with_affinity(data_loader,
         info['rot_pred_2'] = ROT_pred[:, 2].cpu().numpy()
         info['candicate_conf_pos'] = data_new_pos_batched_list
         # selected_A, selected_B = select_pocket_by_predicted_affinity(info) #真口袋用不上排序选最好的，但是后面全部口袋时要用上 TODO
-        selected_A = selected_B = info
+        selected_A = selected_B = info.sort_values(['compound_name', 'rmsd_pred']).groupby("compound_name").head(1).sort_values("index").reset_index(drop=True) ##将test集合改成最优的rmsd，查看模型上限 TODO
         result = {}
         real_affinity = 'real_affinity' if 'real_affinity' in selected_A.columns else 'affinity'
         # result['Pearson'] = selected['affinity'].corr(selected['affinity_pred'])
@@ -612,6 +613,7 @@ def evaluate_with_affinity(data_loader,
         result['Pearson_B'] = selected_B[real_affinity].corr(selected_B['affinity_pred_B'])
         result['RMSE_A'] = compute_numpy_rmse(selected_A[real_affinity], selected_A['affinity_pred_A'])
         result['RMSE_B'] = compute_numpy_rmse(selected_B[real_affinity], selected_B['affinity_pred_B'])
+        result['loss_rmsd'] = selected_A['rmsd_pred'].mean()
 
         native_y = y[real_y_mask].bool()
         native_y_pred = y_pred[real_y_mask]

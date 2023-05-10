@@ -771,8 +771,10 @@ class IaBNet_with_affinity(torch.nn.Module):
         # compound_out_new = compound_out #dim = 2*ns+3*nv
         # compound_out_new = self.lig_node_embedding_b(self.rebatch(compound_out_batched_new, compound_batch))
         tr_pred, rot_pred, tor_pred = self.torsional_block(data, compound_out_new, current_candicate_conf_pos)
-        
-        torsion_pred_batched = tor_pred.split( data["compound"].rotate_bond_num.detach().cpu().numpy().tolist())
+        if tor_pred is not None:
+            torsion_pred_batched = tor_pred.split( data["compound"].rotate_bond_num.detach().cpu().numpy().tolist())
+        else:
+            torsion_pred_batched = [None] * batch_size
         next_candicate_conf_pos, next_candicate_dis_matrix = self.modify_conformer(data, tr_pred, rot_pred, torsion_pred_batched, batch_size, current_candicate_conf_pos)
         next_candicate_conf_pos_batched = self.unbatch(next_candicate_conf_pos,data['compound'].batch)
         current_candicate_conf_pos_batched = self.unbatch(current_candicate_conf_pos,data['compound'].batch)
@@ -797,19 +799,21 @@ class IaBNet_with_affinity(torch.nn.Module):
         rot_pred = rot_pred / rot_norm * self.rot_final_layer(rot_norm)
         # rot_pred = rot_pred.sigmoid() * 2 * math.pi - math.pi
         # torsional components
-
-        tor_bonds, tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_bond_conv_graph(data,current_candicate_conf_pos)
-        tor_bond_vec = current_candicate_conf_pos[tor_bonds[1]] - current_candicate_conf_pos[tor_bonds[0]]
-        tor_bond_attr = compound_out_new[tor_bonds[0]] + compound_out_new[tor_bonds[1]]
-        tor_bonds_sh = o3.spherical_harmonics("2e", tor_bond_vec, normalize=True, normalization='component')
-        tor_edge_sh = self.final_tp_tor(tor_edge_sh, tor_bonds_sh[tor_edge_index[0]])
-        tor_edge_attr = torch.cat([tor_edge_attr, compound_out_new[tor_edge_index[1], :self.ns],  #注意node_embedding初始维度为128维，只取了前24维？TODO
-                                tor_bond_attr[tor_edge_index[0], :self.ns]], -1)
-        # tor_edge_attr = torch.cat([tor_edge_attr, compound_out_new[tor_edge_index[1], :],  #注意node_embedding初始维度为128维，只取了前24维？TODO
-                                # tor_bond_attr[tor_edge_index[0], :]], -1)
-        tor_pred = self.tor_bond_conv(compound_out_new, tor_edge_index, tor_edge_attr, tor_edge_sh,
-                                out_nodes=data['compound'].edge_mask.sum(), reduce='mean')
-        tor_pred = self.tor_final_layer(tor_pred).squeeze(1)
+        if data['compound'].edge_mask.sum() > 0:
+            tor_bonds, tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_bond_conv_graph(data,current_candicate_conf_pos)
+            tor_bond_vec = current_candicate_conf_pos[tor_bonds[1]] - current_candicate_conf_pos[tor_bonds[0]]
+            tor_bond_attr = compound_out_new[tor_bonds[0]] + compound_out_new[tor_bonds[1]]
+            tor_bonds_sh = o3.spherical_harmonics("2e", tor_bond_vec, normalize=True, normalization='component')
+            tor_edge_sh = self.final_tp_tor(tor_edge_sh, tor_bonds_sh[tor_edge_index[0]])
+            tor_edge_attr = torch.cat([tor_edge_attr, compound_out_new[tor_edge_index[1], :self.ns],  #注意node_embedding初始维度为128维，只取了前24维？TODO
+                                    tor_bond_attr[tor_edge_index[0], :self.ns]], -1)
+            # tor_edge_attr = torch.cat([tor_edge_attr, compound_out_new[tor_edge_index[1], :],  #注意node_embedding初始维度为128维，只取了前24维？TODO
+                                    # tor_bond_attr[tor_edge_index[0], :]], -1)
+            tor_pred = self.tor_bond_conv(compound_out_new, tor_edge_index, tor_edge_attr, tor_edge_sh,
+                                    out_nodes=data['compound'].edge_mask.sum(), reduce='mean')
+            tor_pred = self.tor_final_layer(tor_pred).squeeze(1)
+        else:
+            tor_pred = None
         return tr_pred, rot_pred, tor_pred
 
     def build_lig_conv_graph(self, data, current_candicate_conf_pos):   
@@ -832,7 +836,6 @@ class IaBNet_with_affinity(torch.nn.Module):
 
         edge_attr = torch.cat([edge_attr, edge_length_emb], 1)
         edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
-
         return node_attr, edge_index, edge_attr, edge_sh
 
     def build_rec_conv_graph(self, data):
@@ -888,7 +891,6 @@ class IaBNet_with_affinity(torch.nn.Module):
 
         edge_attr = self.final_edge_embedding(edge_attr)
         edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization='component')
-
         return bonds, edge_index, edge_attr, edge_sh
     #步骤四声明
     def rebatch(self, src_batch, batch):

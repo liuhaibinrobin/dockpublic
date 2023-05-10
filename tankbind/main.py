@@ -801,7 +801,8 @@ for epoch in range(200):
 
         # saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
         saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
-        info_only_compound = info.query("use_compound_com and group =='test' and c_length < 100 and native_num_contact > 5")
+        # info_only_compound = info.query("use_compound_com and group =='test' and c_length < 100 and native_num_contact > 5")
+        info_only_compound = pd.read_csv('d_group_is_test_and_reset_index.csv') ##将test集合改成最优的rmsd，查看模型上限 TODO
         metrics, info_save, opt_torsion_dict  = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
                                         device, pred_dis=pred_dis, info=info_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
         test_metrics_list.append(metrics)
