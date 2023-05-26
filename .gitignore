@@ -3,6 +3,9 @@ __pycache__
 ._.DS_Store
 ._*
 *.sdf
+*.pdb
+*.txt
+*.csv
 *.pt
 events.out.*
 examples/data

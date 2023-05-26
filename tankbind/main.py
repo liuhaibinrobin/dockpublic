@@ -290,7 +290,7 @@ global_samples_train = 0
 global_samples_val = 0
 global_samples_test = 0
 if args.use_opt_torsion_dict:
-    opt_torsion_dict = torch.load('opt_torsion_dict_maxiter50.pt')
+    opt_torsion_dict = torch.load('opt_torsion_dict_maxiter50_total.pt')
     print('use prepared optimal torsional dict(max_iter=50)')
 else:
     opt_torsion_dict = {}
@@ -388,7 +388,7 @@ for epoch in range(200):
             #tr,rot,tor loss
             tr_loss=0
             rot_loss=0
-            tor_loss=0
+            tor_loss=torch.tensor(0, dtype=torch.float32).to(y_pred.device)
             tr_loss_recy_0, rot_loss_recy_0, tor_loss_recy_0 = 0, 0, 0
             tr_loss_recy_1, rot_loss_recy_1, tor_loss_recy_1 = 0, 0, 0
             tmp_cnt=0 
@@ -401,8 +401,12 @@ for epoch in range(200):
                 if recycling_num == len(pred_result_list) - 1:
                     # tr_pred.retain_grad()
                     # rot_pred.retain_grad()
-                    for tmp_torsion_pred in torsion_pred_batched:
-                        tmp_torsion_pred.retain_grad()
+                    for index, tmp_torsion_pred in enumerate(torsion_pred_batched):
+                        if tmp_torsion_pred.size() == torch.Size([0]):
+                            torsion_pred_batched = list(torsion_pred_batched)
+                            torsion_pred_batched[index] = None
+                        else:
+                            tmp_torsion_pred.retain_grad()
                 compound_edge_index_batched = data['compound', 'compound'].edge_index.T.split(degree(data.compound_compound_edge_attr_batch, dtype=torch.long).tolist())
                 compound_rotate_edge_mask_batched = data['compound'].edge_mask.split(degree(data.compound_compound_edge_attr_batch, dtype=torch.long).tolist())
                 ligand_atom_sizes= degree(data['compound'].batch, dtype=torch.long).tolist()
@@ -417,22 +421,22 @@ for epoch in range(200):
                         if data.pdb[i][:4] not in opt_torsion_dict.keys():
                             ttt = time.time()
                             opt_tr,opt_rotate, opt_torsion, opt_rmsd=OptimizeConformer_obj.run(maxiter=50)
-                            opt_torsion_dict[data.pdb[i][:4]] = opt_torsion.detach().cpu()
-                            tor_last[i] = torsion_pred_batched[i]
+                            opt_torsion_dict[data.pdb[i][:4]] = opt_torsion.detach().cpu() if opt_torsion is not None else None
+                            tor_last[i] = torsion_pred_batched[i] if torsion_pred_batched[i] is not None else torch.tensor([0]).to(y_pred.device)
                             print(tmp_cnt, opt_rmsd,time.time()-ttt)
                         else:
                             opt_torsion = opt_torsion_dict[data.pdb[i][:4]]
                             opt_rmsd, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.numpy())
                             opt_rotate = matrix_to_axis_angle(opt_R).float()
                             opt_tr = opt_tr.T[0]
-                            tor_last[i] = torsion_pred_batched[i]
+                            tor_last[i] = torsion_pred_batched[i] if torsion_pred_batched[i] is not None else torch.tensor([0]).to(y_pred.device)
                     else:
                         opt_torsion = opt_torsion_dict[data.pdb[i][:4]]
-                        opt_torsion = opt_torsion - tor_last[i].detach().cpu() #opt_tor2 = opt_tor1 - tor_pred
+                        opt_torsion = opt_torsion - tor_last[i].detach().cpu() if torsion_pred_batched[i] is not None else None #opt_tor2 = opt_tor1 - tor_pred
                         _, opt_R, opt_tr = OptimizeConformer_obj.apply_torsion(opt_torsion if opt_torsion is None else  opt_torsion.numpy())
                         opt_rotate = matrix_to_axis_angle(opt_R).float()
                         opt_tr = opt_tr.T[0]
-                        tor_last[i] = (tor_last[i] + torsion_pred_batched[i]) % (math.pi * 2)#累加tor_pred，是否余2pi?TODO
+                        tor_last[i] = (tor_last[i] + torsion_pred_batched[i]) % (math.pi * 2) if torsion_pred_batched[i] is not None else torch.tensor([0]).to(y_pred.device)
                     if recycling_num == 0:
                         tr_loss_recy_0 += F.mse_loss(tr_pred[i],opt_tr).item()
                         rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
