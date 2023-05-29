@@ -205,7 +205,7 @@ train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info
 logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
 
 from sx_sampler import DistributedDynamicBatchSampler
-with open(f"dyn_sample_info/dyn_sample_info_true_5_conf_0_{args.max_node}.pkl", "rb") as f: #修改data时一定要重新生成dyn_sample_info！！TODO
+with open(f"dyn_sample_info/dyn_sample_info_true_5_conf_20230529_0_{args.max_node}.pkl", "rb") as f: #修改data时一定要重新生成dyn_sample_info！！TODO
     dyn_sample_info = pickle.load(f)
 
 num_workers = 10

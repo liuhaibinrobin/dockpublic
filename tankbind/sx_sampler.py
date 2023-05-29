@@ -201,7 +201,7 @@ class DistributedDynamicBatchSampler(Sampler[T_co]):
                         dyn_sample_info.append(data.num_edges)
                 except:
                     dyn_sample_info.append(-1)
-            with open(f"dyn_sample_info/dyn_sample_info_true_5_conf_{self.rank}_{self.dyn_max_num}.pkl", "wb") as f:
+            with open(f"dyn_sample_info/dyn_sample_info_true_5_conf_20230529_{self.rank}_{self.dyn_max_num}.pkl", "wb") as f:
                 pickle.dump(dyn_sample_info, f)
         
         self.dyn_sample_info = dyn_sample_info

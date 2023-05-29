@@ -977,7 +977,10 @@ class IaBNet_with_affinity(torch.nn.Module):
         tr_update_batched = tr_update.repeat(1, max(degree(data['compound'].batch, dtype=torch.long).tolist())).view(batch_size, -1, 3)
         for i in range(batch_size):
             candicate_conf_pos_batched[i, :candicate_conf_pos_sizes[i], :] = data_pos_batched[i]
-        rot_mat_T = rot_mat.permute(0,2,1)
+        if batch_size > 1:
+            rot_mat_T = rot_mat.permute(0,2,1)
+        else:
+            rot_mat_T = rot_mat.T.unsqueeze(0)
         candicate_conf_pos_new_batched = torch.bmm((candicate_conf_pos_batched - lig_center_batched), rot_mat_T) + tr_update_batched + lig_center_batched
         candicate_conf_pos_new = self.rebatch(candicate_conf_pos_new_batched, data['compound'].batch)
 

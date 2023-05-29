@@ -380,7 +380,7 @@ def get_data(data_mode, logging, addNoise=None):
         l_rotate_30 = torch.load('l_rotate_30_pdb.pt')
         l_error_mask_rotate = ['4q3r', '4nw2', '4x6h', '2w78', '4u6x', '4po7']
         #torsional 旋转代码加入 mask_rotate assert,检查是否旋转轴同时是True或False （错误样本：4q3r, 4nw2, 4x6h, 2w78, 4u6x, 4po7）
-        only_native_train_index = d.query(f"group =='train' and protein_name not in {l_error_mask_rotate}").index.values
+        only_native_train_index = d.query(f"group =='train' and protein_name not in {l_rotate_30} and protein_name not in {l_error_mask_rotate}").index.values
         # only_native_train_index = d.query(
         #    f"group =='train' and protein_name not in {l_rotate_0} and protein_name not in {l_rotate_30} and protein_name != '4q3r'").index.values  
         # only_native_train_index = d.query(
