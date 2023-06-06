@@ -205,7 +205,7 @@ train, train_after_warm_up, valid, test, all_pocket_test, all_pocket_valid, info
 logging.info(f"data point train: {len(train)}, train_after_warm_up: {len(train_after_warm_up)}, valid: {len(valid)}, test: {len(test)}")
 
 from sx_sampler import DistributedDynamicBatchSampler
-with open(f"dyn_sample_info/dyn_sample_info_true_5_conf_20230529_0_{args.max_node}.pkl", "rb") as f: #修改data时一定要重新生成dyn_sample_info！！TODO
+with open(f"dyn_sample_info/dyn_sample_info_true_5_conf_0_{args.max_node}.pkl", "rb") as f: #修改data时一定要重新生成dyn_sample_info！！TODO
     dyn_sample_info = pickle.load(f)
 
 num_workers = 10
@@ -402,7 +402,7 @@ for epoch in range(200):
                     # tr_pred.retain_grad()
                     # rot_pred.retain_grad()
                     for index, tmp_torsion_pred in enumerate(torsion_pred_batched):
-                        if tmp_torsion_pred.size() == torch.Size([0]):
+                        if tmp_torsion_pred is None or tmp_torsion_pred.size() == torch.Size([0]):
                             torsion_pred_batched = list(torsion_pred_batched)
                             torsion_pred_batched[index] = None
                         else:
@@ -438,24 +438,24 @@ for epoch in range(200):
                         opt_tr = opt_tr.T[0]
                         tor_last[i] = (tor_last[i] + torsion_pred_batched[i]) % (math.pi * 2) if torsion_pred_batched[i] is not None else torch.tensor([0]).to(y_pred.device)
                     if recycling_num == 0:
-                        tr_loss_recy_0 += F.mse_loss(tr_pred[i],opt_tr).item()
+                        tr_loss_recy_0 += torch.sqrt(F.mse_loss(tr_pred[i],opt_tr).item())
                         rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
-                        rot_loss_recy_0 += F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate).item()
+                        rot_loss_recy_0 += torch.sqrt(F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate).item())
                         if opt_torsion is not None:
-                            tor_loss_recy_0 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device)).item()
+                            tor_loss_recy_0 += torch.sqrt(F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device)).item())
                     elif recycling_num == 1:
-                        tr_loss_recy_1 += F.mse_loss(tr_pred[i],opt_tr).item()
+                        tr_loss_recy_1 += torch.sqrt(F.mse_loss(tr_pred[i],opt_tr).item())
                         rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
-                        rot_loss_recy_1 += F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate).item()
+                        rot_loss_recy_1 += torch.sqrt(F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate).item())
                         if opt_torsion is not None:
-                            tor_loss_recy_1 += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device)).item()
+                            tor_loss_recy_1 += torch.sqrt(F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device)).item())
                     if recycling_num == len(pred_result_list) - 1:
                         if opt_tr is not None:
-                            tr_loss += F.mse_loss(tr_pred[i],opt_tr)
+                            tr_loss += torch.sqrt(F.mse_loss(tr_pred[i],opt_tr))
                         rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
-                        rot_loss += F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate)
+                        rot_loss += torch.sqrt(F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate))
                         if opt_torsion is not None:
-                            tor_loss += F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))
+                            tor_loss += torch.sqrt(F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device)))
                     tmp_cnt += 1
 
             tr_loss = tr_loss/len(data_groundtruth_pos_batched)
@@ -805,8 +805,8 @@ for epoch in range(200):
 
         # saveFileName = f"{pre}/results/single_epoch_{epoch}.pt"
         saveFileName = f"{pre}/results/test_epoch_{epoch}.pt"
-        # info_only_compound = info.query("use_compound_com and group =='test' and c_length < 100 and native_num_contact > 5")
-        info_only_compound = pd.read_csv('d_group_is_test_and_reset_index.csv') ##将test集合改成最优的rmsd，查看模型上限 TODO
+        info_only_compound = info.query("use_compound_com and group =='test' and c_length < 100 and native_num_contact > 5")
+        # info_only_compound = pd.read_csv('d_group_is_test_and_reset_index.csv') ##将test集合改成最优的rmsd，查看模型上限 TODO
         metrics, info_save, opt_torsion_dict  = evaluate_with_affinity(test_loader, model, contact_criterion, affinity_criterion, args.relative_k,
                                         device, pred_dis=pred_dis, info=info_only_compound, saveFileName=saveFileName, opt_torsion_dict=opt_torsion_dict)
         test_metrics_list.append(metrics)
