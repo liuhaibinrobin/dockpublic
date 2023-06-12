@@ -438,17 +438,17 @@ for epoch in range(200):
                         opt_tr = opt_tr.T[0]
                         tor_last[i] = (tor_last[i] + torsion_pred_batched[i]) % (math.pi * 2) if torsion_pred_batched[i] is not None else torch.tensor([0]).to(y_pred.device)
                     if recycling_num == 0:
-                        tr_loss_recy_0 += torch.sqrt(F.mse_loss(tr_pred[i],opt_tr).item())
+                        tr_loss_recy_0 += torch.sqrt(F.mse_loss(tr_pred[i],opt_tr)).item()
                         rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
-                        rot_loss_recy_0 += torch.sqrt(F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate).item())
+                        rot_loss_recy_0 += torch.sqrt(F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate)).item()
                         if opt_torsion is not None:
-                            tor_loss_recy_0 += torch.sqrt(F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device)).item())
+                            tor_loss_recy_0 += torch.sqrt(F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))).item()
                     elif recycling_num == 1:
-                        tr_loss_recy_1 += torch.sqrt(F.mse_loss(tr_pred[i],opt_tr).item())
+                        tr_loss_recy_1 += torch.sqrt(F.mse_loss(tr_pred[i],opt_tr)).item()
                         rot_pred_norm = torch.norm(rot_pred[i], p=2, dim=-1, keepdim=True)
-                        rot_loss_recy_1 += torch.sqrt(F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate).item())
+                        rot_loss_recy_1 += torch.sqrt(F.mse_loss(rot_pred[i]/rot_pred_norm * (rot_pred_norm % (math.pi * 2)),opt_rotate)).item()
                         if opt_torsion is not None:
-                            tor_loss_recy_1 += torch.sqrt(F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device)).item())
+                            tor_loss_recy_1 += torch.sqrt(F.mse_loss(torsion_pred_batched[i], opt_torsion.to(torsion_pred_batched[i].device))).item()
                     if recycling_num == len(pred_result_list) - 1:
                         if opt_tr is not None:
                             tr_loss += torch.sqrt(F.mse_loss(tr_pred[i],opt_tr))
@@ -663,7 +663,7 @@ for epoch in range(200):
     RMSD_pred = torch.cat(rmsd_pred_list)
     PRMSD_pred = torch.cat(prmsd_pred_list)
     metrics = {
-        "loss": epoch_loss_rmsd / len(RMSD_pred) + epoch_loss_affinity_A / len(affinity_pred_A) + epoch_loss_affinity_B / len(affinity_pred_B) + epoch_loss_prmsd / len(PRMSD_pred), 
+        "loss": epoch_loss_rmsd / len(RMSD_pred) + epoch_loss_affinity_A / len(affinity_pred_A) + epoch_loss_affinity_B / len(affinity_pred_B), #+ epoch_loss_prmsd / len(PRMSD_pred), 
         "loss_affinity_A": epoch_loss_affinity_A / len(affinity_pred_A),
         "loss_affinity_B": epoch_loss_affinity_B / len(affinity_pred_B),
         "loss_rmsd": epoch_loss_rmsd / len(RMSD_pred),
