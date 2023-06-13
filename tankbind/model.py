@@ -983,9 +983,13 @@ class IaBNet_with_affinity(torch.nn.Module):
                                                             data['compound', 'compound'].edge_index.T[data['compound'].edge_mask],
                                                             mask_rotate_batch,
                                                             torsion_updates).to(candicate_conf_pos_roto.device)
-            R, t = rigid_transform_Kabsch_3D_torch(flexible_new_pos.T, candicate_conf_pos_roto.T)
-            aligned_flexible_pos = flexible_new_pos @ R.T + t.T
-            candicate_conf_pos_new = aligned_flexible_pos
+            flexible_new_pos_batch = self.unbatch(flexible_new_pos, data['compound'].batch)
+            candicate_conf_pos_roto_batch = self.unbatch(candicate_conf_pos_roto, data['compound'].batch)
+            _aligned_flexible_pos = []
+            for i in range(len(flexible_new_pos_batch)):
+                _R, _t = rigid_transform_Kabsch_3D_torch(flexible_new_pos_batch[i].T, candicate_conf_pos_roto_batch[i].T)
+                _aligned_flexible_pos.append(flexible_new_pos_batch[i] @ _R.T + _t.T)
+            candicate_conf_pos_new = torch.concat(_aligned_flexible_pos)
         else:
             candicate_conf_pos_new = candicate_conf_pos_roto
         #更新candicate_dis_matrix
