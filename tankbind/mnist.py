@@ -14,9 +14,13 @@ transform = transforms.Compose([
 train_dataset = datasets.MNIST('data', train=True, download=True, transform=transform)
 test_dataset = datasets.MNIST('data', train=False, download=True, transform=transform)
 
+# Use only the first sample of the dataset
+train_dataset = torch.utils.data.Subset(train_dataset, [0])
+test_dataset = torch.utils.data.Subset(test_dataset, [0])
+
 # Define the data loaders
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=64, shuffle=True)
-test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=64, shuffle=False)
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=1, shuffle=False)
+test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False)
 
 # Define the model architecture
 class Net(nn.Module):
