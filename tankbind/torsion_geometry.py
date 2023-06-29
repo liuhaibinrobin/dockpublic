@@ -249,23 +249,23 @@ def rigid_transform_Kabsch_3D_torch(A, B):
     t = -R @ centroid_A + centroid_B
     return R, t
 
-def modify_conformer_torsion_angles(pos, rotate_edge_index, mask_rotate, torsion_updates):
-    """
+# def modify_conformer_torsion_angles(pos, rotate_edge_index, mask_rotate, torsion_updates):
+#     """
 
-    :param pos: compound 坐标 : atom_num*3(float)
-    :param rotate_edge_index: 柔性键 atom_pair index: rotate_bond_num*2(int)
-    :param mask_rotate:  每个柔性键对应的需要旋转的batch中所有分子所有原子的mask: rotate_bond_num*batch_atom_num(bool)
-    :param torsion_updates:每个柔性键扭转角  ：rotate_bond_num（float）
-    :return:
-    """
-    #TODO:目前都是numpy 版本的，不需要梯度传播
-    device=pos.device
-    new_pos=modify_conformer_torsion_angles_np(pos.detach().cpu().numpy(),
-                                       rotate_edge_index.detach().cpu().numpy(),
-                                       mask_rotate,
-                                       torsion_updates.detach().cpu().numpy())
-    new_pos=torch.from_numpy(new_pos).to(device)
-    return new_pos
+#     :param pos: compound 坐标 : atom_num*3(float)
+#     :param rotate_edge_index: 柔性键 atom_pair index: rotate_bond_num*2(int)
+#     :param mask_rotate:  每个柔性键对应的需要旋转的batch中所有分子所有原子的mask: rotate_bond_num*batch_atom_num(bool)
+#     :param torsion_updates:每个柔性键扭转角  ：rotate_bond_num（float）
+#     :return:
+#     """
+#     #TODO:目前都是numpy 版本的，不需要梯度传播
+#     device=pos.device
+#     new_pos=modify_conformer_torsion_angles_np(pos.detach().cpu().numpy(),
+#                                        rotate_edge_index.detach().cpu().numpy(),
+#                                        mask_rotate,
+#                                        torsion_updates.detach().cpu().numpy())
+#     new_pos=torch.from_numpy(new_pos).to(device)
+#     return new_pos
 
 def modify_conformer_torsion_angles_np(pos, rotate_edge_index, mask_rotate, torsion_updates):
     """
@@ -305,5 +305,26 @@ def modify_conformer_torsion_angles_np(pos, rotate_edge_index, mask_rotate, tors
 
         pos[mask_rotate[idx_edge]] = (pos[mask_rotate[idx_edge]] - pos[v]) @ rot_mat.T + pos[v]
 
+
+    return pos
+
+def modify_conformer_torsion_angles(pos, edge_index, mask_rotate, torsion_updates):
+    pos = pos.clone()
+
+    for idx_edge, e in enumerate(edge_index):
+        if torsion_updates[idx_edge] == 0:
+            continue
+        u, v = e[0], e[1]
+
+        # check if need to reverse the edge, v should be connected to the part that gets rotated
+        assert not mask_rotate[idx_edge, u]
+        assert mask_rotate[idx_edge, v]
+
+        rot_vec = pos[u] - pos[v]  # convention: positive rotation if pointing inwards
+        rot_vec = rot_vec * torsion_updates[idx_edge] / torch.norm(rot_vec) # idx_edge!
+
+        rot_mat = axis_angle_to_matrix(rot_vec)
+
+        pos[mask_rotate[idx_edge]] = (pos[mask_rotate[idx_edge]] - pos[v]) @ rot_mat.T + pos[v]
 
     return pos

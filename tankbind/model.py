@@ -919,12 +919,11 @@ class IaBNet_with_affinity(torch.nn.Module):
     #     for i in range(batch_size):
 
     #         if torsion_pred_batched[i] is not None:
-    #             with torch.no_grad():
-    #                 rotate_edge_index=compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]]-sum(ligand_atom_sizes[:i]) #把edge_id 从batch计数转换为样本内部计数
-    #                 flexible_new_pos = modify_conformer_torsion_angles(data_pos_batched[i],
-    #                                                                 rotate_edge_index,
-    #                                                                 data['compound'].mask_rotate[i],
-    #                                                                 torsion_pred_batched[i])
+    #             rotate_edge_index=compound_edge_index_batched[i][compound_rotate_edge_mask_batched[i]]-sum(ligand_atom_sizes[:i]) #把edge_id 从batch计数转换为样本内部计数
+    #             flexible_new_pos = modify_conformer_torsion_angles(data_pos_batched[i],
+    #                                                             rotate_edge_index,
+    #                                                             data['compound'].mask_rotate[i],
+    #                                                             torsion_pred_batched[i])
     #             # TODO:这里先删掉原版diffdock代码中的align
     #             # R, t = rigid_transform_Kabsch_3D_torch(flexible_new_pos.T, rigid_new_pos.T)
     #             # aligned_flexible_pos = flexible_new_pos @ R.T + t.T
