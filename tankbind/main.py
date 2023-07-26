@@ -324,7 +324,6 @@ for epoch in range(200):
     epoch_rmsd_recycling_4_loss=0
     epoch_rmsd_recycling_19_loss=0
     epoch_rmsd_recycling_39_loss=0
-    epoch_rmsd_recycling_1_2_diff_loss=0
 
     epoch_tr_loss =0
     epoch_rot_loss =0
@@ -342,7 +341,9 @@ for epoch in range(200):
     for data in data_it:
         data = data.to(device)
         optimizer.zero_grad()
-        affinity_pred_A, affinity_pred_B_list, prmsd_list,pred_result_list= model(data)
+        recy_nums = random.randint(1, args.recycling_num)
+        print(f'epoch {epoch} using recycling nums {recy_nums}')
+        affinity_pred_A, affinity_pred_B_list, prmsd_list,pred_result_list= model(data, recy_nums=recy_nums)
         sample_num=len(data.pdb)
         data_groundtruth_pos_batched = data['compound'].pos.split(degree(data['compound'].batch, dtype=torch.long).tolist())
 
@@ -484,14 +485,6 @@ for epoch in range(200):
             candicate_conf_pos_recy_last = torch.concat([pred_result_list[-1][3][i].split(_size[i])[0] for i in range(len(_size))])
             rmsd_loss_recy_last = torch.sqrt(F.mse_loss(candicate_conf_pos_recy_last, data['compound'].pos, reduction="sum") / len(candicate_conf_pos_recy_last))
 
-            next_candicate_conf_pos_batched_recy0=pred_result_list[0][3]
-            next_candicate_conf_pos_batched_recy1=pred_result_list[1][3]
-            rmsd_recycle_diff_list=[]
-            for i in range(len(data_groundtruth_pos_batched)):
-                tmp_rmsd=utils.RMSD(next_candicate_conf_pos_batched_recy0[i], next_candicate_conf_pos_batched_recy1[i])
-                rmsd_recycle_diff_list.append(tmp_rmsd)
-            RMSD_recycle_diff_loss = torch.tensor(rmsd_recycle_diff_list, dtype=torch.float).to(y_pred.device)[data.is_equivalent_native_pocket].mean()
-
             candicate_conf_pos_batched = pred_result_list[0][5]  # 初始坐标
             rmsd_recycling_0_loss=0
             for i in range(len(data_groundtruth_pos_batched)):
@@ -618,7 +611,6 @@ for epoch in range(200):
         epoch_rmsd_recycling_4_loss +=len(rmsd_list[0]) * rmsd_recycling_4_loss.item()
         epoch_rmsd_recycling_19_loss +=len(rmsd_list[0]) * rmsd_recycling_19_loss.item()
         epoch_rmsd_recycling_39_loss +=len(rmsd_list[0]) * rmsd_recycling_39_loss.item()
-        epoch_rmsd_recycling_1_2_diff_loss += len(rmsd_list[0]) * RMSD_recycle_diff_loss.item()
 
         # print(f"{loss.item():.3}")
         y_list.append(y)
@@ -701,7 +693,6 @@ for epoch in range(200):
         writer.add_scalar('epochLoss.rmsd_recycling_4/train', epoch_rmsd_recycling_4_loss / len(RMSD_pred), epoch)
         writer.add_scalar('epochLoss.rmsd_recycling_19/train', epoch_rmsd_recycling_19_loss / len(RMSD_pred), epoch)
         writer.add_scalar('epochLoss.rmsd_recycling_39/train', epoch_rmsd_recycling_39_loss / len(RMSD_pred), epoch)
-        writer.add_scalar('epochLoss.epoch_rmsd_recycling_1_2_diff_loss/train', epoch_rmsd_recycling_1_2_diff_loss / len(RMSD_pred), epoch)
 
         writer.add_scalar('epochLoss.tr/train', epoch_tr_loss / len(RMSD_pred), epoch)
         writer.add_scalar('epochLoss.rot/train', epoch_rot_loss / len(RMSD_pred), epoch)
@@ -782,9 +773,12 @@ for epoch in range(200):
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss/validation', metrics["epoch_rmsd_recycling_2_loss"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_3_loss/validation', metrics["epoch_rmsd_recycling_3_loss"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_4_loss/validation', metrics["epoch_rmsd_recycling_4_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_5_loss/validation', metrics["epoch_rmsd_recycling_5_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_6_loss/validation', metrics["epoch_rmsd_recycling_6_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_7_loss/validation', metrics["epoch_rmsd_recycling_7_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_8_loss/validation', metrics["epoch_rmsd_recycling_8_loss"],epoch)
         # writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/validation', metrics["epoch_rmsd_recycling_19_loss"],epoch)
         # writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/validation', metrics["epoch_rmsd_recycling_39_loss"],epoch)
-        # writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_2_diff_loss/validation', metrics["epoch_rmsd_recycling_1_2_diff_loss"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss_2A_ratio/validation', metrics["epoch_rmsd_recycling_2_loss_2A_ratio"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss_5A_ratio/validation', metrics["epoch_rmsd_recycling_2_loss_5A_ratio"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_25/validation', metrics["epoch_rmsd_recycling_2_25"],epoch)
@@ -846,9 +840,12 @@ for epoch in range(200):
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss/test', metrics["epoch_rmsd_recycling_2_loss"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_3_loss/test', metrics["epoch_rmsd_recycling_3_loss"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_4_loss/test', metrics["epoch_rmsd_recycling_4_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_5_loss/test', metrics["epoch_rmsd_recycling_5_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_6_loss/test', metrics["epoch_rmsd_recycling_6_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_7_loss/test', metrics["epoch_rmsd_recycling_7_loss"],epoch)
+        writer.add_scalar('epochMetric.epoch_rmsd_recycling_8_loss/test', metrics["epoch_rmsd_recycling_8_loss"],epoch)
         # writer.add_scalar('epochMetric.epoch_rmsd_recycling_19_loss/test', metrics["epoch_rmsd_recycling_19_loss"],epoch)
         # writer.add_scalar('epochMetric.epoch_rmsd_recycling_39_loss/test', metrics["epoch_rmsd_recycling_39_loss"],epoch)
-        # writer.add_scalar('epochMetric.epoch_rmsd_recycling_1_2_diff_loss/test', metrics["epoch_rmsd_recycling_1_2_diff_loss"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss_2A_ratio/test', metrics["epoch_rmsd_recycling_2_loss_2A_ratio"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_loss_5A_ratio/test', metrics["epoch_rmsd_recycling_2_loss_5A_ratio"],epoch)
         writer.add_scalar('epochMetric.epoch_rmsd_recycling_2_25/test', metrics["epoch_rmsd_recycling_2_25"],epoch)

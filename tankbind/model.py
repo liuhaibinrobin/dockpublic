@@ -589,7 +589,7 @@ class IaBNet_with_affinity(torch.nn.Module):
         self.bias = torch.nn.Parameter(torch.ones(1))
         self.leaky = torch.nn.LeakyReLU()
         self.dropout = nn.Dropout2d(p=0.25)
-    def forward(self, data):
+    def forward(self, data, recy_nums=None):
         ttt = time.time()
         if self.protein_embed_mode == 0:
             x = data['protein'].x.float()
@@ -694,8 +694,10 @@ class IaBNet_with_affinity(torch.nn.Module):
         current_candicate_conf_pos=data.candicate_conf_pos
         # ttt1 = time.time()
         # print('before recycling', ttt1-ttt)
-        for recycling_num in range(self.recycling_num):
-            if recycling_num == self.recycling_num - 1:
+        if not recy_nums:
+            recy_nums = self.recycling_num
+        for recycling_num in range(recy_nums):
+            if recycling_num == recy_nums - 1:
                 output = self.recycling(data, current_candicate_conf_pos, compound_out_batched, compound_batch, protein_out_batched, protein_batch, z)
                 tr_pred, rot_pred, torsion_pred_batched, affinity_pred_B, next_candicate_conf_pos_batched, next_candicate_dis_matrix,current_candicate_conf_pos_batched,next_candicate_conf_pos = output
                 prmsd_pred = torch.zeros(affinity_pred_A.shape).to(affinity_pred_A.device)

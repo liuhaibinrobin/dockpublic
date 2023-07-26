@@ -312,9 +312,13 @@ def evaluate_with_affinity(data_loader,
     epoch_rmsd_recycling_2_loss=0
     epoch_rmsd_recycling_3_loss=0
     epoch_rmsd_recycling_4_loss=0
+    epoch_rmsd_recycling_5_loss=0
+    epoch_rmsd_recycling_6_loss=0
+    epoch_rmsd_recycling_7_loss=0
+    epoch_rmsd_recycling_8_loss=0
     epoch_rmsd_recycling_19_loss=0
     epoch_rmsd_recycling_39_loss=0
-    epoch_rmsd_recycling_1_2_diff_loss=0
+
 
     epoch_tr_loss =0
     epoch_rot_loss =0
@@ -359,13 +363,6 @@ def evaluate_with_affinity(data_loader,
                 tmp_rmsd = RMSD(next_candicate_conf_pos_batched[i], data_groundtruth_pos_batched[i])
                 tmp_list.append(tmp_rmsd)
             rmsd_list.append(torch.tensor(tmp_list, dtype=torch.float).to(y_pred.device))
-        next_candicate_conf_pos_batched_recy0=pred_result_list[0][3]
-        next_candicate_conf_pos_batched_recy1=pred_result_list[1][3]
-        rmsd_recycle_diff_list=[]
-        for i in range(len(data_groundtruth_pos_batched)):
-            tmp_rmsd=RMSD(next_candicate_conf_pos_batched_recy0[i], next_candicate_conf_pos_batched_recy1[i])
-            rmsd_recycle_diff_list.append(tmp_rmsd)
-        RMSD_recycle_diff_loss = torch.tensor(rmsd_recycle_diff_list, dtype=torch.float).to(y_pred.device)[data.is_equivalent_native_pocket].mean()    
 
         candicate_conf_pos_batched = pred_result_list[0][5]  # 初始坐标
         rmsd_recycling_0_loss = 0
@@ -378,6 +375,10 @@ def evaluate_with_affinity(data_loader,
         rmsd_recycling_2_loss = torch.mean(rmsd_list[1]) if len(rmsd_list) >= 2 else torch.tensor([0]).to(y_pred.device)
         rmsd_recycling_3_loss = torch.mean(rmsd_list[2]) if len(rmsd_list) >= 3 else torch.tensor([0]).to(y_pred.device)
         rmsd_recycling_4_loss = torch.mean(rmsd_list[3]) if len(rmsd_list) >= 4 else torch.tensor([0]).to(y_pred.device)
+        rmsd_recycling_5_loss = torch.mean(rmsd_list[4]) if len(rmsd_list) >= 5 else torch.tensor([0]).to(y_pred.device)
+        rmsd_recycling_6_loss = torch.mean(rmsd_list[5]) if len(rmsd_list) >= 6 else torch.tensor([0]).to(y_pred.device)
+        rmsd_recycling_7_loss = torch.mean(rmsd_list[6]) if len(rmsd_list) >= 7 else torch.tensor([0]).to(y_pred.device)
+        rmsd_recycling_8_loss = torch.mean(rmsd_list[7]) if len(rmsd_list) >= 8 else torch.tensor([0]).to(y_pred.device)
         rmsd_recycling_19_loss = torch.mean(rmsd_list[18]) if len(rmsd_list) >= 19 else torch.tensor([0]).to(y_pred.device)
         rmsd_recycling_39_loss = torch.mean(rmsd_list[38]) if len(rmsd_list) >= 39 else torch.tensor([0]).to(y_pred.device)
 
@@ -507,9 +508,12 @@ def evaluate_with_affinity(data_loader,
         epoch_rmsd_recycling_2_loss += len(rmsd_list[0]) * rmsd_recycling_2_loss.item()
         epoch_rmsd_recycling_3_loss += len(rmsd_list[0]) * rmsd_recycling_3_loss.item()
         epoch_rmsd_recycling_4_loss += len(rmsd_list[0]) * rmsd_recycling_4_loss.item()
+        epoch_rmsd_recycling_5_loss += len(rmsd_list[0]) * rmsd_recycling_5_loss.item()
+        epoch_rmsd_recycling_6_loss += len(rmsd_list[0]) * rmsd_recycling_6_loss.item()
+        epoch_rmsd_recycling_7_loss += len(rmsd_list[0]) * rmsd_recycling_7_loss.item()
+        epoch_rmsd_recycling_8_loss += len(rmsd_list[0]) * rmsd_recycling_8_loss.item()
         epoch_rmsd_recycling_19_loss += len(rmsd_list[0]) * rmsd_recycling_19_loss.item()
         epoch_rmsd_recycling_39_loss += len(rmsd_list[0]) * rmsd_recycling_39_loss.item()
-        epoch_rmsd_recycling_1_2_diff_loss += len(rmsd_list[0]) * RMSD_recycle_diff_loss.item()
 
         epoch_tr_loss += len(rmsd_list[0]) * tr_loss.item()
         epoch_rot_loss += len(rmsd_list[0]) * rot_loss
@@ -568,9 +572,12 @@ def evaluate_with_affinity(data_loader,
         "epoch_rmsd_recycling_2_75": RMSD_pred.quantile(0.75),
         "epoch_rmsd_recycling_3_loss": epoch_rmsd_recycling_3_loss / len(RMSD_pred),
         "epoch_rmsd_recycling_4_loss": epoch_rmsd_recycling_4_loss / len(RMSD_pred),
+        "epoch_rmsd_recycling_5_loss": epoch_rmsd_recycling_5_loss / len(RMSD_pred),
+        "epoch_rmsd_recycling_6_loss": epoch_rmsd_recycling_6_loss / len(RMSD_pred),
+        "epoch_rmsd_recycling_7_loss": epoch_rmsd_recycling_7_loss / len(RMSD_pred),
+        "epoch_rmsd_recycling_8_loss": epoch_rmsd_recycling_8_loss / len(RMSD_pred),
         "epoch_rmsd_recycling_19_loss": epoch_rmsd_recycling_19_loss / len(RMSD_pred),
         "epoch_rmsd_recycling_39_loss": epoch_rmsd_recycling_39_loss / len(RMSD_pred),
-        "epoch_rmsd_recycling_1_2_diff_loss": epoch_rmsd_recycling_1_2_diff_loss / len(RMSD_pred),
         "epoch_tr_loss":epoch_tr_loss / len(RMSD_pred),
         "epoch_rot_loss": epoch_rot_loss / len(RMSD_pred),
         "epoch_tor_loss": epoch_tor_loss / len(RMSD_pred),
