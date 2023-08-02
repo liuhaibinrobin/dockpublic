@@ -103,7 +103,7 @@ parser.add_argument("--pred_dis", type=int, default=1,
 parser.add_argument("--posweight", type=int, default=8,
                     help="pos weight in pair contact loss, not useful if args.pred_dis=1")
 
-parser.add_argument("--relative_k", type=float, default=0.01,
+parser.add_argument("--relative_k", type=float, default=0.1,
                     help="adjust the strength of the affinity loss head relative to the pair interaction loss.")
 parser.add_argument("-r", "--relative_k_mode", type=int, default=0,
                     help="define how the relative_k changes over epochs")
@@ -342,7 +342,7 @@ for epoch in range(200):
         data = data.to(device)
         optimizer.zero_grad()
         recy_nums = random.randint(1, args.recycling_num)
-        print(f'epoch {epoch} using recycling nums {recy_nums}')
+        # print(f'epoch {epoch} using recycling nums {recy_nums}')
         affinity_pred_A, affinity_pred_B_list, prmsd_list,pred_result_list= model(data, recy_nums=recy_nums)
         sample_num=len(data.pdb)
         data_groundtruth_pos_batched = data['compound'].pos.split(degree(data['compound'].batch, dtype=torch.long).tolist())
@@ -566,7 +566,7 @@ for epoch in range(200):
         #total loss
         if args.use_contact_loss == 0:
             # loss = tor_loss + affinity_loss_B + contact_loss #TODO:debug阶段
-            loss = rmsd_loss_recy_last + affinity_loss_A + affinity_loss_B + torch.clamp(tor_loss, 0, 1e-7)
+            loss = rmsd_loss_recy_last + affinity_loss_B + torch.clamp(tor_loss, 0, 1e-7)
             #loss = tor_loss #TODO:debug阶段
             #loss = prmsd_loss.double() + rmsd_loss.double() + affinity_loss_A + affinity_loss_B
         else:
