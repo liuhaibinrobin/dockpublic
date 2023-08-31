@@ -33,7 +33,7 @@ import utils
 from torch.multiprocessing import Process
 import torch.distributed as dist
 import pickle
-
+# from torch.profiler import profile, record_function, ProfilerActivity
 
 def init_distributed_mode(args):
     '''initilize DDP
@@ -52,7 +52,12 @@ def init_distributed_mode(args):
     dist.init_process_group(
         backend=args.dist_backend, init_method=args.dist_url, world_size=args.world_size, rank=args.rank)
 
-
+# def print_metrics(metrics):
+#     out_list = []
+#     for key in metrics:
+#         out_list.append(f"{key}:{metrics[key]:6.3f}")
+#     out = ", ".join(out_list)
+#     return out
 
 def Seed_everything(seed=42):
     random.seed(seed)
@@ -342,7 +347,6 @@ for epoch in range(200):
         data = data.to(device)
         optimizer.zero_grad()
         recy_nums = random.randint(1, args.recycling_num)
-        # print(f'epoch {epoch} using recycling nums {recy_nums}')
         affinity_pred_A, affinity_pred_B_list, prmsd_list,pred_result_list= model(data, recy_nums=recy_nums)
         sample_num=len(data.pdb)
         data_groundtruth_pos_batched = data['compound'].pos.split(degree(data['compound'].batch, dtype=torch.long).tolist())

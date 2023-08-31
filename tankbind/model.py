@@ -477,7 +477,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                     'n_edge_features': 3 * ns,
                     'hidden_features': 3 * ns,
                     'residual': False,
-                    'batch_norm': True,
+                    'batch_norm': False,
                     'dropout': dropout
                 }
                 parameters_iter = {
@@ -487,7 +487,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                     'n_edge_features': 3 * ns + 128,
                     'hidden_features': 3 * ns,
                     'residual': False,
-                    'batch_norm': True,
+                    'batch_norm': False,
                     'dropout': dropout
                 }
 
@@ -512,11 +512,11 @@ class IaBNet_with_affinity(torch.nn.Module):
             self.cross_edge_embedding = nn.Sequential(nn.Linear(distance_embed_dim, ns), nn.ReLU(), nn.Dropout(dropout),nn.Linear(ns, ns))
             self.confidence_predictor = nn.Sequential(
                 nn.Linear(2*self.ns if n_trigonometry_module_stack >= 3 else self.ns,ns),
-                nn.BatchNorm1d(ns) if not confidence_no_batchnorm else nn.Identity(),
+                # nn.BatchNorm1d(ns) if not confidence_no_batchnorm else nn.Identity(),
                 nn.ReLU(),
                 nn.Dropout(dropout),
                 nn.Linear(ns, ns),
-                nn.BatchNorm1d(ns) if not confidence_no_batchnorm else nn.Identity(),
+                # nn.BatchNorm1d(ns) if not confidence_no_batchnorm else nn.Identity(),
                 nn.ReLU(),
                 nn.Dropout(dropout),
                 nn.Linear(ns, 1))
@@ -528,7 +528,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                 n_edge_features=2*ns,
                 residual=False,
                 dropout=dropout,
-                batch_norm=True
+                batch_norm=False
             )
             self.final_tp_tor = o3.FullTensorProduct(self.sh_irreps, "2e")
             self.tor_bond_conv = TensorProductConvLayer(
@@ -539,7 +539,7 @@ class IaBNet_with_affinity(torch.nn.Module):
                     n_edge_features=3*ns,
                     residual=False,
                     dropout=dropout,
-                batch_norm=True
+                batch_norm=False
                 )
             self.tor_final_layer = nn.Sequential(
                     nn.Linear(2 * ns, ns, bias=False),
